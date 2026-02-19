@@ -1,0 +1,23 @@
+# Build artifacts
+bin/
+obj/
+*.app
+
+# Xcode
+*.xcodeproj/
+*.xcworkspace/
+*.xcuserstate
+
+# OS
+.DS_Store
+*.swp
+*~
+
+# Build files
+*.make
+*.pbxproj
+*.xcconfig
+config.make
+addons.make
+*.entitlements
+*-Info.plist
