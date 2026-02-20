@@ -205,6 +205,13 @@ bool VideoMixer::isLayerConnected(int layerIndex) const {
 }
 
 void VideoMixer::update(float dt) {
+    // Ensure FBO is allocated if setup wasn't called or dimensions changed
+    if (!outputFbo.isAllocated() || outputFbo.getWidth() != fboWidth || outputFbo.getHeight() != fboHeight) {
+        if (fboWidth <= 0) fboWidth = 1920;
+        if (fboHeight <= 0) fboHeight = 1080;
+        allocateFbo();
+    }
+
     // Derive sources from graph connections (single source of truth)
     auto inputs = graph->getInputConnections(nodeIndex);
     
@@ -231,6 +238,13 @@ void VideoMixer::update(float dt) {
                 validTextures.push_back(tex);
                 validOpacities.push_back(layerOpacities[i]);
                 validBlendModes.push_back(layerBlendModes[i]);
+            } else {
+                // Log once per node if texture is missing
+                static std::map<int, bool> logged;
+                if (!logged[sourceNode->nodeIndex]) {
+                    ofLogWarning("VideoMixer") << "Node " << sourceNode->nodeIndex << " (" << sourceNode->type << ") returned no texture for layer " << i;
+                    logged[sourceNode->nodeIndex] = true;
+                }
             }
         }
     }
@@ -314,55 +328,51 @@ ofJson VideoMixer::serialize() const {
 void VideoMixer::deserialize(const ofJson& json) {
     ofJson j = json;
     
-    // Read layer arrays BEFORE unwrapping group (they're at root level)
-    std::vector<float> savedOpacities;
-    std::vector<int> savedBlendModes;
-    std::vector<bool> savedActive;
-    
-    if (j.contains("layerOpacities")) {
-        for (auto& v : j["layerOpacities"]) {
-            savedOpacities.push_back(v.get<float>());
-        }
-    }
-    if (j.contains("layerBlendModes")) {
-        for (auto& v : j["layerBlendModes"]) {
-            savedBlendModes.push_back(v.get<int>());
-        }
-    }
-    if (j.contains("layerActive")) {
-        for (auto& v : j["layerActive"]) {
-            savedActive.push_back(v.get<bool>());
-        }
-    }
-    
-    // Handle nested "group" structure from ofSerialize
+    // 1. Handle "group" unwrapping if present
     if (j.contains("group")) {
         j = j["group"];
+    } else if (j.contains("params")) {
+        j = j["params"];
     }
     
-    // Manually extract numLayers since ofDeserialize may have issues with the format
+    // 2. Extract numLayers FIRST to resize arrays
     if (j.contains("numLayers")) {
-        int layers;
-        if (j["numLayers"].is_string()) {
-            layers = std::stoi(j["numLayers"].get<std::string>());
-        } else {
-            layers = j["numLayers"].get<int>();
-        }
-        numActiveLayers = layers;
-        resizeLayerArrays(layers);
+        int layers = j["numLayers"].is_string() ? std::stoi(j["numLayers"].get<std::string>()) : j["numLayers"].get<int>();
+        setLayerCount(layers);
     }
     
-    // Deserialize ofParameters
+    // 3. Deserialize ofParameters (covers numLayers, and any named opacity_n if they match)
     ofDeserialize(j, parameters);
     
-    // Apply saved layer values (from serialize() custom format)
-    for (int i = 0; i < savedOpacities.size() && i < layerOpacities.size(); i++) {
-        layerOpacities[i] = savedOpacities[i];
+    // 4. Fallback for custom array format (legacy support)
+    if (json.contains("layerOpacities")) {
+        auto& arr = json["layerOpacities"];
+        for (int i = 0; i < (int)arr.size() && i < (int)layerOpacities.size(); i++) {
+            layerOpacities[i] = arr[i].get<float>();
+        }
     }
-    for (int i = 0; i < savedBlendModes.size() && i < layerBlendModes.size(); i++) {
-        layerBlendModes[i] = savedBlendModes[i];
+    if (json.contains("layerBlendModes")) {
+        auto& arr = json["layerBlendModes"];
+        for (int i = 0; i < (int)arr.size() && i < (int)layerBlendModes.size(); i++) {
+            layerBlendModes[i] = arr[i].get<int>();
+        }
     }
-    for (int i = 0; i < savedActive.size() && i < layerActive.size(); i++) {
-        layerActive[i] = savedActive[i];
+    if (json.contains("layerActive")) {
+        auto& arr = json["layerActive"];
+        for (int i = 0; i < (int)arr.size() && i < (int)layerActive.size(); i++) {
+            layerActive[i] = arr[i].get<bool>();
+        }
+    }
+    
+    // 5. Explicitly sync numbered params if they were in the params block but missed by ofDeserialize
+    for (int i = 0; i < numActiveLayers; i++) {
+        string opKey = "opacity_" + ofToString(i);
+        if (j.contains(opKey)) layerOpacities[i] = j[opKey].get<float>();
+        
+        string blKey = "blend_" + ofToString(i);
+        if (j.contains(blKey)) layerBlendModes[i] = j[blKey].get<int>();
+        
+        string acKey = "active_" + ofToString(i);
+        if (j.contains(acKey)) layerActive[i] = j[acKey].get<bool>();
     }
 }

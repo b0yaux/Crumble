@@ -1,8 +1,8 @@
 #pragma once
 #include "ofMain.h"
-#include "Commands.h"
-#include "core/Patch.h"
+#include "core/Session.h"
 #include "nodes/video/VideoMixer.h"
+#include "nodes/video/VideoFileSource.h"
 #include "nodes/video/ScreenOutput.h"
 
 class ofApp : public ofBaseApp{
@@ -19,18 +19,27 @@ public:
     void windowResized(int w, int h) override;
     void dragEvent(ofDragInfo dragInfo) override;
     
-private:
-    Patch patch;
-    CommandHistory history;
+    // Interaction-specific helpers (The "Mixer" workflow)
+    void initCrumbleMixer();
+    int  addVideoLayer(const std::string& filePath = "");
+    void removeVideoLayer(int layerIndex);
+    
+    void refreshUIPointers();
 
-    // UI state only — no graph internals
+private:
+    Session session;
+    
+    // Live-reload state
+    std::filesystem::file_time_type lastScriptMod;
+    void checkLiveReload();
+
+    // UI state
     int selectedLayer = 0;
     bool showGui = true;
     
-    // Cached node pointers for UI — refreshed after load
+    // Cached node pointers for UI
     VideoMixer* mixer = nullptr;
     ScreenOutput* output = nullptr;
-    void refreshUIPointers();
     
     void addTestLayers(int count);
     void printLayerInfo();
