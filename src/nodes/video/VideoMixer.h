@@ -21,10 +21,16 @@ public:
     void update(float dt) override;
     ofTexture* getVideoOutput() override;
     
+    // React to graph connections
+    void onInputConnected(int& toInput) override;
+    
     // Dynamic layer management
+
+
+
     int addLayer();                            // Returns layer index, -1 if full
     void removeLayer(int layerIndex);
-    void setLayerCount(int count);            // Set number of active layers
+    void setLayerCount(int count);
     int getLayerCount() const { return numActiveLayers; }
     int getMaxSupportedLayers() const { return maxSupportedLayers; }
     int getConnectedLayerCount() const;       // How many layers have connections
@@ -46,14 +52,13 @@ public:
     ofParameter<int> numActiveLayers;
     ofParameter<float> masterOpacity;
     
-    // Called after deserialization to ensure arrays match numActiveLayers
-    void deserializeComplete() override;
-    
     // Serialization - custom format for dynamic layers
     ofJson serialize() const override;
     void deserialize(const ofJson& json) override;
     
 private:
+    void onNumLayersChanged(int& count);      // Listener for numActiveLayers
+    
     void allocateFbo();
     void detectGpuLimits();                   // Query GL_MAX_TEXTURE_IMAGE_UNITS
     void resizeLayerArrays(int newSize);      // Resize parameter arrays

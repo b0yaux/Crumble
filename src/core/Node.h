@@ -44,10 +44,12 @@ public:
     virtual ofJson serialize() const;
     virtual void deserialize(const ofJson& json);
     
-    // Called after deserialization completes
-    virtual void deserializeComplete() {}
-
+    // Event notifications from Graph
+    virtual void onInputConnected(int& toInput) {}
+    virtual void onInputDisconnected(int& toInput) {}
+    
 protected:
+
     // Helper to safely get a value from JSON with type-loose conversion
     // Handles strings-as-numbers ("1" -> 1.0) and other common JSON type mismatches
     template<typename T>

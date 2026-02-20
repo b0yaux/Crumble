@@ -8,6 +8,9 @@ VideoMixer::VideoMixer() {
     parameters.add(numActiveLayers.set("numLayers", 2, 1, 128));
     parameters.add(masterOpacity.set("masterOpacity", 1.0, 0.0, 1.0));
     
+    // Add listener to react immediately to layer count changes
+    numActiveLayers.addListener(this, &VideoMixer::onNumLayersChanged);
+    
     // Initialize with default 2 layers
     resizeLayerArrays(2);
 }
@@ -69,38 +72,18 @@ void VideoMixer::resizeLayerArrays(int newSize) {
     // Note: We don't shrink arrays to preserve parameter references
 }
 
-int VideoMixer::addLayer() {
-    if (numActiveLayers >= maxSupportedLayers) {
-        ofLogWarning("VideoMixer") << "Cannot add layer: max " << maxSupportedLayers << " reached";
-        return -1;
-    }
-    
-    int newLayerIndex = numActiveLayers;
+void VideoMixer::onNumLayersChanged(int& count) {
+    int newCount = ofClamp(count, 1, maxSupportedLayers);
     
     // Ensure arrays are large enough
-    if (newLayerIndex >= (int)layerOpacities.size()) {
-        resizeLayerArrays(newLayerIndex + 4);  // Grow with some headroom
+    if (newCount > (int)layerOpacities.size()) {
+        resizeLayerArrays(newCount);
     }
     
-    // Increment layer count
-    numActiveLayers = newLayerIndex + 1;
+    // Update the parameter itself to the clamped value without triggering listener again
+    numActiveLayers.setWithoutEventNotifications(newCount);
     
-    // Initialize defaults
-    layerOpacities[newLayerIndex] = 1.0f;
-    
-    // Default blend modes: L1=ALPHA, then ADD/MULT alternating
-    if (newLayerIndex == 0) {
-        layerBlendModes[newLayerIndex] = (int)BlendMode::ALPHA;
-    } else if (newLayerIndex % 2 == 1) {
-        layerBlendModes[newLayerIndex] = (int)BlendMode::ADD;  // L2, L4, L6...
-    } else {
-        layerBlendModes[newLayerIndex] = (int)BlendMode::MULTIPLY;  // L3, L5, L7...
-    }
-    
-    layerActive[newLayerIndex] = true;
-    
-    ofLogVerbose("VideoMixer") << "Added layer " << newLayerIndex << " (total: " << numActiveLayers << ")";
-    return newLayerIndex;
+    ofLogVerbose("VideoMixer") << "Set layer count to " << newCount;
 }
 
 void VideoMixer::removeLayer(int layerIndex) {
@@ -122,15 +105,42 @@ void VideoMixer::removeLayer(int layerIndex) {
 }
 
 void VideoMixer::setLayerCount(int count) {
-    int newCount = ofClamp(count, 1, maxSupportedLayers);
-    
-    // Ensure arrays are large enough
-    if (newCount > layerOpacities.size()) {
-        resizeLayerArrays(newCount + 4);
+    numActiveLayers = count; // This will trigger onNumLayersChanged
+}
+
+int VideoMixer::addLayer() {
+    if (numActiveLayers >= maxSupportedLayers) {
+        ofLogWarning("VideoMixer") << "Cannot add layer: max " << maxSupportedLayers << " reached";
+        return -1;
     }
     
-    numActiveLayers = newCount;
-    ofLogVerbose("VideoMixer") << "Set layer count to " << newCount;
+    int newLayerIndex = numActiveLayers;
+    
+    // Increment layer count (triggers onNumLayersChanged)
+    numActiveLayers = newLayerIndex + 1;
+    
+    // Initialize defaults
+    layerOpacities[newLayerIndex] = 1.0f;
+    
+    // Default blend modes: L1=ALPHA, then ADD/MULT alternating
+    if (newLayerIndex == 0) {
+        layerBlendModes[newLayerIndex] = (int)BlendMode::ALPHA;
+    } else if (newLayerIndex % 2 == 1) {
+        layerBlendModes[newLayerIndex] = (int)BlendMode::ADD;  // L2, L4, L6...
+    } else {
+        layerBlendModes[newLayerIndex] = (int)BlendMode::MULTIPLY;  // L3, L5, L7...
+    }
+    
+    layerActive[newLayerIndex] = true;
+    
+    ofLogVerbose("VideoMixer") << "Added layer " << newLayerIndex << " (total: " << numActiveLayers << ")";
+    return newLayerIndex;
+}
+
+void VideoMixer::onInputConnected(int& toInput) {
+    if (toInput >= numActiveLayers) {
+        setLayerCount(toInput + 1);
+    }
 }
 
 int VideoMixer::getConnectedLayerCount() const {
@@ -163,39 +173,39 @@ std::string VideoMixer::getLayerSourceName(int layerIndex) const {
 }
 
 void VideoMixer::setLayerOpacity(int layer, float opacity) {
-    if (layer >= 0 && layer < layerOpacities.size()) {
+    if (layer >= 0 && layer < (int)layerOpacities.size()) {
         layerOpacities[layer] = ofClamp(opacity, 0.0f, 1.0f);
     }
 }
 
 void VideoMixer::setLayerBlendMode(int layer, BlendMode mode) {
-    if (layer >= 0 && layer < layerBlendModes.size()) {
+    if (layer >= 0 && layer < (int)layerBlendModes.size()) {
         layerBlendModes[layer] = (int)mode;
     }
 }
 
 void VideoMixer::setLayerActive(int layer, bool active) {
-    if (layer >= 0 && layer < layerActive.size()) {
+    if (layer >= 0 && layer < (int)layerActive.size()) {
         layerActive[layer] = active;
     }
 }
 
 float VideoMixer::getLayerOpacity(int layerIndex) const {
-    if (layerIndex >= 0 && layerIndex < layerOpacities.size()) {
+    if (layerIndex >= 0 && layerIndex < (int)layerOpacities.size()) {
         return layerOpacities[layerIndex];
     }
     return 0.0f;
 }
 
 int VideoMixer::getLayerBlendMode(int layerIndex) const {
-    if (layerIndex >= 0 && layerIndex < layerBlendModes.size()) {
+    if (layerIndex >= 0 && layerIndex < (int)layerBlendModes.size()) {
         return layerBlendModes[layerIndex];
     }
     return 0;
 }
 
 bool VideoMixer::isLayerActive(int layerIndex) const {
-    if (layerIndex >= 0 && layerIndex < layerActive.size()) {
+    if (layerIndex >= 0 && layerIndex < (int)layerActive.size()) {
         return layerActive[layerIndex];
     }
     return false;
@@ -213,18 +223,22 @@ void VideoMixer::update(float dt) {
         allocateFbo();
     }
 
+    if (!graph) return;
+
     // Derive sources from graph connections (single source of truth)
     auto inputs = graph->getInputConnections(nodeIndex);
     
-    // Find all valid textures from connected sources
-    std::vector<ofTexture*> validTextures;
-    std::vector<float> validOpacities;
-    std::vector<int> validBlendModes;
+    struct RenderLayer {
+        ofTexture* tex;
+        float opacity;
+        int blendMode;
+    };
+    std::vector<RenderLayer> layersToDraw;
     
     for (int i = 0; i < numActiveLayers; i++) {
+        if (i >= (int)layerActive.size()) break;
         if (!layerActive[i]) continue;
         
-        // Find the source node connected to this input
         Node* sourceNode = nullptr;
         for (const auto& conn : inputs) {
             if (conn.toInput == i) {
@@ -236,36 +250,21 @@ void VideoMixer::update(float dt) {
         if (sourceNode) {
             ofTexture* tex = sourceNode->getVideoOutput();
             if (tex && tex->isAllocated()) {
-                validTextures.push_back(tex);
-                validOpacities.push_back(layerOpacities[i]);
-                validBlendModes.push_back(layerBlendModes[i]);
-            } else {
-                // Log once per node if texture is missing
-                static std::map<int, bool> logged;
-                if (!logged[sourceNode->nodeIndex]) {
-                    ofLogWarning("VideoMixer") << "Node " << sourceNode->nodeIndex << " (" << sourceNode->type << ") returned no texture for layer " << i;
-                    logged[sourceNode->nodeIndex] = true;
-                }
+                layersToDraw.push_back({tex, layerOpacities[i], layerBlendModes[i]});
             }
         }
     }
     
-    // If no valid textures, just clear and return
-    if (validTextures.empty()) {
-        outputFbo.begin();
-        ofClear(0, 0, 0, 255);
-        outputFbo.end();
-        dirty = false;
-        return;
-    }
-    
-    // Render with proper blend modes
+    // Render
     outputFbo.begin();
-    ofClear(0, 0, 0, 255);
+    ofClear(0, 0, 0, 0); // Clear with 0 alpha to allow for transparency if needed
     
-    // Draw each valid layer with its blend mode
-    for (size_t i = 0; i < validTextures.size(); i++) {
-        BlendMode mode = (BlendMode)validBlendModes[i];
+    // Draw a dark gray background to ensure the FBO isn't "empty"
+    ofSetColor(20);
+    ofDrawRectangle(0, 0, fboWidth, fboHeight);
+    
+    for (const auto& layer : layersToDraw) {
+        BlendMode mode = (BlendMode)layer.blendMode;
         
         switch (mode) {
             case BlendMode::ADD:
@@ -280,12 +279,11 @@ void VideoMixer::update(float dt) {
                 break;
         }
         
-        ofSetColor(255, validOpacities[i] * masterOpacity * 255);
-        validTextures[i]->draw(0, 0, fboWidth, fboHeight);
+        ofSetColor(255, layer.opacity * masterOpacity * 255);
+        layer.tex->draw(0, 0, fboWidth, fboHeight);
     }
     
-    ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-    ofSetColor(255);
+    ofDisableBlendMode();
     outputFbo.end();
     
     dirty = false;
@@ -295,20 +293,6 @@ ofTexture* VideoMixer::getVideoOutput() {
     return &outputFbo.getTexture();
 }
 
-void VideoMixer::deserializeComplete() {
-    // Only resize if needed (don't reset already-loaded values)
-    if ((int)layerOpacities.size() < numActiveLayers.get()) {
-        resizeLayerArrays(numActiveLayers.get());
-    }
-    
-    // Ensure FBO is allocated
-    if (!outputFbo.isAllocated()) {
-        allocateFbo();
-    }
-    
-    // Mark dirty to force shader rebuild
-    dirty = true;
-}
 
 ofJson VideoMixer::serialize() const {
     ofJson j;

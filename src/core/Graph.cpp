@@ -18,6 +18,14 @@ void Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
     // Add new connection
     connections.push_back({fromNode, toNode, fromOutput, toInput});
     executionDirty = true;
+    
+    // Notify the destination node that an input has been connected.
+    // This allows nodes like VideoMixer to react immediately (e.g. expanding capacity)
+    // so that subsequent parameter sets in a script (like opacity_N) target valid parameters.
+    if (toNode >= 0 && toNode < (int)nodes.size()) {
+        int dummy = toInput; 
+        nodes[toNode]->onInputConnected(dummy);
+    }
 }
 
 void Graph::disconnect(int toNode, int toInput) {
@@ -151,15 +159,18 @@ ofSoundBuffer* Graph::getAudioOutput() {
 }
 
 void Graph::pullFromNode(int nodeIndex, float dt) {
-    if (nodeIndex < 0 || nodeIndex >= nodes.size()) return;
+    if (nodeIndex < 0 || nodeIndex >= (int)nodes.size()) return;
     
     // Check if already updated this frame
     auto& node = nodes[nodeIndex];
+    if (!node) return; // Safety check
+    
     uint64_t currentFrame = ofGetFrameNum();
     if (node->lastUpdateFrame == currentFrame) return;
     node->lastUpdateFrame = currentFrame;
     
     // Pull from all input connections first
+    // Copy connections to avoid iterator invalidation if the update changes the graph
     auto inputs = getInputConnections(nodeIndex);
     for (const auto& conn : inputs) {
         pullFromNode(conn.fromNode, dt);
@@ -175,17 +186,17 @@ void Graph::validateTopology() {
         return;
     }
 
-    // Kahn's algorithm — only for cycle detection (pull-based eval doesn't use the order)
+    // Kahn's algorithm — only for cycle detection
     std::vector<int> inDegree(nodes.size(), 0);
 
     for (const auto& conn : connections) {
-        if (conn.toNode >= 0 && conn.toNode < nodes.size()) {
+        if (conn.toNode >= 0 && conn.toNode < (int)nodes.size()) {
             inDegree[conn.toNode]++;
         }
     }
 
     std::vector<int> queue;
-    for (int i = 0; i < nodes.size(); i++) {
+    for (int i = 0; i < (int)nodes.size(); i++) {
         if (inDegree[i] == 0) {
             queue.push_back(i);
         }
@@ -199,9 +210,12 @@ void Graph::validateTopology() {
 
         for (const auto& conn : connections) {
             if (conn.fromNode == current) {
-                inDegree[conn.toNode]--;
-                if (inDegree[conn.toNode] == 0) {
-                    queue.push_back(conn.toNode);
+                // Bounds check before decrementing
+                if (conn.toNode >= 0 && conn.toNode < (int)inDegree.size()) {
+                    inDegree[conn.toNode]--;
+                    if (inDegree[conn.toNode] == 0) {
+                        queue.push_back(conn.toNode);
+                    }
                 }
             }
         }
@@ -231,6 +245,7 @@ Node* Graph::createNode(const std::string& type, const std::string& name) {
     node->name = name.empty() ? type + "_" + std::to_string(nodes.size()) : name;
     node->nodeIndex = nodes.size();
     node->graph = this;
+    
     Node* ptr = node.get();
     nodes.push_back(std::move(node));
     executionDirty = true;
@@ -320,9 +335,6 @@ bool Graph::fromJson(const ofJson& json) {
             // Each node deserializes its own state
             ofJson params = nodeJson.contains("params") ? nodeJson["params"] : ofJson::object();
             node->deserialize(params);
-            
-            // Then call deserializeComplete for post-deserialization setup
-            node->deserializeComplete();
         }
     }
 
@@ -357,15 +369,29 @@ bool Graph::fromJson(const ofJson& json) {
 }
 
 bool Graph::saveToFile(const std::string& path) const {
-    // Ensure parent directory exists (bin/data/patches/ may not exist on fresh clone)
-    std::string dir = ofFilePath::getEnclosingDirectory(ofToDataPath(path));
-    if (!ofDirectory::doesDirectoryExist(dir)) {
-        ofDirectory::createDirectory(dir, false, true);
+    // Check if the path is empty
+    if (path.empty()) {
+        ofLogError("Graph") << "Cannot save to empty path";
+        return false;
     }
-    
-    ofJson json = toJson();
-    std::string jsonStr = json.dump(2);
-    return ofBufferToFile(path, ofBuffer(jsonStr.data(), jsonStr.size()));
+
+    try {
+        // Ensure parent directory exists
+        std::string dir = ofFilePath::getEnclosingDirectory(ofToDataPath(path));
+        if (!dir.empty() && !ofDirectory::doesDirectoryExist(dir)) {
+            ofDirectory::createDirectory(dir, false, true);
+        }
+        
+        ofJson json = toJson();
+        std::string jsonStr = json.dump(2);
+        return ofBufferToFile(path, ofBuffer(jsonStr.data(), jsonStr.size()));
+    } catch (const std::exception& e) {
+        ofLogError("Graph") << "Exception during save: " << e.what();
+        return false;
+    } catch (...) {
+        ofLogError("Graph") << "Unknown exception during save";
+        return false;
+    }
 }
 
 bool Graph::loadFromFile(const std::string& path) {
