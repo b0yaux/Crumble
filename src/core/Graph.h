@@ -77,7 +77,6 @@ public:
     // Node interface implementation
     void update(float dt) override;
     ofTexture* getVideoOutput() override;
-    ofSoundBuffer* getAudioOutput() override;
     void audioOut(ofSoundBuffer& buffer) override;
     
     // Access for serialization/debugging

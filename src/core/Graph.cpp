@@ -155,13 +155,6 @@ ofTexture* Graph::getVideoOutput() {
     return nullptr;
 }
 
-ofSoundBuffer* Graph::getAudioOutput() {
-    if (audioOutputNode >= 0 && audioOutputNode < nodes.size()) {
-        return nodes[audioOutputNode]->getAudioOutput();
-    }
-    return nullptr;
-}
-
 void Graph::audioOut(ofSoundBuffer& buffer) {
     std::lock_guard<std::mutex> lock(audioMutex);
     if (audioOutputNode >= 0 && audioOutputNode < nodes.size()) {

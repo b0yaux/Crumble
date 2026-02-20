@@ -17,7 +17,6 @@ public:
     // Type-safe outputs - return nullptr if not supported
     // Derived classes override these to provide data
     virtual ofTexture* getVideoOutput() { return nullptr; }
-    virtual ofSoundBuffer* getAudioOutput() { return nullptr; }
     
     // Audio processing hook - called from the audio thread
     // Nodes should either fill (source), sum (mixer), or transform (effect) the buffer.

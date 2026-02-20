@@ -2,6 +2,8 @@
 #include "../nodes/video/VideoMixer.h"
 #include "../nodes/video/VideoFileSource.h"
 #include "../nodes/video/ScreenOutput.h"
+#include "../nodes/audio/SpeakersOutput.h"
+#include "../nodes/audio/AudioFileSource.h"
 
 namespace crumble {
 
@@ -14,6 +16,12 @@ void registerNodes(Session& s) {
     });
     s.registerNodeType("ScreenOutput", []() {
         return std::make_unique<ScreenOutput>();
+    });
+    s.registerNodeType("SpeakersOutput", []() {
+        return std::make_unique<SpeakersOutput>();
+    });
+    s.registerNodeType("AudioFileSource", []() {
+        return std::make_unique<AudioFileSource>();
     });
 }
 
