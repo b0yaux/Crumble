@@ -234,19 +234,14 @@ void VideoMixer::update(float dt) {
         int blendMode;
     };
     std::vector<RenderLayer> layersToDraw;
+    layersToDraw.reserve(numActiveLayers);
     
-    for (int i = 0; i < numActiveLayers; i++) {
-        if (i >= (int)layerActive.size()) break;
+    for (const auto& conn : inputs) {
+        int i = conn.toInput;
+        if (i < 0 || i >= numActiveLayers || i >= (int)layerActive.size()) continue;
         if (!layerActive[i]) continue;
         
-        Node* sourceNode = nullptr;
-        for (const auto& conn : inputs) {
-            if (conn.toInput == i) {
-                sourceNode = graph->getNode(conn.fromNode);
-                break;
-            }
-        }
-        
+        Node* sourceNode = graph->getNode(conn.fromNode);
         if (sourceNode) {
             ofTexture* tex = sourceNode->getVideoOutput();
             if (tex && tex->isAllocated()) {

@@ -182,13 +182,16 @@ int ScriptEngine::lua_setParam(lua_State* L) {
         if (lua_isboolean(L, 3)) {
             p.cast<bool>() = lua_toboolean(L, 3);
         } else if (lua_isnumber(L, 3)) {
+            double val = lua_tonumber(L, 3);
             // Check if it's an int or float parameter
             if (p.type() == typeid(ofParameter<int>).name()) {
-                p.cast<int>() = (int)lua_tonumber(L, 3);
+                p.cast<int>() = (int)val;
             } else if (p.type() == typeid(ofParameter<float>).name()) {
-                p.cast<float>() = (float)lua_tonumber(L, 3);
+                p.cast<float>() = (float)val;
             } else if (p.type() == typeid(ofParameter<double>).name()) {
-                p.cast<double>() = (double)lua_tonumber(L, 3);
+                p.cast<double>() = val;
+            } else if (p.type() == typeid(ofParameter<bool>).name()) {
+                p.cast<bool>() = (val > 0.5);
             }
         } else if (lua_isstring(L, 3)) {
             p.fromString(lua_tostring(L, 3));
