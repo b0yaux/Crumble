@@ -50,6 +50,7 @@ void ScriptBridge::bindSessionAPI() {
     lua_register(L, "_connect", lua_connect);
     lua_register(L, "_set", lua_setParam);
     lua_register(L, "_clear", lua_clear);
+    lua_register(L, "_listDir", lua_listDirectory);
     
     // Create the 'session' table and 'Node' metatable in Lua
     std::string helper = R"(
@@ -131,9 +132,47 @@ void ScriptBridge::bindSessionAPI() {
             local targetId = type(id) == "table" and id.id or id
             _set(targetId, name, value)
         end
+
+        -- Directory Import Helper
+        function importFolder(path, extension)
+            local files = _listDir(path)
+            local imported = {}
+            for i, f in ipairs(files) do
+                local ext = f:match("^.+(%..+)$")
+                if not extension or (ext and ext:lower() == extension:lower()) then
+                    local name = f:match("([^/]+)%..+$") or f
+                    local node = addNode("VideoFileSource", name)
+                    node.videoPath = f
+                    table.insert(imported, node)
+                end
+            end
+            return imported
+        end
     )";
     
     lua.doString(helper);
+}
+
+int ScriptBridge::lua_listDirectory(lua_State* L) {
+    std::string path = luaL_checkstring(L, 1);
+    ofDirectory dir(path);
+    
+    // Common video extensions if no filter is provided in Lua
+    // (Lua side can also filter)
+    dir.allowExt("mov");
+    dir.allowExt("hap");
+    dir.allowExt("mp4");
+    dir.allowExt("avi");
+    dir.listDir();
+    
+    lua_newtable(L);
+    for(int i=0; i<(int)dir.size(); i++) {
+        lua_pushinteger(L, i+1);
+        lua_pushstring(L, dir.getPath(i).c_str());
+        lua_settable(L, -3);
+    }
+    
+    return 1;
 }
 
 int ScriptBridge::lua_addNode(lua_State* L) {

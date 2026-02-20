@@ -42,4 +42,5 @@ private:
     static int lua_connect(lua_State* L);
     static int lua_setParam(lua_State* L);
     static int lua_clear(lua_State* L);
+    static int lua_listDirectory(lua_State* L);
 };
