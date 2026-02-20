@@ -3,17 +3,17 @@
 #include "ofxHapPlayer.h"
 
 // Video file source using HAP codec for high-performance playback
-// Supports both video-only and video+audio paired playback
 class VideoFileSource : public Node {
 public:
     VideoFileSource();
     
-    void load(const std::string& videoPath, const std::string& audioPath = "");
-    void loadPaired(const std::string& basePath);  // Loads basePath.mov + basePath.wav
+    void load(const std::string& videoPath);
     
     void update(float dt) override;
     ofTexture* getVideoOutput() override;
-    ofSoundBuffer* getAudioOutput() override;
+    
+    // Returns filename for UI display
+    std::string getDisplayName() const override;
     
     // Playback control
     void play();
@@ -30,16 +30,18 @@ public:
     // Looping
     void setLoop(bool loop);
     
+    // Called after deserialization to load video
+    void deserializeComplete() override;
+    
+    // Serialization
+    ofJson serialize() const override;
+    void deserialize(const ofJson& json) override;
+    
 private:
     ofxHapPlayer player;
-    ofSoundBuffer audioBuffer;
-    std::string audioFilePath;
-    bool hasAudioFile = false;
-    bool useEmbeddedAudio = true;
     
     // Parameters
     ofParameter<std::string> videoPath;
-    ofParameter<std::string> audioPath;
     ofParameter<bool> loop;
     ofParameter<float> speed;
     ofParameter<bool> playOnLoad;

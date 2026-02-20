@@ -1,20 +1,16 @@
 #include "VideoFileSource.h"
-#include "ofxAudioFile.h"
 
 VideoFileSource::VideoFileSource() {
     type = "VideoFileSource";
     
     parameters.add(videoPath.set("videoPath", ""));
-    parameters.add(audioPath.set("audioPath", ""));
     parameters.add(loop.set("loop", true));
     parameters.add(speed.set("speed", 1.0, -2.0, 2.0));
     parameters.add(playOnLoad.set("playOnLoad", true));
 }
 
-void VideoFileSource::load(const std::string& vidPath, const std::string& audPath) {
+void VideoFileSource::load(const std::string& vidPath) {
     videoPath = vidPath;
-    audioFilePath = audPath;
-    hasAudioFile = !audPath.empty();
     
     if (player.load(vidPath)) {
         player.setLoopState(loop ? OF_LOOP_NORMAL : OF_LOOP_NONE);
@@ -23,35 +19,13 @@ void VideoFileSource::load(const std::string& vidPath, const std::string& audPat
         if (playOnLoad) {
             player.play();
         }
-        
-        // Load external audio if specified
-        if (hasAudioFile) {
-            ofxAudioFile audioFile;
-            audioFile.load(audPath);
-            // External audio loaded - assume success
-            useEmbeddedAudio = false;
-        }
-        
-        ofLogNotice("VideoFileSource") << "Loaded: " << vidPath;
     } else {
         ofLogError("VideoFileSource") << "Failed to load: " << vidPath;
     }
 }
 
-void VideoFileSource::loadPaired(const std::string& basePath) {
-    std::string vidPath = basePath + ".mov";
-    std::string audPath = basePath + ".wav";
-    load(vidPath, audPath);
-}
-
 void VideoFileSource::update(float dt) {
     player.update();
-    
-    // Sync audio if using external file
-    if (hasAudioFile && !useEmbeddedAudio && player.isPlaying()) {
-        // Audio sync logic would go here
-        // For now, we'll use embedded audio from HAP player
-    }
 }
 
 ofTexture* VideoFileSource::getVideoOutput() {
@@ -66,10 +40,14 @@ ofTexture* VideoFileSource::getVideoOutput() {
     return nullptr;
 }
 
-ofSoundBuffer* VideoFileSource::getAudioOutput() {
-    // HAP player handles audio internally
-    // For external audio file, we'd need to manage the buffer ourselves
-    return nullptr;
+std::string VideoFileSource::getDisplayName() const {
+    std::string path = videoPath.get();
+    if (path.empty()) return name;
+    size_t lastSlash = path.find_last_of("/\\");
+    if (lastSlash != std::string::npos) {
+        return path.substr(lastSlash + 1);
+    }
+    return path;
 }
 
 void VideoFileSource::play() {
@@ -107,4 +85,31 @@ int VideoFileSource::getTotalFrames() const {
 void VideoFileSource::setLoop(bool shouldLoop) {
     loop = shouldLoop;
     player.setLoopState(shouldLoop ? OF_LOOP_NORMAL : OF_LOOP_NONE);
+}
+
+void VideoFileSource::deserializeComplete() {
+    std::string path = videoPath.get();
+    if (!path.empty() && !player.isLoaded()) {
+        load(path);
+    }
+}
+
+ofJson VideoFileSource::serialize() const {
+    ofJson j;
+    ofSerialize(j, parameters);
+    return j;
+}
+
+void VideoFileSource::deserialize(const ofJson& json) {
+    ofJson j = json;
+    if (j.contains("group")) {
+        j = j["group"];
+    }
+    
+    // Manually extract videoPath since ofDeserialize may have issues with the format
+    if (j.contains("videoPath")) {
+        videoPath = j["videoPath"].get<std::string>();
+    }
+    
+    ofDeserialize(j, parameters);
 }

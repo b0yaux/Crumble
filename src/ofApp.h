@@ -1,8 +1,7 @@
 #pragma once
 #include "ofMain.h"
-#include "core/Node.h"
-#include "core/Graph.h"
-#include "nodes/video/VideoFileSource.h"
+#include "Commands.h"
+#include "core/Patch.h"
 #include "nodes/video/VideoMixer.h"
 #include "nodes/video/ScreenOutput.h"
 
@@ -21,22 +20,18 @@ public:
     void dragEvent(ofDragInfo dragInfo) override;
     
 private:
-    Graph mainGraph;
+    Patch patch;
+    CommandHistory history;
 
-    VideoMixer* mixer;
-    ScreenOutput* output;
-    
-    // Track all video sources
-    std::vector<VideoFileSource*> allSources;
-    
-    // Test mode
-    int testLayerCount = 2;
+    // UI state only — no graph internals
     int selectedLayer = 0;
-    
-    void addVideoLayer(const std::string& filePath);
-    void addTestLayers(int count);
-    void removeLastLayer();
-    void printLayerInfo();
-
     bool showGui = true;
+    
+    // Cached node pointers for UI — refreshed after load
+    VideoMixer* mixer = nullptr;
+    ScreenOutput* output = nullptr;
+    void refreshUIPointers();
+    
+    void addTestLayers(int count);
+    void printLayerInfo();
 };

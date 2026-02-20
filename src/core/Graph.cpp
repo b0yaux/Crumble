@@ -31,6 +31,19 @@ void Graph::disconnect(int toNode, int toInput) {
     executionDirty = true;
 }
 
+void Graph::removeInput(int toNode, int toInput) {
+    // 1. Disconnect the specific input
+    disconnect(toNode, toInput);
+    
+    // 2. Shift all higher-numbered inputs down by 1
+    for (auto& conn : connections) {
+        if (conn.toNode == toNode && conn.toInput > toInput) {
+            conn.toInput--;
+        }
+    }
+    executionDirty = true;
+}
+
 void Graph::removeNode(int nodeIndex) {
     if (nodeIndex < 0 || nodeIndex >= nodes.size()) return;
     
@@ -75,7 +88,6 @@ void Graph::removeNode(int nodeIndex) {
 void Graph::clear() {
     nodes.clear();
     connections.clear();
-    executionOrder.clear();
     videoOutputNode = -1;
     audioOutputNode = -1;
     executionDirty = true;
@@ -111,21 +123,21 @@ void Graph::setAudioOutputNode(int nodeIndex) {
 
 void Graph::update(float dt) {
     if (executionDirty) {
-        rebuildExecutionOrder();
+        validateTopology();
     }
     
-    // Update all nodes in dependency order
-    for (int idx : executionOrder) {
-        if (idx >= 0 && idx < nodes.size()) {
-            nodes[idx]->update(dt);
+    // Pull-based: update all sink nodes (nodes with no outgoing connections).
+    // Each sink recursively pulls its inputs, and the lastUpdateFrame guard
+    // prevents double-updates when sinks share upstream sources.
+    for (int i = 0; i < (int)nodes.size(); i++) {
+        if (getOutputConnections(i).empty()) {
+            pullFromNode(i, dt);
         }
     }
 }
 
 ofTexture* Graph::getVideoOutput() {
     if (videoOutputNode >= 0 && videoOutputNode < nodes.size()) {
-        // Pull-based: this will recursively update inputs
-        pullVideoFromNode(videoOutputNode);
         return nodes[videoOutputNode]->getVideoOutput();
     }
     return nullptr;
@@ -133,13 +145,12 @@ ofTexture* Graph::getVideoOutput() {
 
 ofSoundBuffer* Graph::getAudioOutput() {
     if (audioOutputNode >= 0 && audioOutputNode < nodes.size()) {
-        pullAudioFromNode(audioOutputNode);
         return nodes[audioOutputNode]->getAudioOutput();
     }
     return nullptr;
 }
 
-void Graph::pullVideoFromNode(int nodeIndex) {
+void Graph::pullFromNode(int nodeIndex, float dt) {
     if (nodeIndex < 0 || nodeIndex >= nodes.size()) return;
     
     // Check if already updated this frame
@@ -151,63 +162,41 @@ void Graph::pullVideoFromNode(int nodeIndex) {
     // Pull from all input connections first
     auto inputs = getInputConnections(nodeIndex);
     for (const auto& conn : inputs) {
-        // Recursively pull from source
-        pullVideoFromNode(conn.fromNode);
+        pullFromNode(conn.fromNode, dt);
     }
     
     // Now update this node
-    node->update(ofGetLastFrameTime());
+    node->update(dt);
 }
 
-void Graph::pullAudioFromNode(int nodeIndex) {
-    if (nodeIndex < 0 || nodeIndex >= nodes.size()) return;
-    
-    auto& node = nodes[nodeIndex];
-    uint64_t currentFrame = ofGetFrameNum();
-    if (node->lastUpdateFrame == currentFrame) return;
-    node->lastUpdateFrame = currentFrame;
-    
-    auto inputs = getInputConnections(nodeIndex);
-    for (const auto& conn : inputs) {
-        pullAudioFromNode(conn.fromNode);
-    }
-    
-    node->update(ofGetLastFrameTime());
-}
-
-void Graph::rebuildExecutionOrder() {
-    executionOrder.clear();
-    
+void Graph::validateTopology() {
     if (nodes.empty()) {
         executionDirty = false;
         return;
     }
-    
-    // Kahn's algorithm for topological sort
+
+    // Kahn's algorithm — only for cycle detection (pull-based eval doesn't use the order)
     std::vector<int> inDegree(nodes.size(), 0);
-    
-    // Calculate in-degrees
+
     for (const auto& conn : connections) {
         if (conn.toNode >= 0 && conn.toNode < nodes.size()) {
             inDegree[conn.toNode]++;
         }
     }
-    
-    // Start with nodes that have no inputs
+
     std::vector<int> queue;
     for (int i = 0; i < nodes.size(); i++) {
         if (inDegree[i] == 0) {
             queue.push_back(i);
         }
     }
-    
-    // Process queue
+
+    int visited = 0;
     while (!queue.empty()) {
         int current = queue.back();
         queue.pop_back();
-        executionOrder.push_back(current);
-        
-        // Find all nodes that depend on current
+        visited++;
+
         for (const auto& conn : connections) {
             if (conn.fromNode == current) {
                 inDegree[conn.toNode]--;
@@ -217,11 +206,173 @@ void Graph::rebuildExecutionOrder() {
             }
         }
     }
+
+    if (visited != (int)nodes.size()) {
+        ofLogWarning("Graph") << "Cycle detected in graph, pull-based evaluation may loop";
+    }
+
+    executionDirty = false;
+}
+
+// Node Factory
+void Graph::registerNodeType(const std::string& type, NodeCreator creator) {
+    nodeTypes[type] = creator;
+}
+
+Node* Graph::createNode(const std::string& type, const std::string& name) {
+    auto it = nodeTypes.find(type);
+    if (it == nodeTypes.end()) {
+        ofLogError("Graph") << "Unknown node type: " << type;
+        return nullptr;
+    }
+
+    auto node = it->second();
+    node->type = type;
+    node->name = name.empty() ? type + "_" + std::to_string(nodes.size()) : name;
+    node->nodeIndex = nodes.size();
+    node->graph = this;
+    Node* ptr = node.get();
+    nodes.push_back(std::move(node));
+    executionDirty = true;
+    return ptr;
+}
+
+std::vector<std::string> Graph::getRegisteredTypes() const {
+    std::vector<std::string> types;
+    for (const auto& pair : nodeTypes) {
+        types.push_back(pair.first);
+    }
+    return types;
+}
+
+// Serialization
+ofJson Graph::toJson() const {
+    ofJson json;
     
-    // Check for cycles
-    if (executionOrder.size() != nodes.size()) {
-        ofLogWarning("Graph") << "Cycle detected in graph, execution order may be incorrect";
+    // Build nodes array first
+    ofJson nodesJson = ofJson::array();
+    for (const auto& node : nodes) {
+        ofJson nodeJson;
+        nodeJson["id"] = node->nodeIndex;
+        nodeJson["type"] = node->type;
+        nodeJson["name"] = node->name;
+
+        // Each node serializes its own state
+        nodeJson["params"] = node->serialize();
+
+        nodesJson.push_back(nodeJson);
     }
     
-    executionDirty = false;
+    // Build connections array
+    ofJson connectionsJson = ofJson::array();
+    for (const auto& conn : connections) {
+        ofJson connJson;
+        connJson["from"] = conn.fromNode;
+        connJson["to"] = conn.toNode;
+        connJson["fromOutput"] = conn.fromOutput;
+        connJson["toInput"] = conn.toInput;
+        connectionsJson.push_back(connJson);
+    }
+    
+    // Build outputs object
+    ofJson outputsJson;
+    if (videoOutputNode >= 0) {
+        outputsJson["video"] = videoOutputNode;
+    }
+    if (audioOutputNode >= 0) {
+        outputsJson["audio"] = audioOutputNode;
+    }
+    
+    // Assign in logical order: metadata -> nodes -> connections -> outputs
+    json["version"] = "1.0";
+    json["type"] = "Graph";
+    json["nodes"] = nodesJson;
+    json["connections"] = connectionsJson;
+    json["outputs"] = outputsJson;
+
+    return json;
+}
+
+bool Graph::fromJson(const ofJson& json) {
+    // Clear existing graph
+    clear();
+
+    // Check version
+    if (json.contains("version")) {
+        std::string version = json["version"];
+        if (version != "1.0") {
+            ofLogWarning("Graph") << "Loading patch with different version: " << version;
+        }
+    }
+
+    // Load nodes
+    if (json.contains("nodes")) {
+        for (const auto& nodeJson : json["nodes"]) {
+            std::string type = nodeJson.value("type", "Node");
+            std::string name = nodeJson.value("name", "");
+
+            Node* node = createNode(type, name);
+            if (!node) {
+                ofLogError("Graph") << "Failed to create node of type: " << type;
+                continue;
+            }
+
+            // Each node deserializes its own state
+            ofJson params = nodeJson.contains("params") ? nodeJson["params"] : ofJson::object();
+            node->deserialize(params);
+            
+            // Then call deserializeComplete for post-deserialization setup
+            node->deserializeComplete();
+        }
+    }
+
+    // Load connections (after all nodes created)
+    if (json.contains("connections")) {
+        for (const auto& connJson : json["connections"]) {
+            int from = connJson.value("from", -1);
+            int to = connJson.value("to", -1);
+            int fromOutput = connJson.value("fromOutput", 0);
+            int toInput = connJson.value("toInput", 0);
+
+            if (from >= 0 && to >= 0 && from < nodes.size() && to < nodes.size()) {
+                connect(from, to, fromOutput, toInput);
+            }
+        }
+    }
+
+    // Load outputs
+    if (json.contains("outputs")) {
+        const auto& outputs = json["outputs"];
+        if (outputs.contains("video")) {
+            videoOutputNode = outputs["video"];
+        }
+        if (outputs.contains("audio")) {
+            audioOutputNode = outputs["audio"];
+        }
+    }
+
+    executionDirty = true;
+    
+    return true;
+}
+
+bool Graph::saveToFile(const std::string& path) const {
+    // Ensure parent directory exists (bin/data/patches/ may not exist on fresh clone)
+    std::string dir = ofFilePath::getEnclosingDirectory(ofToDataPath(path));
+    if (!ofDirectory::doesDirectoryExist(dir)) {
+        ofDirectory::createDirectory(dir, false, true);
+    }
+    
+    ofJson json = toJson();
+    std::string jsonStr = json.dump(2);
+    return ofBufferToFile(path, ofBuffer(jsonStr.data(), jsonStr.size()));
+}
+
+bool Graph::loadFromFile(const std::string& path) {
+    ofJson json = ofLoadJson(path);
+    if (json.empty()) {
+        ofLogError("Graph") << "Failed to load JSON from: " << path;
+        return false;
+    }
+    return fromJson(json);
 }

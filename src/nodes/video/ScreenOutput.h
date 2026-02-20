@@ -14,6 +14,6 @@ public:
     ofParameter<bool> enabled;
     ofParameter<float> x, y, width, height;
     
-    // For debugging - direct access to input texture
+    // Input texture pulled from connected source during update()
     ofTexture* inputTexture = nullptr;
 };

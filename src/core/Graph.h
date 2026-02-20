@@ -3,6 +3,9 @@
 #include <vector>
 #include <memory>
 #include <algorithm>
+#include <map>
+#include <functional>
+#include <string>
 
 // Simple connection struct - no objects, just indices
 // This is the key simplification: connections are just data
@@ -26,7 +29,7 @@ public:
     T& addNode(Args&&... args) {
         static_assert(std::is_base_of<Node, T>::value, "T must derive from Node");
         auto node = std::make_unique<T>(std::forward<Args>(args)...);
-        node->name = type + "_" + std::to_string(nodes.size());
+        node->name = node->type + "_" + std::to_string(nodes.size());
         node->nodeIndex = nodes.size();
         node->graph = this;
         T& ref = *node;
@@ -41,6 +44,11 @@ public:
     // Connection management - just modifies the connections array
     void connect(int fromNode, int toNode, int fromOutput = 0, int toInput = 0);
     void disconnect(int toNode, int toInput = 0);
+    
+    // Disconnect an input AND shift all higher-numbered inputs down by 1.
+    // Used when removing a mixer layer: atomically closes the gap.
+    void removeInput(int toNode, int toInput);
+    
     void removeNode(int nodeIndex);
     void clear();
     
@@ -75,22 +83,35 @@ public:
     size_t getNodeCount() const { return nodes.size(); }
     size_t getConnectionCount() const { return connections.size(); }
     
+    // Factory for creating nodes by type name (for deserialization)
+    using NodeCreator = std::function<std::unique_ptr<Node>()>;
+    void registerNodeType(const std::string& type, NodeCreator creator);
+    Node* createNode(const std::string& type, const std::string& name = "");
+    std::vector<std::string> getRegisteredTypes() const;
+    
+    // Serialization
+    ofJson toJson() const;
+    bool fromJson(const ofJson& json);
+    bool saveToFile(const std::string& path) const;
+    bool loadFromFile(const std::string& path);
+    
 private:
     std::vector<std::unique_ptr<Node>> nodes;
     std::vector<Connection> connections;
-    
-    // Execution order (cached topological sort)
-    std::vector<int> executionOrder;
+
+    // Topology validation flag
     bool executionDirty = true;
-    
+
     // Output nodes (indices into nodes array)
     int videoOutputNode = -1;
     int audioOutputNode = -1;
-    
-    // Build execution order using topological sort
-    void rebuildExecutionOrder();
-    
-    // Pull-based evaluation helpers
-    void pullVideoFromNode(int nodeIndex);
-    void pullAudioFromNode(int nodeIndex);
+
+    // Node type registry
+    std::map<std::string, NodeCreator> nodeTypes;
+
+    // Validate topology (cycle detection) when graph changes
+    void validateTopology();
+
+    // Pull-based evaluation helper (unified for video/audio)
+    void pullFromNode(int nodeIndex, float dt);
 };
