@@ -30,14 +30,12 @@ public:
     // Looping
     void setLoop(bool loop);
     
-    // Called after deserialization to load video
-    void deserializeComplete() override;
-    
     // Serialization
     ofJson serialize() const override;
     void deserialize(const ofJson& json) override;
     
 private:
+    void onPathChanged(std::string& path);
     ofxHapPlayer player;
     
     // Parameters

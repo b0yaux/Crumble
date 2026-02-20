@@ -5,27 +5,59 @@ VideoFileSource::VideoFileSource() {
     
     parameters.add(videoPath.set("videoPath", ""));
     parameters.add(loop.set("loop", true));
-    parameters.add(speed.set("speed", 1.0, -2.0, 2.0));
+    parameters.add(speed.set("speed", 1.0, -4.0, 4.0));
     parameters.add(playOnLoad.set("playOnLoad", true));
+    
+    videoPath.addListener(this, &VideoFileSource::onPathChanged);
 }
+
+void VideoFileSource::onPathChanged(std::string& path) {
+    if (!path.empty()) {
+        load(path);
+    }
+}
+
 
 void VideoFileSource::load(const std::string& vidPath) {
     videoPath = vidPath;
     
-    if (player.load(vidPath)) {
+    // Check if the path is absolute or relative to data path
+    string fullPath = ofToDataPath(vidPath);
+    if (!ofFile::doesFileExist(fullPath)) {
+        // Try as-is in case it's an absolute path outside data
+        fullPath = vidPath;
+    }
+    
+    ofLogNotice("VideoFileSource") << "Attempting to load: " << fullPath;
+    
+    bool loaded = player.load(fullPath);
+    if (!loaded && ofFilePath::isAbsolute(fullPath)) {
+        // One last try: check if it's a relative path that was mistaken for absolute
+        string relPath = ofToDataPath(vidPath, false);
+        ofLogNotice("VideoFileSource") << "Retrying as relative: " << relPath;
+        loaded = player.load(relPath);
+    }
+
+    if (loaded) {
         player.setLoopState(loop ? OF_LOOP_NORMAL : OF_LOOP_NONE);
         player.setSpeed(speed);
         
         if (playOnLoad) {
             player.play();
         }
+        ofLogNotice("VideoFileSource") << "Successfully loaded and playing: " << fullPath;
     } else {
-        ofLogError("VideoFileSource") << "Failed to load: " << vidPath;
+        ofLogError("VideoFileSource") << "Failed to load: " << fullPath;
     }
 }
 
 void VideoFileSource::update(float dt) {
     player.update();
+    
+    // Auto-play safety: ensure playing if it's supposed to be
+    if (playOnLoad && player.isLoaded() && !player.isPlaying() && !player.isPaused()) {
+        player.play();
+    }
 }
 
 ofTexture* VideoFileSource::getVideoOutput() {
@@ -85,13 +117,6 @@ int VideoFileSource::getTotalFrames() const {
 void VideoFileSource::setLoop(bool shouldLoop) {
     loop = shouldLoop;
     player.setLoopState(shouldLoop ? OF_LOOP_NORMAL : OF_LOOP_NONE);
-}
-
-void VideoFileSource::deserializeComplete() {
-    std::string path = videoPath.get();
-    if (!path.empty() && !player.isLoaded()) {
-        load(path);
-    }
 }
 
 ofJson VideoFileSource::serialize() const {

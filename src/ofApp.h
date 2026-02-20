@@ -1,6 +1,7 @@
 #pragma once
 #include "ofMain.h"
 #include "core/Session.h"
+#include "core/ScriptEngine.h"
 #include "nodes/video/VideoMixer.h"
 #include "nodes/video/VideoFileSource.h"
 #include "nodes/video/ScreenOutput.h"
@@ -28,9 +29,11 @@ public:
 
 private:
     Session session;
+    ScriptEngine scriptEngine;
     
     // Live-reload state
-    std::filesystem::file_time_type lastScriptMod;
+    std::filesystem::file_time_type lastJsonMod;
+    std::filesystem::file_time_type lastLuaMod;
     void checkLiveReload();
 
     // UI state

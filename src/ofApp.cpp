@@ -8,14 +8,22 @@ void ofApp::setup(){
     
     // 1. Register node capabilities
     crumble::registerNodes(session);
+    scriptEngine.setup(&session);
     
-    // 2. Initial load
-    std::string path = "scripts/main.json";
-    if (ofFile::doesFileExist(path)) {
-        session.load(path);
-        try {
-            lastScriptMod = std::filesystem::last_write_time(ofToDataPath(path));
-        } catch (...) {}
+    // 2. Initial load (Lua takes priority if it exists)
+    std::string luaPath = "scripts/main.lua";
+    std::string jsonPath = "scripts/main.json";
+    
+    if (ofFile::doesFileExist(luaPath)) {
+        scriptEngine.runScript(luaPath);
+        try { lastLuaMod = std::filesystem::last_write_time(ofToDataPath(luaPath)); } catch(...) {}
+        // Also sync JSON time to prevent immediate double-load if it's older
+        if (ofFile::doesFileExist(jsonPath)) {
+            try { lastJsonMod = std::filesystem::last_write_time(ofToDataPath(jsonPath)); } catch(...) {}
+        }
+    } else if (ofFile::doesFileExist(jsonPath)) {
+        session.load(jsonPath);
+        try { lastJsonMod = std::filesystem::last_write_time(ofToDataPath(jsonPath)); } catch (...) {}
     } else {
         initCrumbleMixer();
     }
@@ -24,19 +32,41 @@ void ofApp::setup(){
 }
 
 void ofApp::checkLiveReload() {
-    std::string path = "scripts/main.json";
-    if (!ofFile::doesFileExist(path)) return;
+    std::string luaPath = "scripts/main.lua";
+    std::string jsonPath = "scripts/main.json";
     
-    try {
-        auto mtime = std::filesystem::last_write_time(ofToDataPath(path));
-        if (mtime > lastScriptMod) {
-            lastScriptMod = mtime;
-            ofLogNotice("ofApp") << "Live-reloading " << path;
-            if (session.load(path)) {
-                refreshUIPointers();
+    // Check Lua first
+    if (ofFile::doesFileExist(luaPath)) {
+        try {
+            auto mtime = std::filesystem::last_write_time(ofToDataPath(luaPath));
+            if (mtime > lastLuaMod) {
+                lastLuaMod = mtime;
+                ofLogNotice("ofApp") << "Live-reloading script: " << luaPath;
+                if (scriptEngine.runScript(luaPath)) {
+                    refreshUIPointers();
+                }
+                // If we reloaded Lua, we consider JSON "up to date" to avoid fighting
+                if (ofFile::doesFileExist(jsonPath)) {
+                    try { lastJsonMod = std::filesystem::last_write_time(ofToDataPath(jsonPath)); } catch(...) {}
+                }
+                return; // Only one reload per frame
             }
-        }
-    } catch (...) {}
+        } catch (...) {}
+    }
+
+    // Check JSON
+    if (ofFile::doesFileExist(jsonPath)) {
+        try {
+            auto mtime = std::filesystem::last_write_time(ofToDataPath(jsonPath));
+            if (mtime > lastJsonMod) {
+                lastJsonMod = mtime;
+                ofLogNotice("ofApp") << "Live-reloading JSON: " << jsonPath;
+                if (session.load(jsonPath)) {
+                    refreshUIPointers();
+                }
+            }
+        } catch (...) {}
+    }
 }
 
 void ofApp::initCrumbleMixer() {

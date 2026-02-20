@@ -5,10 +5,15 @@ ScreenOutput::ScreenOutput() {
     type = "ScreenOutput";
     
     parameters.add(enabled.set("enabled", true));
-    parameters.add(x.set("x", 0, -ofGetWidth(), ofGetWidth()));
-    parameters.add(y.set("y", 0, -ofGetHeight(), ofGetHeight()));
-    parameters.add(width.set("width", ofGetWidth(), 1, 4096));
-    parameters.add(height.set("height", ofGetHeight(), 1, 4096));
+    
+    // Use hardcoded defaults if ofGetWidth is not yet valid (0)
+    float defaultW = ofGetWidth() > 0 ? ofGetWidth() : 1280;
+    float defaultH = ofGetHeight() > 0 ? ofGetHeight() : 720;
+    
+    parameters.add(x.set("x", 0, -4096, 4096));
+    parameters.add(y.set("y", 0, -4096, 4096));
+    parameters.add(width.set("width", defaultW, 1, 4096));
+    parameters.add(height.set("height", defaultH, 1, 4096));
 }
 
 void ScreenOutput::setup(float posX, float posY, float w, float h) {
@@ -19,7 +24,10 @@ void ScreenOutput::setup(float posX, float posY, float w, float h) {
 }
 
 void ScreenOutput::update(float dt) {
+    inputTexture = nullptr; // Reset every frame
     if (!enabled) return;
+    
+    if (!graph) return;
     
     // Pull input texture from connected node (already updated by graph pull)
     auto inputs = graph->getInputConnections(nodeIndex);
@@ -32,7 +40,16 @@ void ScreenOutput::update(float dt) {
 }
 
 void ScreenOutput::draw() {
-    if (!enabled || !inputTexture || !inputTexture->isAllocated()) {
+    if (!enabled) return;
+    
+    if (!inputTexture || !inputTexture->isAllocated()) {
+        // Draw a dark gray background to indicate the node is active but has no input
+        ofSetColor(40);
+        ofDrawRectangle(x, y, width, height);
+        
+        // Optionally draw an indicator
+        ofSetColor(200);
+        ofDrawBitmapString("No Input", x + width/2 - 30, y + height/2);
         return;
     }
     
