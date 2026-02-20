@@ -51,6 +51,7 @@ void ScriptBridge::bindSessionAPI() {
     lua_register(L, "_set", lua_setParam);
     lua_register(L, "_clear", lua_clear);
     lua_register(L, "_listDir", lua_listDirectory);
+    lua_register(L, "_exists", lua_fileExists);
     
     // Create the 'session' table and 'Node' metatable in Lua
     std::string helper = R"(
@@ -125,6 +126,8 @@ void ScriptBridge::bindSessionAPI() {
             _clear()
         end
 
+        _G.fileExists = _exists
+
         session.checkpoint = function() end
 
         session.setParam = function(s, a, b, c)
@@ -194,6 +197,13 @@ int ScriptBridge::lua_listDirectory(lua_State* L) {
         lua_settable(L, -3);
     }
     
+    return 1;
+}
+
+int ScriptBridge::lua_fileExists(lua_State* L) {
+    std::string path = luaL_checkstring(L, 1);
+    ofFile file(path);
+    lua_pushboolean(L, file.exists());
     return 1;
 }
 
