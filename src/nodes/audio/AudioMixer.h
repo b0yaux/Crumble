@@ -43,11 +43,11 @@ public:
         auto inputs = graph->getInputConnections(nodeIndex);
         if (inputs.empty()) return;
 
-        // Use a thread-local or temporary buffer for sub-mixes to avoid allocations in audio thread
-        // For simplicity and multi-threading safety, we'll use a local buffer
-        // (In a future optimization, we can double-buffer this)
-        tempBuffer.allocate(buffer.getNumFrames(), buffer.getNumChannels());
-        tempBuffer.setSampleRate(buffer.getSampleRate());
+        // Ensure tempBuffer matches output buffer size
+        if (tempBuffer.getNumFrames() != buffer.getNumFrames() || tempBuffer.getNumChannels() != buffer.getNumChannels()) {
+            tempBuffer.allocate(buffer.getNumFrames(), buffer.getNumChannels());
+            tempBuffer.setSampleRate(buffer.getSampleRate());
+        }
 
         for (const auto& conn : inputs) {
             int idx = conn.toInput;

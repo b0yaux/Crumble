@@ -12,7 +12,7 @@ public:
         type = "AudioFileSource";
         
         parameters.setName("AudioSource");
-        parameters.add(audioPath.set("Path", ""));
+        parameters.add(audioPath.set("audioPath", ""));
         parameters.add(volume.set("Volume", 1.0, 0.0, 1.0));
         parameters.add(speed.set("Speed", 1.0, -4.0, 4.0));
         parameters.add(loop.set("Loop", true));
@@ -83,10 +83,19 @@ protected:
     
     void onPathChanged(std::string& path) {
         if (!path.empty()) {
-            loader.load(ofToDataPath(path));
+            std::string fullPath = path;
+            // If not absolute, use ofToDataPath
+            if (path.find("/") != 0 && path.find(":") == std::string::npos) {
+                fullPath = ofToDataPath(path);
+            }
+            
+            ofLogNotice("AudioFileSource") << "Attempting to load: " << fullPath;
+            loader.load(fullPath);
             playhead = 0;
             if (loader.loaded()) {
-                ofLogNotice("AudioFileSource") << "Loaded: " << path << " (" << loader.length() << " frames)";
+                ofLogNotice("AudioFileSource") << "Successfully loaded: " << fullPath << " (" << loader.length() << " frames)";
+            } else {
+                ofLogError("AudioFileSource") << "FAILED to load: " << fullPath;
             }
         }
     }

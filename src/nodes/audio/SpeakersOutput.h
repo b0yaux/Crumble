@@ -37,21 +37,11 @@ public:
     }
     
     void audioOut(ofSoundBuffer& buffer) override {
-        if (!graph) {
-            // Diagnostic: Test tone if no graph connected
-            // for(size_t i=0; i<buffer.size(); i++) buffer[i] = sin(i*0.1)*0.1; 
-            return;
-        }
+        if (!graph) return;
         
         // Pull from the graph's master audio output
         graph->audioOut(buffer);
         
-        static int counter = 0;
-        if (counter++ % 100 == 0) {
-            float rms = buffer.getRMSAmplitude();
-            ofLogNotice("SpeakersOutput") << "RMS: " << rms << " BufferSize: " << buffer.getNumFrames();
-        }
-
         // Apply master volume
         if (masterVolume != 1.0f) {
             buffer *= (float)masterVolume;
@@ -65,6 +55,7 @@ protected:
     ofParameter<int> bufferSize;
     
     void initStream() {
+        ofLogNotice("SpeakersOutput") << "Initializing sound stream: " << sampleRate << "Hz, " << bufferSize << " samples";
         soundStream.stop();
         soundStream.close();
         
@@ -75,7 +66,12 @@ protected:
         settings.numOutputChannels = 2;
         settings.numInputChannels = 0;
         
-        soundStream.setup(settings);
+        bool success = soundStream.setup(settings);
+        if (success) {
+            ofLogNotice("SpeakersOutput") << "Sound stream started successfully.";
+        } else {
+            ofLogError("SpeakersOutput") << "FAILED to start sound stream.";
+        }
     }
     
     void onSettingsChanged(int& val) {
