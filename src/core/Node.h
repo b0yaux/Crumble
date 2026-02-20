@@ -46,4 +46,34 @@ public:
     
     // Called after deserialization completes
     virtual void deserializeComplete() {}
+
+protected:
+    // Helper to safely get a value from JSON with type-loose conversion
+    // Handles strings-as-numbers ("1" -> 1.0) and other common JSON type mismatches
+    template<typename T>
+    T getSafeJson(const ofJson& j, const std::string& key, T defaultValue) {
+        if (!j.contains(key)) return defaultValue;
+        const auto& v = j[key];
+        try {
+            if constexpr (std::is_same_v<T, std::string>) {
+                if (v.is_string()) return v.get<std::string>();
+                if (v.is_number()) return v.dump();
+                if (v.is_boolean()) return v.get<bool>() ? "true" : "false";
+            } else if constexpr (std::is_same_v<T, bool>) {
+                if (v.is_boolean()) return v.get<bool>();
+                if (v.is_number()) return v.get<float>() > 0.5f;
+                if (v.is_string()) {
+                    std::string s = v.get<std::string>();
+                    return (s == "true" || s == "1" || s == "TRUE" || s == "ON");
+                }
+            } else if constexpr (std::is_arithmetic_v<T>) {
+                if (v.is_number()) return v.get<T>();
+                if (v.is_string()) return (T)std::stod(v.get<std::string>());
+                if (v.is_boolean()) return v.get<bool>() ? (T)1 : (T)0;
+            }
+            return v.get<T>();
+        } catch (...) {
+            return defaultValue;
+        }
+    }
 };

@@ -44,6 +44,7 @@ public:
     
     // Parameter for GUI
     ofParameter<int> numActiveLayers;
+    ofParameter<float> masterOpacity;
     
     // Called after deserialization to ensure arrays match numActiveLayers
     void deserializeComplete() override;

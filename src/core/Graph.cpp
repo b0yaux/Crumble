@@ -326,15 +326,15 @@ bool Graph::fromJson(const ofJson& json) {
         }
     }
 
-    // Load connections (after all nodes created)
+            // Load connections (after all nodes created)
     if (json.contains("connections")) {
         for (const auto& connJson : json["connections"]) {
-            int from = connJson.value("from", -1);
-            int to = connJson.value("to", -1);
-            int fromOutput = connJson.value("fromOutput", 0);
-            int toInput = connJson.value("toInput", 0);
+            int from = getSafeJson<int>(connJson, "from", -1);
+            int to = getSafeJson<int>(connJson, "to", -1);
+            int fromOutput = getSafeJson<int>(connJson, "fromOutput", 0);
+            int toInput = getSafeJson<int>(connJson, "toInput", 0);
 
-            if (from >= 0 && to >= 0 && from < nodes.size() && to < nodes.size()) {
+            if (from >= 0 && to >= 0 && from < (int)nodes.size() && to < (int)nodes.size()) {
                 connect(from, to, fromOutput, toInput);
             }
         }
@@ -344,10 +344,10 @@ bool Graph::fromJson(const ofJson& json) {
     if (json.contains("outputs")) {
         const auto& outputs = json["outputs"];
         if (outputs.contains("video")) {
-            videoOutputNode = outputs["video"];
+            videoOutputNode = getSafeJson<int>(outputs, "video", -1);
         }
         if (outputs.contains("audio")) {
-            audioOutputNode = outputs["audio"];
+            audioOutputNode = getSafeJson<int>(outputs, "audio", -1);
         }
     }
 

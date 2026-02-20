@@ -7,5 +7,6 @@ ofJson Node::serialize() const {
 }
 
 void Node::deserialize(const ofJson& json) {
+    if (!json.is_object()) return;
     ofDeserialize(json, parameters);
 }

@@ -104,11 +104,22 @@ void VideoFileSource::deserialize(const ofJson& json) {
     ofJson j = json;
     if (j.contains("group")) {
         j = j["group"];
+    } else if (j.contains("params")) {
+        j = j["params"];
     }
     
-    // Manually extract videoPath since ofDeserialize may have issues with the format
+    // Manually extract parameters with "loose" type support to prevent Abort trap
     if (j.contains("videoPath")) {
-        videoPath = j["videoPath"].get<std::string>();
+        videoPath = getSafeJson<string>(j, "videoPath", videoPath.get());
+    }
+    if (j.contains("loop")) {
+        loop = getSafeJson<bool>(j, "loop", loop.get());
+    }
+    if (j.contains("speed")) {
+        speed = getSafeJson<float>(j, "speed", speed.get());
+    }
+    if (j.contains("playOnLoad")) {
+        playOnLoad = getSafeJson<bool>(j, "playOnLoad", playOnLoad.get());
     }
     
     ofDeserialize(j, parameters);
