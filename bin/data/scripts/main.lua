@@ -20,7 +20,7 @@ for i, node in ipairs(clips) do
         mixer["opacity_" .. idx] = 1.0
         mixer["blend_" .. idx] = 0 -- ALPHA
     else
-        mixer["opacity_" .. idx] = 0.4
+        mixer["opacity_" .. idx] = 0.3
         mixer["blend_" .. idx] = 2 -- ADD
     end
 end

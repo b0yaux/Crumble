@@ -137,12 +137,38 @@ void ScriptBridge::bindSessionAPI() {
         function importFolder(path, extension)
             local files = _listDir(path)
             local imported = {}
+            
+            -- Default supported extensions if none provided
+            local filter = extension
+            if not filter then
+                filter = {".mov", ".hap", ".mp4", ".avi", ".wav", ".mp3", ".aif"}
+            elseif type(filter) == "string" then
+                filter = {filter}
+            end
+
             for i, f in ipairs(files) do
                 local ext = f:match("^.+(%..+)$")
-                if not extension or (ext and ext:lower() == extension:lower()) then
+                local match = false
+                
+                if ext then
+                    for _, allowed in ipairs(filter) do
+                        if ext:lower() == allowed:lower() then
+                            match = true
+                            break
+                        end
+                    end
+                end
+
+                if match then
                     local name = f:match("([^/]+)%..+$") or f
-                    local node = addNode("VideoFileSource", name)
-                    node.videoPath = f
+                    -- Determine node type based on extension (simple heuristic)
+                    local nodeType = "VideoFileSource"
+                    if ext:match("%.wav") or ext:match("%.mp3") or ext:match("%.aif") then
+                        nodeType = "AudioFileSource"
+                    end
+                    
+                    local node = addNode(nodeType, name)
+                    node.videoPath = f -- We'll rename this to 'path' later for generality
                     table.insert(imported, node)
                 end
             end
@@ -157,12 +183,8 @@ int ScriptBridge::lua_listDirectory(lua_State* L) {
     std::string path = luaL_checkstring(L, 1);
     ofDirectory dir(path);
     
-    // Common video extensions if no filter is provided in Lua
-    // (Lua side can also filter)
-    dir.allowExt("mov");
-    dir.allowExt("hap");
-    dir.allowExt("mp4");
-    dir.allowExt("avi");
+    // No hardcoded allowExt() here. Return all files 
+    // and let Lua handle the filtering logic.
     dir.listDir();
     
     lua_newtable(L);
