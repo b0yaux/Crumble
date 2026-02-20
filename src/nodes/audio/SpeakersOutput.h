@@ -31,12 +31,27 @@ public:
         initStream();
     }
     
+    void onInputConnected(int& toInput) override {
+        // Automatically start the audio stream when a source is connected
+        initStream();
+    }
+    
     void audioOut(ofSoundBuffer& buffer) override {
-        if (!graph) return;
+        if (!graph) {
+            // Diagnostic: Test tone if no graph connected
+            // for(size_t i=0; i<buffer.size(); i++) buffer[i] = sin(i*0.1)*0.1; 
+            return;
+        }
         
         // Pull from the graph's master audio output
         graph->audioOut(buffer);
         
+        static int counter = 0;
+        if (counter++ % 100 == 0) {
+            float rms = buffer.getRMSAmplitude();
+            ofLogNotice("SpeakersOutput") << "RMS: " << rms << " BufferSize: " << buffer.getNumFrames();
+        }
+
         // Apply master volume
         if (masterVolume != 1.0f) {
             buffer *= (float)masterVolume;
