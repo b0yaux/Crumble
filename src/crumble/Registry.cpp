@@ -5,6 +5,8 @@
 #include "../nodes/audio/SpeakersOutput.h"
 #include "../nodes/audio/AudioFileSource.h"
 
+#include "../nodes/audio/AudioMixer.h"
+
 namespace crumble {
 
 void registerNodes(Session& s) {
@@ -22,6 +24,9 @@ void registerNodes(Session& s) {
     });
     s.registerNodeType("AudioFileSource", []() {
         return std::make_unique<AudioFileSource>();
+    });
+    s.registerNodeType("AudioMixer", []() {
+        return std::make_unique<AudioMixer>();
     });
 }
 
