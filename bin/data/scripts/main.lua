@@ -1,28 +1,37 @@
--- Crumble: Live Folder Jam
+-- Crumble: Live Audio/Video Folder Jam
 clear()
 
-local mixer = addNode("VideoMixer", "Mixer")
-local output = addNode("ScreenOutput", "Output")
+-- 1. Setup Core Graph (Mixers and Outputs)
+local vMixer = addNode("VideoMixer", "VMixer")
+local vOutput = addNode("ScreenOutput", "VOutput")
+connect(vMixer, vOutput)
 
-connect(mixer, output)
+local aMixer = addNode("AudioMixer", "AMixer")
+local aOutput = addNode("SpeakersOutput", "AOutput")
+connect(aMixer, aOutput)
 
--- 1. Import all clips from a directory
--- (Note: you can change this to any valid directory)
+-- 2. Import clips and orchestrate parallel playback
 local videoDir = "/Users/jaufre/works/superstratum_video-data"
-local clips = importFolder(videoDir, ".mov")
+local videoNodes = importFolder(videoDir, ".mov")
 
--- 2. Mix them all into the mixer
-for i, node in ipairs(clips) do
+for i, vNode in ipairs(videoNodes) do
     local idx = i - 1
-    connect(node, mixer, 0, idx)
     
-    if idx == 0 then
-        mixer["opacity_" .. idx] = 0.01
-        mixer["blend_" .. idx] = 1 -- ALPHA
-    else
-        mixer["opacity_" .. idx] = 0.2
-        mixer["blend_" .. idx] = 2 -- ADD
+    -- Route Video to Video Mixer
+    connect(vNode, vMixer, 0, idx)
+    vMixer["opacity_" .. idx] = (idx == 0) and 1.0 or 0.3
+    
+    -- 3. Parallel Audio: Look for matching .wav file
+    local audioPath = vNode.videoPath:gsub("%.mov$", ".wav")
+    
+    if fileExists(audioPath) then
+        local aNode = addNode("AudioFileSource", "Audio_" .. i)
+        aNode.audioPath = audioPath
+        
+        -- Route to Audio Mixer
+        connect(aNode, aMixer, 0, idx)
+        aMixer["gain_" .. idx] = 0.5
     end
 end
 
-print("Imported " .. #clips .. " clips from " .. videoDir)
+print("Jamming " .. #videoNodes .. " synchronized A/V layers.")
