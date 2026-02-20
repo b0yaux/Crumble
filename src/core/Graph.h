@@ -6,6 +6,7 @@
 #include <map>
 #include <functional>
 #include <string>
+#include <mutex>
 
 // Simple connection struct - no objects, just indices
 // This is the key simplification: connections are just data
@@ -70,10 +71,14 @@ public:
     int getVideoOutputNode() const { return videoOutputNode; }
     int getAudioOutputNode() const { return audioOutputNode; }
     
+    // Thread safety for audio thread
+    std::mutex& getAudioMutex() { return audioMutex; }
+    
     // Node interface implementation
     void update(float dt) override;
     ofTexture* getVideoOutput() override;
     ofSoundBuffer* getAudioOutput() override;
+    void audioOut(ofSoundBuffer& buffer) override;
     
     // Access for serialization/debugging
     const std::vector<std::unique_ptr<Node>>& getNodes() const { return nodes; }
@@ -110,6 +115,8 @@ private:
     // Output nodes (indices into nodes array)
     int videoOutputNode = -1;
     int audioOutputNode = -1;
+    
+    std::mutex audioMutex;
 
     // Node type registry
     std::map<std::string, NodeCreator> nodeTypes;

@@ -19,6 +19,10 @@ public:
     virtual ofTexture* getVideoOutput() { return nullptr; }
     virtual ofSoundBuffer* getAudioOutput() { return nullptr; }
     
+    // Audio processing hook - called from the audio thread
+    // Nodes should either fill (source), sum (mixer), or transform (effect) the buffer.
+    virtual void audioOut(ofSoundBuffer& buffer) {}
+    
     // Human-readable name for UI display (override for richer info)
     virtual std::string getDisplayName() const { return name; }
     

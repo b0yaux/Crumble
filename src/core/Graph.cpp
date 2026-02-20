@@ -55,6 +55,9 @@ void Graph::removeInput(int toNode, int toInput) {
 void Graph::removeNode(int nodeIndex) {
     if (nodeIndex < 0 || nodeIndex >= nodes.size()) return;
     
+    // Protect against audio thread access during mutation
+    std::lock_guard<std::mutex> lock(audioMutex);
+    
     // Remove all connections to/from this node
     connections.erase(
         std::remove_if(connections.begin(), connections.end(),
@@ -94,6 +97,7 @@ void Graph::removeNode(int nodeIndex) {
 }
 
 void Graph::clear() {
+    std::lock_guard<std::mutex> lock(audioMutex);
     nodes.clear();
     connections.clear();
     videoOutputNode = -1;
@@ -156,6 +160,15 @@ ofSoundBuffer* Graph::getAudioOutput() {
         return nodes[audioOutputNode]->getAudioOutput();
     }
     return nullptr;
+}
+
+void Graph::audioOut(ofSoundBuffer& buffer) {
+    std::lock_guard<std::mutex> lock(audioMutex);
+    if (audioOutputNode >= 0 && audioOutputNode < nodes.size()) {
+        nodes[audioOutputNode]->audioOut(buffer);
+    } else {
+        buffer.set(0);
+    }
 }
 
 void Graph::pullFromNode(int nodeIndex, float dt) {
