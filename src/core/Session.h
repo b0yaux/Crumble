@@ -1,5 +1,6 @@
 #pragma once
 #include "Graph.h"
+#include "AssetPool.h"
 #include <vector>
 
 // Session — the live working context for a Crumble session.
@@ -13,7 +14,11 @@
 
 class Session {
 public:
-    Session() = default;
+    Session();
+    ~Session() = default;
+
+    // --- Asset Management ---
+    AssetPool& getAssets() { return assetPool; }
 
     // --- Graph primitives (the primary API) ---
 
@@ -92,6 +97,7 @@ public:
 
 private:
     Graph graph;
+    AssetPool assetPool;
 
     // Checkpoint-based undo history
     std::vector<ofJson> snapshots;

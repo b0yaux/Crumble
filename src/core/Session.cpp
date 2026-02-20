@@ -1,6 +1,11 @@
 #include "Session.h"
+#include <algorithm>
 
-// --- Graph primitives ---
+Session* g_session = nullptr;
+
+Session::Session() {
+    g_session = this;
+}
 
 Node* Session::addNode(const std::string& type, const std::string& name) {
     return graph.createNode(type, name);
@@ -23,7 +28,9 @@ void Session::removeInput(int toNode, int toInput) {
 }
 
 void Session::clear() {
+    checkpoint();
     graph.clear();
+    assetPool.prune(5.0f); // Clean up assets that are no longer referenced
 }
 
 // --- Lifecycle ---

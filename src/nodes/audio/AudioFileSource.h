@@ -1,10 +1,17 @@
 #pragma once
 #include "../../core/Node.h"
+#include "../../core/AssetPool.h"
+#include "../../core/Graph.h"
 #include "ofxAudioFile.h"
 
+// We'll need a way to get the session from the node.
+// For now, let's add an AssetPool pointer to the Node base or use a static lookup.
+// To keep it clean, let's find the Session from the ofApp or Graph.
+#include "../../core/Session.h"
+
 /**
- * AudioFileSource node using ofxAudioFile.
- * Loads audio data into RAM for low-latency playback.
+ * AudioFileSource node using ofxAudioFile via AssetPool.
+ * Decouples RAM buffers from the node lifecycle.
  */
 class AudioFileSource : public Node {
 public:
@@ -22,30 +29,27 @@ public:
     }
     
     void audioOut(ofSoundBuffer& buffer) override {
-        if (!playing || !loader.loaded() || loader.length() == 0) {
+        if (!playing || !sharedLoader || !sharedLoader->loaded() || sharedLoader->length() == 0) {
             return;
         }
 
-        float* data = loader.data();
-        size_t totalSamples = loader.length();
-        int channels = loader.channels();
+        float* data = sharedLoader->data();
+        size_t totalSamples = sharedLoader->length();
+        int channels = sharedLoader->channels();
         
         for (size_t i = 0; i < buffer.getNumFrames(); i++) {
             size_t frameIndex = (size_t)playhead;
             
             if (frameIndex < totalSamples) {
                 for (int c = 0; c < buffer.getNumChannels(); c++) {
-                    // Simple channel mapping: wrap if loader has fewer channels
                     int sourceChannel = c % channels;
                     float sample = data[frameIndex * channels + sourceChannel];
                     buffer[i * buffer.getNumChannels() + c] += sample * (float)volume;
                 }
             }
             
-            // Advance playhead
             playhead += (float)speed;
             
-            // Handle looping
             if (playhead >= (float)totalSamples) {
                 if (loop) {
                     playhead = fmod(playhead, (float)totalSamples);
@@ -72,8 +76,8 @@ public:
     }
 
 protected:
-    ofxAudioFile loader;
-    double playhead = 0; // in frames
+    std::shared_ptr<ofxAudioFile> sharedLoader;
+    double playhead = 0; 
     
     ofParameter<std::string> audioPath;
     ofParameter<float> volume;
@@ -82,20 +86,18 @@ protected:
     ofParameter<bool> playing;
     
     void onPathChanged(std::string& path) {
-        if (!path.empty()) {
-            std::string fullPath = path;
-            // If not absolute, use ofToDataPath
-            if (path.find("/") != 0 && path.find(":") == std::string::npos) {
-                fullPath = ofToDataPath(path);
-            }
-            
-            ofLogNotice("AudioFileSource") << "Attempting to load: " << fullPath;
-            loader.load(fullPath);
-            playhead = 0;
-            if (loader.loaded()) {
-                ofLogNotice("AudioFileSource") << "Successfully loaded: " << fullPath << " (" << loader.length() << " frames)";
-            } else {
-                ofLogError("AudioFileSource") << "FAILED to load: " << fullPath;
+        if (path.empty()) return;
+
+        // CRITICAL: We need a way to reach the Session's AssetPool.
+        // We'll use a hack for now: search the parent pointers or use a global.
+        // In this architecture, ofApp owns Session.
+        // Let's assume there's a global way to get the session's asset pool
+        // for this iteration.
+        extern Session* g_session; 
+        if (g_session) {
+            sharedLoader = g_session->getAssets().getAudio(path);
+            if (sharedLoader) {
+                playhead = 0;
             }
         }
     }
