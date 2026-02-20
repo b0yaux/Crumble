@@ -1,15 +1,15 @@
-#include "ScriptEngine.h"
+#include "ScriptBridge.h"
 
-Session* ScriptEngine::s_currentSession = nullptr;
+Session* ScriptBridge::s_currentSession = nullptr;
 
-ScriptEngine::ScriptEngine() {
+ScriptBridge::ScriptBridge() {
 }
 
-ScriptEngine::~ScriptEngine() {
+ScriptBridge::~ScriptBridge() {
     lua.removeListener(this);
 }
 
-void ScriptEngine::setup(Session* s) {
+void ScriptBridge::setup(Session* s) {
     session = s;
     lua.init();
     lua.addListener(this);
@@ -17,7 +17,7 @@ void ScriptEngine::setup(Session* s) {
     bindSessionAPI();
 }
 
-bool ScriptEngine::runScript(const std::string& path) {
+bool ScriptBridge::runScript(const std::string& path) {
     if (!session) return false;
     
     s_currentSession = session;
@@ -27,7 +27,7 @@ bool ScriptEngine::runScript(const std::string& path) {
     
     ofFile script(path);
     if (!script.exists()) {
-        ofLogError("ScriptEngine") << "Script not found: " << path;
+        ofLogError("ScriptBridge") << "Script not found: " << path;
         return false;
     }
     
@@ -38,11 +38,11 @@ bool ScriptEngine::runScript(const std::string& path) {
     return true;
 }
 
-void ScriptEngine::errorReceived(std::string& msg) {
-    ofLogError("ScriptEngine") << "Lua Error: " << msg;
+void ScriptBridge::errorReceived(std::string& msg) {
+    ofLogError("ScriptBridge") << "Lua Error: " << msg;
 }
 
-void ScriptEngine::bindSessionAPI() {
+void ScriptBridge::bindSessionAPI() {
     lua_State* L = lua; // Uses the operator lua_State*() from ofxLua
     
     // Register global C functions
@@ -136,7 +136,7 @@ void ScriptEngine::bindSessionAPI() {
     lua.doString(helper);
 }
 
-int ScriptEngine::lua_addNode(lua_State* L) {
+int ScriptBridge::lua_addNode(lua_State* L) {
     if (!s_currentSession) return 0;
     
     std::string type = luaL_checkstring(L, 1);
@@ -151,7 +151,7 @@ int ScriptEngine::lua_addNode(lua_State* L) {
     return 0;
 }
 
-int ScriptEngine::lua_connect(lua_State* L) {
+int ScriptBridge::lua_connect(lua_State* L) {
     if (!s_currentSession) return 0;
     
     int fromNode = luaL_checkinteger(L, 1);
@@ -166,7 +166,7 @@ int ScriptEngine::lua_connect(lua_State* L) {
     return 0;
 }
 
-int ScriptEngine::lua_setParam(lua_State* L) {
+int ScriptBridge::lua_setParam(lua_State* L) {
     if (!s_currentSession) return 0;
     
     int nodeIdx = luaL_checkinteger(L, 1);
@@ -201,7 +201,7 @@ int ScriptEngine::lua_setParam(lua_State* L) {
     return 0;
 }
 
-int ScriptEngine::lua_clear(lua_State* L) {
+int ScriptBridge::lua_clear(lua_State* L) {
     if (!s_currentSession) return 0;
     s_currentSession->clear();
     return 0;

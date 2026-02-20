@@ -4,18 +4,19 @@
 #include "Session.h"
 
 /**
- * ScriptEngine provides a Lua live-scripting bridge for Crumble.
+ * ScriptBridge facilitates communication between the Lua scripting environment 
+ * and the Crumble C++ engine.
  * 
  * Design:
  * 1. Handle-based: Lua refers to nodes by their integer indices (nodeIndex).
  * 2. Fire-and-Forget: Scripts execute once to build/update the graph, then exit.
  *    This avoids dangling pointers and GC issues with C++ objects in Lua.
- * 3. Two-way: Can reconstruct a graph from Lua, or export the current graph to a Lua script.
+ * 3. Reactive Binding: Maps the high-level Lua DSL to C++ Session/Node actions.
  */
-class ScriptEngine : public ofxLuaListener {
+class ScriptBridge : public ofxLuaListener {
 public:
-    ScriptEngine();
-    ~ScriptEngine();
+    ScriptBridge();
+    ~ScriptBridge();
 
     void setup(Session* session);
     

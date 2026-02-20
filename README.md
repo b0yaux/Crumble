@@ -15,11 +15,18 @@ Crumble follows a **Reactive Pull-based Modular** design.
 
 - **`Node`**: The base class. Nodes are self-contained, reactive processors.
 - **`Graph`**: Manages a collection of nodes and their connections. A `Graph` is itself a `Node`, allowing for nested sub-graphs.
-- **`ScriptEngine`**: Provides a high-level Lua DSL for live-manipulating the graph.
-- **`Reactive Hooks`**: Nodes can override `onInputConnected` to dynamically adjust their internal state (like the `VideoMixer` expanding layers) when connections are made in real-time.
+- **`ScriptBridge`**: Facilitates communication between the Lua scripting environment and the Crumble C++ engine.
+- **Reactive Hooks**: Nodes can override `onInputConnected` to dynamically adjust their internal state (like the `VideoMixer` expanding layers) when connections are made in real-time.
 
 ### Directory Structure
 
+```
+src/
+├── core/
+│   ├── Node.h/cpp          # Base node & serialization logic
+│   ├── Graph.h/cpp         # Graph & Pull-evaluation engine
+│   ├── ScriptBridge.h/cpp  # Lua bridge & DSL definition
+│   └── Session.h/cpp       # High-level state management
 ```
 src/
 ├── core/
