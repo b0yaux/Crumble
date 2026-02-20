@@ -92,6 +92,11 @@ public:
     // Serialization
     ofJson toJson() const;
     bool fromJson(const ofJson& json);
+    
+    // Override Node serialization for recursive nesting
+    ofJson serialize() const override;
+    void deserialize(const ofJson& json) override;
+    
     bool saveToFile(const std::string& path) const;
     bool loadFromFile(const std::string& path);
     

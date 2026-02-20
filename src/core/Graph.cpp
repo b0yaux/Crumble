@@ -261,6 +261,16 @@ std::vector<std::string> Graph::getRegisteredTypes() const {
 }
 
 // Serialization
+ofJson Graph::serialize() const {
+    // For a Graph, the "params" are the entire network structure
+    return toJson();
+}
+
+void Graph::deserialize(const ofJson& json) {
+    // Reconstruct the internal network from the json
+    fromJson(json);
+}
+
 ofJson Graph::toJson() const {
     ofJson json;
     
@@ -272,7 +282,8 @@ ofJson Graph::toJson() const {
         nodeJson["type"] = node->type;
         nodeJson["name"] = node->name;
 
-        // Each node serializes its own state
+        // Each node serializes its own state. 
+        // If it's a sub-graph, Node::serialize() will now call Graph::serialize() polymorphically.
         nodeJson["params"] = node->serialize();
 
         nodesJson.push_back(nodeJson);
@@ -304,6 +315,11 @@ ofJson Graph::toJson() const {
     json["nodes"] = nodesJson;
     json["connections"] = connectionsJson;
     json["outputs"] = outputsJson;
+    
+    // Also include the ofParameterGroup (masterOpacity, etc. if we add them to Graph)
+    ofJson paramsJson;
+    ofSerialize(paramsJson, parameters);
+    json["internal_params"] = paramsJson;
 
     return json;
 }
@@ -318,6 +334,11 @@ bool Graph::fromJson(const ofJson& json) {
         if (version != "1.0") {
             ofLogWarning("Graph") << "Loading patch with different version: " << version;
         }
+    }
+    
+    // Load parameters
+    if (json.contains("internal_params")) {
+        ofDeserialize(json["internal_params"], parameters);
     }
 
     // Load nodes
