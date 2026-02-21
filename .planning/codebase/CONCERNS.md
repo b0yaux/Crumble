@@ -44,11 +44,9 @@
 - Impact: Confusing for developers; `selectedLayer` is always 0 and the `-` key shortcut is disconnected from the current `GraphUI` logic.
 - Fix approach: Remove legacy members from `ofApp` and unify interaction logic within `GraphUI`.
 
-**Unbounded Parameter Growth in VideoMixer:**
-- Issue: `VideoMixer::resizeLayerArrays` only grows and never shrinks the `layerOpacities` etc. vectors.
-- Files: `src/nodes/video/VideoMixer.cpp`
-- Impact: Continual addition/removal of layers will cause permanent memory growth of the `ofParameterGroup`.
-- Fix approach: Implement a safe way to remove parameters from the group when `numActiveLayers` decreases.
+**Unbounded Parameter Growth in VideoMixer (Resolved):**
+- Issue was resolved by implementing parameter removal in `resizeLayerArrays`. Excess parameters are now removed from the `ofParameterGroup` when `numActiveLayers` decreases.
+
 
 ## Security Considerations
 

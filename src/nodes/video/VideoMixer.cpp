@@ -55,7 +55,7 @@ void VideoMixer::allocateFbo() {
 }
 
 void VideoMixer::resizeLayerArrays(int newSize) {
-    int currentSize = layerOpacities.size();
+    int currentSize = (int)layerOpacities.size();
     
     if (newSize > currentSize) {
         // Add new layers
@@ -68,17 +68,25 @@ void VideoMixer::resizeLayerArrays(int newSize) {
             parameters.add(layerBlendModes[i]);
             parameters.add(layerActive[i]);
         }
+    } else if (newSize < currentSize) {
+        // Remove excess layers
+        for (int i = currentSize - 1; i >= newSize; i--) {
+            parameters.remove(layerOpacities[i]);
+            parameters.remove(layerBlendModes[i]);
+            parameters.remove(layerActive[i]);
+            
+            layerOpacities.pop_back();
+            layerBlendModes.pop_back();
+            layerActive.pop_back();
+        }
     }
-    // Note: We don't shrink arrays to preserve parameter references
 }
 
 void VideoMixer::onNumLayersChanged(int& count) {
     int newCount = ofClamp(count, 1, maxSupportedLayers);
     
-    // Ensure arrays are large enough
-    if (newCount > (int)layerOpacities.size()) {
-        resizeLayerArrays(newCount);
-    }
+    // Sync arrays to the new count (handles both growth and shrinkage)
+    resizeLayerArrays(newCount);
     
     // Update the parameter itself to the clamped value without triggering listener again
     numActiveLayers.setWithoutEventNotifications(newCount);
