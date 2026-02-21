@@ -4,6 +4,10 @@ Graph::Graph() {
     type = "Graph";
 }
 
+Graph::~Graph() {
+    clear();
+}
+
 void Graph::addNode(std::unique_ptr<Node> node) {
     node->nodeIndex = nodes.size();
     node->graph = this;
@@ -97,14 +101,16 @@ void Graph::removeNode(int nodeIndex) {
 }
 
 void Graph::clear() {
-    std::lock_guard<std::mutex> lock(audioMutex);
-    nodes.clear();
-    connections.clear();
-    videoOutputNode = -1;
-    audioOutputNode = -1;
-    executionDirty = true;
+    std::vector<std::unique_ptr<Node>> nodesToDestroy;
+    {
+        std::lock_guard<std::mutex> lock(audioMutex);
+        nodesToDestroy = std::move(nodes);
+        connections.clear();
+        videoOutputNode = -1;
+        audioOutputNode = -1;
+        executionDirty = true;
+    }
 }
-
 std::vector<Connection> Graph::getInputConnections(int nodeIndex) const {
     std::vector<Connection> result;
     for (const auto& conn : connections) {

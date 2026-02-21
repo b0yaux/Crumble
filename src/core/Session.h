@@ -3,6 +3,9 @@
 #include "AssetPool.h"
 #include <vector>
 
+// Global session pointer for nodes that need asset access
+extern class Session* g_session;
+
 // Session — the live working context for a Crumble session.
 // Owns the node graph and provides the primary API surface for any
 // interaction layer (keyboard, scripting, OSC, GUI).
@@ -14,8 +17,8 @@
 
 class Session {
 public:
-    Session();
-    ~Session() = default;
+    Session() { g_session = this; }
+    ~Session() { g_session = nullptr; }
 
     // --- Asset Management ---
     AssetPool& getAssets() { return assetPool; }

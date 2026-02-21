@@ -22,7 +22,7 @@ struct Connection {
 class Graph : public Node {
 public:
     Graph();
-    virtual ~Graph() = default;
+    ~Graph() override;
     
     // Node management
     // Returns reference to created node for immediate configuration

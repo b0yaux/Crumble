@@ -232,6 +232,16 @@ int ScriptBridge::lua_addNode(lua_State* L) {
     std::string name = "";
     if (lua_gettop(L) >= 2) name = luaL_checkstring(L, 2);
     
+    // Idempotent: if name provided and node with that name exists, return existing
+    if (!name.empty()) {
+        if (Node* existing = s_currentSession->findNodeByName(name)) {
+            if (existing->type == type) {
+                lua_pushinteger(L, existing->nodeIndex);
+                return 1;
+            }
+        }
+    }
+    
     Node* node = s_currentSession->addNode(type, name);
     if (node) {
         lua_pushinteger(L, node->nodeIndex);

@@ -1,13 +1,7 @@
 #pragma once
 #include "../../core/Node.h"
-#include "../../core/AssetPool.h"
-#include "../../core/Graph.h"
-#include "ofxAudioFile.h"
-
-// We'll need a way to get the session from the node.
-// For now, let's add an AssetPool pointer to the Node base or use a static lookup.
-// To keep it clean, let's find the Session from the ofApp or Graph.
 #include "../../core/Session.h"
+#include "ofxAudioFile.h"
 
 /**
  * AudioFileSource node using ofxAudioFile via AssetPool.
@@ -77,7 +71,7 @@ public:
 
 protected:
     std::shared_ptr<ofxAudioFile> sharedLoader;
-    double playhead = 0; 
+    double playhead = 0;
     
     ofParameter<std::string> audioPath;
     ofParameter<float> volume;
@@ -87,17 +81,14 @@ protected:
     
     void onPathChanged(std::string& path) {
         if (path.empty()) return;
-
-        // CRITICAL: We need a way to reach the Session's AssetPool.
-        // We'll use a hack for now: search the parent pointers or use a global.
-        // In this architecture, ofApp owns Session.
-        // Let's assume there's a global way to get the session's asset pool
-        // for this iteration.
-        extern Session* g_session; 
+        
         if (g_session) {
             sharedLoader = g_session->getAssets().getAudio(path);
             if (sharedLoader) {
                 playhead = 0;
+                ofLogNotice("AudioFileSource") << "Got shared audio: " << path;
+            } else {
+                ofLogError("AudioFileSource") << "FAILED to load: " << path;
             }
         }
     }

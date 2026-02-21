@@ -1,5 +1,4 @@
 -- Crumble: Synchronized A/V Folder Jam
-clear()
 
 -- 1. Setup Core Graph
 local vMixer = addNode("VideoMixer", "VMixer")
