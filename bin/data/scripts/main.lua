@@ -7,11 +7,6 @@ connect(vMixer, vOutput)
 
 local aMixer = addNode("AudioMixer", "AMixer")
 local aOutput = addNode("SpeakersOutput", "AOutput")
-
--- ROUTING: Tell the graph to pull audio from the mixer
-setAudioOutput(aMixer)
-
--- CONNECT: Link mixer to the hardware output node
 connect(aMixer, aOutput)
 
 -- 2. Define Directory
@@ -27,17 +22,25 @@ for _, path in ipairs(files) do
         local idx = videoCount
         videoCount = videoCount + 1
         
+        -- Extract filename without extension for node name
+        local filename = path:match("([^/]+)%.mov$")
+        if not filename then
+            filename = "v" .. idx
+        else
+            filename = "v" .. idx .. "_" .. filename
+        end
+        
         -- Add Video Node
-        local vNode = addNode("VideoFileSource", "V_" .. idx)
-        vNode.videoPath = path
+        local vNode = addNode("VideoFileSource", filename)
+        vNode.path = path
         connect(vNode, vMixer, 0, idx)
         
         -- visual blending logic
         if idx == 0 then
-            vMixer["opacity_" .. idx] = 1.0
+            vMixer["opacity_" .. idx] = 0.02
             vMixer["blend_" .. idx] = 0 -- ALPHA
         else
-            vMixer["opacity_" .. idx] = 0.3
+            vMixer["opacity_" .. idx] = 0.2
             vMixer["blend_" .. idx] = 2 -- ADD
         end
         
@@ -47,8 +50,14 @@ for _, path in ipairs(files) do
         
         if fileExists(audioPath) then
             print("FOUND audio for clip " .. idx)
-            local aNode = addNode("AudioFileSource", "A_" .. idx)
-            aNode.audioPath = audioPath
+            local audioFilename = audioPath:match("([^/]+)%.wav$")
+            if not audioFilename then
+                audioFilename = "a" .. idx
+            else
+                audioFilename = "a" .. idx .. "_" .. audioFilename
+            end
+            local aNode = addNode("AudioFileSource", audioFilename)
+            aNode.path = audioPath
             connect(aNode, aMixer, 0, idx)
             aMixer["gain_" .. idx] = 0.5
         else
@@ -56,7 +65,7 @@ for _, path in ipairs(files) do
         end
         
         -- Safety: limit to 10 layers for stability during tests
-        if videoCount >= 10 then break end
+        if videoCount >= 1 then break end
     end
 end
 

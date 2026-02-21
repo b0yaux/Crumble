@@ -41,9 +41,6 @@ public:
         return ref;
     }
     
-    // Direct node pointer addition (for moving existing nodes)
-    void addNode(std::unique_ptr<Node> node);
-    
     // Connection management - just modifies the connections array
     // Returns true if connection was successful and didn't create a cycle
     bool connect(int fromNode, int toNode, int fromOutput = 0, int toInput = 0);

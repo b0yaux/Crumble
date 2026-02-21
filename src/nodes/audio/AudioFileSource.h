@@ -69,6 +69,40 @@ public:
         return ofFilePath::getFileName(path.get());
     }
 
+    // Serialization
+    ofJson serialize() const override {
+        ofJson j;
+        ofSerialize(j, parameters);
+        return j;
+    }
+
+    void deserialize(const ofJson& json) override {
+        ofJson j = json;
+        // Handle common nesting patterns in our JSON
+        if (j.contains("AudioSource")) {
+            j = j["AudioSource"];
+        } else if (j.contains("params")) {
+            j = j["params"];
+        }
+
+        // Migrate from old "audioPath" key to new "path" key
+        std::string pathValue;
+        if (j.contains("audioPath")) {
+            pathValue = getSafeJson<std::string>(j, "audioPath", "");
+        } else if (j.contains("path")) {
+            pathValue = getSafeJson<std::string>(j, "path", "");
+        }
+        if (!pathValue.empty()) path.set(pathValue);
+
+        // Map other parameters with loose typing
+        if (j.contains("Volume")) volume = getSafeJson<float>(j, "Volume", volume.get());
+        if (j.contains("Speed")) speed = getSafeJson<float>(j, "Speed", speed.get());
+        if (j.contains("Loop")) loop = getSafeJson<bool>(j, "Loop", loop.get());
+        if (j.contains("Playing")) playing = getSafeJson<bool>(j, "Playing", playing.get());
+
+        ofDeserialize(j, parameters);
+    }
+
 protected:
     std::shared_ptr<ofxAudioFile> sharedLoader;
     double playhead = 0;

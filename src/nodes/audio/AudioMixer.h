@@ -77,6 +77,60 @@ public:
         return "Audio Mixer (" + std::to_string(numActiveInputs) + ")";
     }
 
+    // Serialization
+    ofJson serialize() const override {
+        ofJson j;
+        ofSerialize(j, parameters);
+        // Also save how many inputs we have
+        j["numActiveInputs"] = numActiveInputs;
+        return j;
+    }
+
+    void deserialize(const ofJson& json) override {
+        ofJson j = json;
+        if (j.contains("AudioMixer")) {
+            j = j["AudioMixer"];
+        } else if (j.contains("params")) {
+            j = j["params"];
+        }
+
+        // 1. Expand to match saved input count
+        int savedCount = getSafeJson<int>(j, "numActiveInputs", 0);
+        
+        // Also check if there are any gain_N params even if numActiveInputs is missing
+        // This handles files saved before this change
+        int maxGainIdx = -1;
+        for (auto it = j.begin(); it != j.end(); ++it) {
+            std::string key = it.key();
+            if (key.find("gain_") == 0) {
+                try {
+                    int idx = std::stoi(key.substr(5));
+                    if (idx > maxGainIdx) maxGainIdx = idx;
+                } catch (...) {}
+            }
+        }
+        
+        int finalCount = std::max(savedCount, maxGainIdx + 1);
+        if (finalCount > numActiveInputs) {
+            for (int i = numActiveInputs; i < finalCount; i++) {
+                int idx = i;
+                onInputConnected(idx); 
+            }
+        }
+
+        // 2. Deserialize parameters
+        if (j.contains("MasterGain")) masterGain = getSafeJson<float>(j, "MasterGain", masterGain.get());
+        
+        for (int i = 0; i < numActiveInputs; i++) {
+            std::string key = "gain_" + std::to_string(i);
+            if (j.contains(key)) {
+                inputGains[i]->set(getSafeJson<float>(j, key, inputGains[i]->get()));
+            }
+        }
+
+        ofDeserialize(j, parameters);
+    }
+
 protected:
     ofParameter<float> masterGain;
     std::vector<std::shared_ptr<ofParameter<float>>> inputGains;
