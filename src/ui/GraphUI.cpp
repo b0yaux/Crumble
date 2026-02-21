@@ -60,7 +60,16 @@ void GraphUI::draw(Session& session) {
     auto& graphNodes = session.getGraph().getNodes();
     auto& conns = session.getGraph().getConnections();
     
-    // Init: random positions with min distance from center (avoid center)
+    // 1. Cleanup: Prune UI nodes that no longer exist in the core graph
+    for (auto it = nodes.begin(); it != nodes.end(); ) {
+        if (graphNodes.find(it->first) == graphNodes.end()) {
+            it = nodes.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    
+    // 2. Init: random positions for new nodes
     // Sources spawn farther from center, outputs closer
     const float canvasW = 1200.0f;
     const float canvasH = 900.0f;

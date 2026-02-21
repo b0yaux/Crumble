@@ -45,7 +45,8 @@ public:
     void addNode(std::unique_ptr<Node> node);
     
     // Connection management - just modifies the connections array
-    void connect(int fromNode, int toNode, int fromOutput = 0, int toInput = 0);
+    // Returns true if connection was successful and didn't create a cycle
+    bool connect(int fromNode, int toNode, int fromOutput = 0, int toInput = 0);
     void disconnect(int toNode, int toInput = 0);
     
     // Disconnect an input AND shift all higher-numbered inputs down by 1.
@@ -112,9 +113,10 @@ private:
     // Node type registry
     std::map<std::string, NodeCreator> nodeTypes;
 
-    // Validate topology (cycle detection) when graph changes
-    void validateTopology();
+    // Validate topology (cycle detection and sort) when graph changes
+    // Returns true if graph is a valid DAG
+    bool validateTopology();
 
-    // Pull-based evaluation helper (unified for video/audio)
-    void pullFromNode(int nodeId, float dt);
+    // The order in which nodes should be updated (Topological Sort)
+    std::vector<int> traversalOrder;
 };

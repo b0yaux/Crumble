@@ -15,14 +15,42 @@ void Graph::addNode(std::unique_ptr<Node> node) {
     executionDirty = true;
 }
 
-void Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
-    // Validate that both nodes exist using map find
-    auto fromIt = nodes.find(fromNode);
-    auto toIt = nodes.find(toNode);
-    if (fromIt == nodes.end() || toIt == nodes.end()) {
-        ofLogWarning("Graph") << "Cannot connect: node not found";
-        return;
+bool Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
+    if (fromNode == toNode) return false; // Self-loop
+    
+    // Check if these nodes exist
+    if (nodes.find(fromNode) == nodes.end() || nodes.find(toNode) == nodes.end()) {
+        return false;
     }
+
+    // Disconnect existing input at that slot (single input per slot)
+    disconnect(toNode, toInput);
+
+    // Tentatively add the connection
+    Connection conn;
+    conn.fromNode = fromNode;
+    conn.toNode = toNode;
+    conn.fromOutput = fromOutput;
+    conn.toInput = toInput;
+    
+    connections.push_back(conn);
+
+    // Validate topology
+    if (!validateTopology()) {
+        // Cycle detected! Revert.
+        connections.pop_back();
+        ofLogError("Graph") << "Cycle detected when connecting " << fromNode << " -> " << toNode << ". Connection rejected.";
+        return false;
+    }
+
+    // Success - notify nodes
+    Node* to = getNode(toNode);
+    if (to) to->onInputConnected(toInput);
+    
+    executionDirty = true;
+    return true;
+}
+
     
     // Check if this exact connection already exists
     for (const auto& conn : connections) {
@@ -126,52 +154,33 @@ void Graph::update(float dt) {
         validateTopology();
     }
     
-    // Pull-based: update all sink nodes (nodes with no outgoing connections).
-    // Each sink recursively pulls its inputs, and the lastUpdateFrame guard
-    // prevents double-updates when sinks share upstream sources.
-    for (const auto& [nodeId, node] : nodes) {
-        if (getOutputConnections(nodeId).empty()) {
-            pullFromNode(nodeId, dt);
+    // Iterative evaluation using pre-computed topological order
+    for (int nodeId : traversalOrder) {
+        auto it = nodes.find(nodeId);
+        if (it != nodes.end() && it->second) {
+            it->second->update(dt);
         }
     }
 }
 
 void Graph::audioOut(ofSoundBuffer& buffer) {
     std::lock_guard<std::mutex> lock(audioMutex);
-    buffer.set(0);
+    
+    // In our simplified engine, SpeakersOutput (the sink) 
+    // drives the audio thread by pulling from the graph.
+    // However, if we wanted global audio processing, we'd 
+    // iterate through traversalOrder here too.
+    buffer.set(0); 
 }
 
-void Graph::pullFromNode(int nodeId, float dt) {
-    auto it = nodes.find(nodeId);
-    if (it == nodes.end()) return;
-    
-    // Check if already updated this frame
-    auto& node = it->second;
-    if (!node) return; // Safety check
-    
-    uint64_t currentFrame = ofGetFrameNum();
-    if (node->lastUpdateFrame == currentFrame) return;
-    node->lastUpdateFrame = currentFrame;
-    
-    // Pull from all input connections first
-    // Copy connections to avoid iterator invalidation if the update changes the graph
-    auto inputs = getInputConnections(nodeId);
-    for (const auto& conn : inputs) {
-        pullFromNode(conn.fromNode, dt);
-    }
-    
-    // Now update this node
-    node->update(dt);
-}
-
-void Graph::validateTopology() {
+bool Graph::validateTopology() {
+    traversalOrder.clear();
     if (nodes.empty()) {
         executionDirty = false;
-        return;
+        return true;
     }
 
-    // Kahn's algorithm — only for cycle detection
-    // Build nodeId to index mapping for the inDegree array
+    // Kahn's algorithm for Topological Sort & Cycle Detection
     std::vector<int> nodeIdList;
     std::unordered_map<int, int> nodeIdToIndex;
     int idx = 0;
@@ -182,7 +191,6 @@ void Graph::validateTopology() {
     }
     
     std::vector<int> inDegree(nodes.size(), 0);
-
     for (const auto& conn : connections) {
         auto toIt = nodeIdToIndex.find(conn.toNode);
         if (toIt != nodeIdToIndex.end()) {
@@ -190,6 +198,7 @@ void Graph::validateTopology() {
         }
     }
 
+    // Use a queue for BFS-based topological sort
     std::vector<int> queue;
     for (int i = 0; i < (int)nodeIdList.size(); i++) {
         if (inDegree[i] == 0) {
@@ -197,11 +206,14 @@ void Graph::validateTopology() {
         }
     }
 
-    int visited = 0;
+    // Process nodes
+    size_t visitedCount = 0;
     while (!queue.empty()) {
-        int currentNodeId = queue.back();
-        queue.pop_back();
-        visited++;
+        int currentNodeId = queue.front();
+        queue.erase(queue.begin());
+        
+        traversalOrder.push_back(currentNodeId);
+        visitedCount++;
 
         for (const auto& conn : connections) {
             if (conn.fromNode == currentNodeId) {
@@ -217,11 +229,10 @@ void Graph::validateTopology() {
         }
     }
 
-    if (visited != (int)nodes.size()) {
-        ofLogWarning("Graph") << "Cycle detected in graph, pull-based evaluation may loop";
-    }
-
     executionDirty = false;
+    
+    // If we couldn't visit all nodes, there's a cycle
+    return (visitedCount == nodes.size());
 }
 
 // Node Factory

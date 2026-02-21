@@ -10,31 +10,15 @@
 - Impact: Inefficient for large graphs; causes memory bloat and potential performance stuttering during checkpointing. Restoring from JSON clears and rebuilds the entire graph, likely causing visual flickers.
 - Fix approach: Implement a Command pattern where only the changes (diffs) are stored in the undo stack.
 
-**Recursive Graph Evaluation:**
-- Issue: `Graph::pullFromNode()` uses recursion to traverse the graph for updates.
-- Files: `src/core/Graph.cpp`
-- Impact: Risks stack overflow for extremely deep or complex graphs.
-- Fix approach: Use iterative topological sort and update nodes in linear order.
+**Recursive Graph Evaluation (Resolved):**
+- Issue was resolved by refactoring `Graph::update` to use a pre-computed `traversalOrder` based on a Topological Sort (Kahn's Algorithm). This eliminates the risk of stack overflow.
 
-**Incomplete Memory Management in UI:**
-- Issue: `GraphUI::nodes` map caches `NodeViz` data but never removes entries when nodes are deleted from the core graph.
-- Files: `src/ui/GraphUI.cpp`, `src/ui/GraphUI.h`
-- Impact: Memory leak of `NodeViz` structures and increasing iteration overhead in the UI layer over time.
-- Fix approach: Synchronize the `GraphUI::nodes` map with the core graph state or prune missing nodes during the `draw()` call.
+**Incomplete Memory Management in UI (Resolved):**
+- Issue was resolved by implementing a reconciliation pass in `GraphUI::draw()` that prunes dead node IDs from the visual state map.
 
-**Abandoned Files in `lost/`:**
-- Issue: The project contains a `lost/` directory with 40MB of hashed `.txt` files of unknown origin.
-- Files: `lost/*`
-- Impact: Unnecessary bloat in the codebase; confusing for developers.
-- Fix approach: Audit the contents and remove the directory if it's indeed temporary/corrupted data fragments.
+**Incomplete Cycle Detection (Resolved):**
+- Issue was resolved by integrating `validateTopology()` directly into `Graph::connect()`. Connections that would create a cycle are now rejected.
 
-## Known Bugs
-
-**Incomplete Cycle Detection:**
-- Issue: Kahn's algorithm is used in `validateTopology()` but only logs a warning instead of preventing or gracefully handling cycles.
-- Files: `src/core/Graph.cpp`
-- Impact: If a cycle is created, `pullFromNode` might enter infinite recursion (if not for the `lastUpdateFrame` guard) or produce inconsistent results.
-- Trigger: Connect a node's output back to its input (directly or indirectly).
 
 ## Legacy Code & Technical Debt
 
