@@ -1,5 +1,7 @@
+
 #include "GraphUI.h"
 #include <cmath>
+#include <string>
 
 void GraphUI::setup() {
 }
@@ -10,14 +12,37 @@ glm::vec2 GraphUI::screenToWorld(int x, int y) {
 
 void GraphUI::mousePressed(int x, int y, int button) {
     if (!visible) return;
+    
+    glm::vec2 wp = screenToWorld(x, y);
+    for (auto& [id, nv] : nodes) {
+        if (wp.x >= nv.pos.x && wp.x <= nv.pos.x + 80 &&
+            wp.y >= nv.pos.y && wp.y <= nv.pos.y + 24) {
+            draggedNode = id;
+            dragOffset = nv.pos - wp;
+            return;
+        }
+    }
+    
     dragStart = glm::vec2(x, y);
     panStart = pan;
 }
 
 void GraphUI::mouseDragged(int x, int y, int button) {
     if (!visible) return;
+    
+    if (draggedNode >= 0 && nodes.count(draggedNode)) {
+        glm::vec2 wp = screenToWorld(x, y);
+        nodes[draggedNode].pos = wp + dragOffset;
+        nodes[draggedNode].vel = {0, 0};
+        return;
+    }
+    
     pan.x = panStart.x + (x - dragStart.x);
     pan.y = panStart.y + (y - dragStart.y);
+}
+
+void GraphUI::mouseReleased(int x, int y, int button) {
+    draggedNode = -1;
 }
 
 void GraphUI::mouseScrolled(int x, int y, float scrollX, float scrollY) {
@@ -35,11 +60,26 @@ void GraphUI::draw(Session& session) {
     auto& graphNodes = session.getGraph().getNodes();
     auto& conns = session.getGraph().getConnections();
     
+    // Init: random positions with min distance from center (avoid center)
+    // Sources spawn farther from center, outputs closer
+    const float canvasW = 1200.0f;
+    const float canvasH = 900.0f;
     for (auto& n : graphNodes) {
-        if (!n || nodes.count(n->nodeIndex)) continue;
-        int row = nodes.size() / 6;
-        int col = nodes.size() % 6;
-        nodes[n->nodeIndex] = {{100.0f + col * 120.0f, 100.0f + row * 80.0f}, {0, 0}};
+        if (!n.second || nodes.count(n.first)) continue;
+        
+        std::string t = n.second->type;
+        bool isSource = (t.find("Source") != std::string::npos);
+        float minDist = isSource ? 300.0f : 150.0f;
+        
+        float x, y;
+        int attempts = 0;
+        do {
+            x = ofRandom(50.0f, canvasW - 50.0f);
+            y = ofRandom(50.0f, canvasH - 50.0f);
+            attempts++;
+        } while (ofDist(x, y, canvasW/2, canvasH/2) < minDist && attempts < 50);
+        
+        nodes[n.first] = {{x, y}, {0, 0}};
     }
     
     forceLayout(session);
@@ -58,22 +98,27 @@ void GraphUI::draw(Session& session) {
     }
     
     for (auto& n : graphNodes) {
-        if (!n || !nodes.count(n->nodeIndex)) continue;
-        drawNode(n.get(), nodes[n->nodeIndex].pos.x, nodes[n->nodeIndex].pos.y);
+        if (!n.second || !nodes.count(n.first)) continue;
+        drawNode(n.second.get(), nodes[n.first].pos.x, nodes[n.first].pos.y);
     }
     
     ofPopMatrix();
 }
 
 void GraphUI::forceLayout(Session& session) {
-    auto& graphNodes = session.getGraph().getNodes();
     auto& conns = session.getGraph().getConnections();
     
     if (nodes.empty()) return;
     
-    const float spacing = 100.0f;
+    // Physics: higher = more damping (slower movement), 0.9-0.99
     const float damping = 0.98f;
-    const float maxVel = 5.0f;
+    // Physics: max pixels per frame, 0.5-5.0
+    const float maxVel = 1.5f;
+    
+    std::map<int, int> outDegree;
+    for (auto& c : conns) {
+        outDegree[c.fromNode]++;
+    }
     
     for (auto& [id, nv] : nodes) {
         if (!std::isfinite(nv.pos.x) || !std::isfinite(nv.pos.y)) {
@@ -89,6 +134,10 @@ void GraphUI::forceLayout(Session& session) {
         if (nv.vel.y < -maxVel) nv.vel.y = -maxVel;
     }
     
+    // Physics: base distance between nodes, 50-200
+    const float spacing = 100.0f;
+    
+    // Physics: repulsion when closer than spacing, 0.0005-0.005
     for (auto& [idA, nodeA] : nodes) {
         for (auto& [idB, nodeB] : nodes) {
             if (idA >= idB) continue;
@@ -96,7 +145,7 @@ void GraphUI::forceLayout(Session& session) {
             float dy = nodeB.pos.y - nodeA.pos.y;
             float dist = sqrtf(dx*dx + dy*dy);
             if (dist < spacing && dist > 1.0f) {
-                float force = (spacing - dist) * 0.01f;
+                float force = (spacing - dist) * 0.002f;
                 float fx = (dx / dist) * force;
                 float fy = (dy / dist) * force;
                 nodeA.vel.x -= fx;
@@ -107,6 +156,13 @@ void GraphUI::forceLayout(Session& session) {
         }
     }
     
+    // Physics: spring attraction, 0.001-0.01
+    // Tweak: targetDegree controls uniqueness - fewer connections to target = tighter bond
+    std::map<int, int> inDegree;
+    for (auto& c : conns) {
+        inDegree[c.toNode]++;
+    }
+    
     for (auto& c : conns) {
         if (!nodes.count(c.fromNode) || !nodes.count(c.toNode)) continue;
         auto& from = nodes[c.fromNode];
@@ -115,13 +171,31 @@ void GraphUI::forceLayout(Session& session) {
         float dy = to.pos.y - from.pos.y;
         float dist = sqrtf(dx*dx + dy*dy);
         if (dist > 1.0f) {
-            float force = (dist - spacing) * 0.005f;
+            float targetDegree = (float)inDegree.count(c.toNode) ? inDegree[c.toNode] : 1;
+            float targetDist = spacing * (0.2f + targetDegree * 0.04f);
+            if (targetDist < spacing * 0.5f) targetDist = spacing * 0.5f;
+            float force = (dist - targetDist) * 0.002f;
             float fx = (dx / dist) * force;
             float fy = (dy / dist) * force;
             from.vel.x += fx;
             from.vel.y += fy;
             to.vel.x -= fx;
             to.vel.y -= fy;
+        }
+    }
+    
+    // Physics: gravity toward center for output nodes only
+    // Tweak: centerX, centerY, gravity strength (0.001-0.02)
+    const float centerX = 400.0f;
+    const float centerY = 300.0f;
+    const float outputGravity = 0.002f;
+    auto& graphNodes = session.getGraph().getNodes();
+    for (auto& n : graphNodes) {
+        if (!n.second || !nodes.count(n.first)) continue;
+        if (n.second->type.find("Output") != std::string::npos) {
+            auto& nv = nodes[n.first];
+            nv.vel.x += (centerX - nv.pos.x) * outputGravity;
+            nv.vel.y += (centerY - nv.pos.y) * outputGravity;
         }
     }
     
@@ -143,5 +217,13 @@ void GraphUI::drawNode(Node* node, float x, float y) {
     
     ofFill();
     ofSetColor(200);
-    ofDrawBitmapString(node->name, x + 4, y + 16);
+    
+    std::string displayName = node->name;
+    const float charWidth = 8.0f;
+    int maxChars = static_cast<int>(80.0f / (charWidth / zoom));
+    maxChars = std::max(maxChars, 4);
+    if ((int)displayName.size() > maxChars) {
+        displayName = displayName.substr(0, maxChars - 1) + "~";
+    }
+    ofDrawBitmapString(displayName, x + 4, y + 16);
 }

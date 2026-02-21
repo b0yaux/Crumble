@@ -4,15 +4,17 @@
 #include <memory>
 #include <algorithm>
 #include <map>
+#include <unordered_map>
 #include <functional>
 #include <string>
 #include <mutex>
 
-// Simple connection struct - no objects, just indices
+// Simple connection struct - no objects, just node IDs
 // This is the key simplification: connections are just data
+// Uses stable nodeId instead of volatile indices
 struct Connection {
-    int fromNode = -1;      // Index in nodes array
-    int toNode = -1;        // Index in nodes array
+    int fromNode = -1;      // Node ID (stable across add/remove)
+    int toNode = -1;        // Node ID (stable across add/remove)
     int fromOutput = 0;     // Which output (nodes can have multiple)
     int toInput = 0;        // Which input (nodes can have multiple)
 };
@@ -30,11 +32,11 @@ public:
     T& addNode(Args&&... args) {
         static_assert(std::is_base_of<Node, T>::value, "T must derive from Node");
         auto node = std::make_unique<T>(std::forward<Args>(args)...);
-        node->name = node->type + "_" + std::to_string(nodes.size());
-        node->nodeIndex = nodes.size();
+        node->nodeId = Node::nextNodeId.fetch_add(1);
+        node->name = node->type + "_" + std::to_string(node->nodeId);
         node->graph = this;
         T& ref = *node;
-        nodes.push_back(std::move(node));
+        nodes[node->nodeId] = std::move(node);
         executionDirty = true;
         return ref;
     }
@@ -50,20 +52,21 @@ public:
     // Used when removing a mixer layer: atomically closes the gap.
     void removeInput(int toNode, int toInput);
     
-    void removeNode(int nodeIndex);
+    void removeNode(int nodeId);
     void clear();
     
-    // Get node by index
-    Node* getNode(int index) {
-        if (index >= 0 && index < nodes.size()) {
-            return nodes[index].get();
+    // Get node by nodeId
+    Node* getNode(int nodeId) {
+        auto it = nodes.find(nodeId);
+        if (it != nodes.end()) {
+            return it->second.get();
         }
         return nullptr;
     }
     
-    // Get connections for a specific node
-    std::vector<Connection> getInputConnections(int nodeIndex) const;
-    std::vector<Connection> getOutputConnections(int nodeIndex) const;
+    // Get connections for a specific node (by nodeId)
+    std::vector<Connection> getInputConnections(int nodeId) const;
+    std::vector<Connection> getOutputConnections(int nodeId) const;
     
     // Thread safety for audio thread
     std::mutex& getAudioMutex() { return audioMutex; }
@@ -73,7 +76,7 @@ public:
     void audioOut(ofSoundBuffer& buffer) override;
     
     // Access for serialization/debugging
-    const std::vector<std::unique_ptr<Node>>& getNodes() const { return nodes; }
+    const std::unordered_map<int, std::unique_ptr<Node>>& getNodes() const { return nodes; }
     const std::vector<Connection>& getConnections() const { return connections; }
     
     // Graph state
@@ -98,7 +101,7 @@ public:
     bool loadFromFile(const std::string& path);
     
 private:
-    std::vector<std::unique_ptr<Node>> nodes;
+    std::unordered_map<int, std::unique_ptr<Node>> nodes;
     std::vector<Connection> connections;
 
     // Topology validation flag
@@ -113,5 +116,5 @@ private:
     void validateTopology();
 
     // Pull-based evaluation helper (unified for video/audio)
-    void pullFromNode(int nodeIndex, float dt);
+    void pullFromNode(int nodeId, float dt);
 };

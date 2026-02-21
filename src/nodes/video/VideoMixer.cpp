@@ -145,7 +145,7 @@ void VideoMixer::onInputConnected(int& toInput) {
 
 int VideoMixer::getConnectedLayerCount() const {
     if (!graph) return 0;
-    auto inputs = graph->getInputConnections(nodeIndex);
+    auto inputs = graph->getInputConnections(nodeId);
     int connected = 0;
     for (const auto& conn : inputs) {
         if (conn.toInput < numActiveLayers) connected++;
@@ -155,7 +155,7 @@ int VideoMixer::getConnectedLayerCount() const {
 
 Node* VideoMixer::getLayerSource(int layerIndex) const {
     if (!graph || layerIndex < 0 || layerIndex >= numActiveLayers) return nullptr;
-    auto inputs = graph->getInputConnections(nodeIndex);
+    auto inputs = graph->getInputConnections(nodeId);
     for (const auto& conn : inputs) {
         if (conn.toInput == layerIndex) {
             return graph->getNode(conn.fromNode);
@@ -226,7 +226,7 @@ void VideoMixer::update(float dt) {
     if (!graph) return;
 
     // Derive sources from graph connections (single source of truth)
-    auto inputs = graph->getInputConnections(nodeIndex);
+    auto inputs = graph->getInputConnections(nodeId);
     
     struct RenderLayer {
         ofTexture* tex;

@@ -102,7 +102,7 @@ int ofApp::addVideoLayer(const std::string& filePath) {
     }
     if (layerIdx < 0) layerIdx = mixer->addLayer();
     if (layerIdx >= 0) {
-        session.connect(source->nodeIndex, mixer->nodeIndex, 0, layerIdx);
+        session.connect(source->nodeId, mixer->nodeId, 0, layerIdx);
     }
     return layerIdx;
 }
@@ -111,8 +111,8 @@ void ofApp::removeVideoLayer(int layerIndex) {
     if (!mixer || layerIndex < 0 || layerIndex >= mixer->getLayerCount()) return;
     if (mixer->getLayerCount() <= 1) return;
     Node* sourceNode = mixer->getLayerSource(layerIndex);
-    int sourceNodeIdx = sourceNode ? sourceNode->nodeIndex : -1;
-    session.removeInput(mixer->nodeIndex, layerIndex);
+    int sourceNodeIdx = sourceNode ? sourceNode->nodeId : -1;
+    session.removeInput(mixer->nodeId, layerIndex);
     if (sourceNodeIdx >= 0) session.removeNode(sourceNodeIdx);
     mixer->removeLayer(layerIndex);
 }

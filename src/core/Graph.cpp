@@ -9,13 +9,21 @@ Graph::~Graph() {
 }
 
 void Graph::addNode(std::unique_ptr<Node> node) {
-    node->nodeIndex = nodes.size();
+    node->nodeId = Node::nextNodeId.fetch_add(1);
     node->graph = this;
-    nodes.push_back(std::move(node));
+    nodes[node->nodeId] = std::move(node);
     executionDirty = true;
 }
 
 void Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
+    // Validate that both nodes exist using map find
+    auto fromIt = nodes.find(fromNode);
+    auto toIt = nodes.find(toNode);
+    if (fromIt == nodes.end() || toIt == nodes.end()) {
+        ofLogWarning("Graph") << "Cannot connect: node not found";
+        return;
+    }
+    
     // Check if this exact connection already exists
     for (const auto& conn : connections) {
         if (conn.toNode == toNode && conn.toInput == toInput) {
@@ -34,10 +42,8 @@ void Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
     executionDirty = true;
     
     // Notify the destination node that an input has been connected.
-    if (toNode >= 0 && toNode < (int)nodes.size()) {
-        int dummy = toInput; 
-        nodes[toNode]->onInputConnected(dummy);
-    }
+    int dummy = toInput; 
+    toIt->second->onInputConnected(dummy);
 }
 
 void Graph::disconnect(int toNode, int toInput) {
@@ -64,8 +70,9 @@ void Graph::removeInput(int toNode, int toInput) {
     executionDirty = true;
 }
 
-void Graph::removeNode(int nodeIndex) {
-    if (nodeIndex < 0 || nodeIndex >= nodes.size()) return;
+void Graph::removeNode(int nodeId) {
+    // Check if node exists
+    if (nodes.find(nodeId) == nodes.end()) return;
     
     // Protect against audio thread access during mutation
     std::lock_guard<std::mutex> lock(audioMutex);
@@ -73,30 +80,20 @@ void Graph::removeNode(int nodeIndex) {
     // Remove all connections to/from this node
     connections.erase(
         std::remove_if(connections.begin(), connections.end(),
-            [nodeIndex](const Connection& c) {
-                return c.fromNode == nodeIndex || c.toNode == nodeIndex;
+            [nodeId](const Connection& c) {
+                return c.fromNode == nodeId || c.toNode == nodeId;
             }),
         connections.end()
     );
     
-    // Remove node
-    nodes.erase(nodes.begin() + nodeIndex);
-    
-    // Update indices for remaining nodes and connections
-    for (int i = nodeIndex; i < nodes.size(); i++) {
-        nodes[i]->nodeIndex = i;
-    }
-    
-    for (auto& conn : connections) {
-        if (conn.fromNode > nodeIndex) conn.fromNode--;
-        if (conn.toNode > nodeIndex) conn.toNode--;
-    }
+    // Remove node - no index update needed since we use stable nodeId
+    nodes.erase(nodeId);
     
     executionDirty = true;
 }
 
 void Graph::clear() {
-    std::vector<std::unique_ptr<Node>> nodesToDestroy;
+    std::unordered_map<int, std::unique_ptr<Node>> nodesToDestroy;
     {
         std::lock_guard<std::mutex> lock(audioMutex);
         nodesToDestroy = std::move(nodes);
@@ -104,20 +101,20 @@ void Graph::clear() {
         executionDirty = true;
     }
 }
-std::vector<Connection> Graph::getInputConnections(int nodeIndex) const {
+std::vector<Connection> Graph::getInputConnections(int nodeId) const {
     std::vector<Connection> result;
     for (const auto& conn : connections) {
-        if (conn.toNode == nodeIndex) {
+        if (conn.toNode == nodeId) {
             result.push_back(conn);
         }
     }
     return result;
 }
 
-std::vector<Connection> Graph::getOutputConnections(int nodeIndex) const {
+std::vector<Connection> Graph::getOutputConnections(int nodeId) const {
     std::vector<Connection> result;
     for (const auto& conn : connections) {
-        if (conn.fromNode == nodeIndex) {
+        if (conn.fromNode == nodeId) {
             result.push_back(conn);
         }
     }
@@ -132,9 +129,10 @@ void Graph::update(float dt) {
     // Pull-based: update all sink nodes (nodes with no outgoing connections).
     // Each sink recursively pulls its inputs, and the lastUpdateFrame guard
     // prevents double-updates when sinks share upstream sources.
-    for (int i = 0; i < (int)nodes.size(); i++) {
-        if (getOutputConnections(i).empty()) {
-            pullFromNode(i, dt);
+    for (const auto& pair : nodes) {
+        int nodeId = pair.first;
+        if (getOutputConnections(nodeId).empty()) {
+            pullFromNode(nodeId, dt);
         }
     }
 }
@@ -144,11 +142,12 @@ void Graph::audioOut(ofSoundBuffer& buffer) {
     buffer.set(0);
 }
 
-void Graph::pullFromNode(int nodeIndex, float dt) {
-    if (nodeIndex < 0 || nodeIndex >= (int)nodes.size()) return;
+void Graph::pullFromNode(int nodeId, float dt) {
+    auto it = nodes.find(nodeId);
+    if (it == nodes.end()) return;
     
     // Check if already updated this frame
-    auto& node = nodes[nodeIndex];
+    auto& node = it->second;
     if (!node) return; // Safety check
     
     uint64_t currentFrame = ofGetFrameNum();
@@ -157,7 +156,7 @@ void Graph::pullFromNode(int nodeIndex, float dt) {
     
     // Pull from all input connections first
     // Copy connections to avoid iterator invalidation if the update changes the graph
-    auto inputs = getInputConnections(nodeIndex);
+    auto inputs = getInputConnections(nodeId);
     for (const auto& conn : inputs) {
         pullFromNode(conn.fromNode, dt);
     }
@@ -173,33 +172,45 @@ void Graph::validateTopology() {
     }
 
     // Kahn's algorithm — only for cycle detection
+    // Build nodeId to index mapping for the inDegree array
+    std::vector<int> nodeIdList;
+    std::unordered_map<int, int> nodeIdToIndex;
+    int idx = 0;
+    for (const auto& pair : nodes) {
+        nodeIdToIndex[pair.first] = idx;
+        nodeIdList.push_back(pair.first);
+        idx++;
+    }
+    
     std::vector<int> inDegree(nodes.size(), 0);
 
     for (const auto& conn : connections) {
-        if (conn.toNode >= 0 && conn.toNode < (int)nodes.size()) {
-            inDegree[conn.toNode]++;
+        auto toIt = nodeIdToIndex.find(conn.toNode);
+        if (toIt != nodeIdToIndex.end()) {
+            inDegree[toIt->second]++;
         }
     }
 
     std::vector<int> queue;
-    for (int i = 0; i < (int)nodes.size(); i++) {
+    for (int i = 0; i < (int)nodeIdList.size(); i++) {
         if (inDegree[i] == 0) {
-            queue.push_back(i);
+            queue.push_back(nodeIdList[i]);
         }
     }
 
     int visited = 0;
     while (!queue.empty()) {
-        int current = queue.back();
+        int currentNodeId = queue.back();
         queue.pop_back();
         visited++;
 
         for (const auto& conn : connections) {
-            if (conn.fromNode == current) {
-                // Bounds check before decrementing
-                if (conn.toNode >= 0 && conn.toNode < (int)inDegree.size()) {
-                    inDegree[conn.toNode]--;
-                    if (inDegree[conn.toNode] == 0) {
+            if (conn.fromNode == currentNodeId) {
+                auto toIt = nodeIdToIndex.find(conn.toNode);
+                if (toIt != nodeIdToIndex.end()) {
+                    int toIdx = toIt->second;
+                    inDegree[toIdx]--;
+                    if (inDegree[toIdx] == 0) {
                         queue.push_back(conn.toNode);
                     }
                 }
@@ -229,11 +240,11 @@ Node* Graph::createNode(const std::string& type, const std::string& name) {
     auto node = it->second();
     node->type = type;
     node->name = name.empty() ? type + "_" + std::to_string(nodes.size()) : name;
-    node->nodeIndex = nodes.size();
+    node->nodeId = Node::nextNodeId.fetch_add(1);
     node->graph = this;
     
     Node* ptr = node.get();
-    nodes.push_back(std::move(node));
+    nodes[node->nodeId] = std::move(node);
     executionDirty = true;
     return ptr;
 }
@@ -262,9 +273,9 @@ ofJson Graph::toJson() const {
     
     // Build nodes array first
     ofJson nodesJson = ofJson::array();
-    for (const auto& node : nodes) {
+    for (const auto& [id, node] : nodes) {
         ofJson nodeJson;
-        nodeJson["id"] = node->nodeIndex;
+        nodeJson["id"] = node->nodeId;
         nodeJson["type"] = node->type;
         nodeJson["name"] = node->name;
 
@@ -326,16 +337,38 @@ bool Graph::fromJson(const ofJson& json) {
         for (const auto& nodeJson : json["nodes"]) {
             std::string type = nodeJson.value("type", "Node");
             std::string name = nodeJson.value("name", "");
+            int nodeId = getSafeJson<int>(nodeJson, "id", -1);
 
-            Node* node = createNode(type, name);
-            if (!node) {
-                ofLogError("Graph") << "Failed to create node of type: " << type;
+            // Get the node creator
+            auto it = nodeTypes.find(type);
+            if (it == nodeTypes.end()) {
+                ofLogError("Graph") << "Unknown node type: " << type;
                 continue;
+            }
+
+            // Create node
+            auto node = it->second();
+            node->type = type;
+            node->name = name.empty() ? type + "_" + std::to_string(nodes.size()) : name;
+            node->graph = this;
+            
+            // Preserve nodeId from JSON if provided, otherwise generate new one
+            if (nodeId >= 0) {
+                node->nodeId = nodeId;
+                // Update nextNodeId to be beyond any loaded IDs
+                if (nodeId >= Node::nextNodeId.load()) {
+                    Node::nextNodeId.store(nodeId + 1);
+                }
+            } else {
+                node->nodeId = Node::nextNodeId.fetch_add(1);
             }
 
             // Each node deserializes its own state
             ofJson params = nodeJson.contains("params") ? nodeJson["params"] : ofJson::object();
             node->deserialize(params);
+
+            // Insert into map with the nodeId as key
+            nodes[node->nodeId] = std::move(node);
         }
     }
 
@@ -347,7 +380,8 @@ bool Graph::fromJson(const ofJson& json) {
             int fromOutput = getSafeJson<int>(connJson, "fromOutput", 0);
             int toInput = getSafeJson<int>(connJson, "toInput", 0);
 
-            if (from >= 0 && to >= 0 && from < (int)nodes.size() && to < (int)nodes.size()) {
+            // Use nodeId-based lookup instead of array index
+            if (from >= 0 && to >= 0 && nodes.find(from) != nodes.end() && nodes.find(to) != nodes.end()) {
                 connect(from, to, fromOutput, toInput);
             }
         }

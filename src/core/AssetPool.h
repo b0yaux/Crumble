@@ -12,14 +12,6 @@
  */
 class AssetPool {
 public:
-    // Shared Audio Buffer resource
-    struct AudioAsset {
-        std::unique_ptr<ofxAudioFile> file;
-        std::string path;
-        int useCount = 0;
-        float lastUsedTime = 0;
-    };
-
     AssetPool() = default;
 
     // Get a shared audio file reference. 

@@ -221,8 +221,8 @@ int ScriptBridge::lua_addNode(lua_State* L) {
     if (!name.empty()) {
         if (Node* existing = s_currentSession->findNodeByName(name)) {
             if (existing->type == type) {
-                s_currentSession->touchNode(existing->nodeIndex);
-                lua_pushinteger(L, existing->nodeIndex);
+                s_currentSession->touchNode(existing->nodeId);
+                lua_pushinteger(L, existing->nodeId);
                 return 1;
             }
         }
@@ -230,8 +230,8 @@ int ScriptBridge::lua_addNode(lua_State* L) {
     
     Node* node = s_currentSession->addNode(type, name);
     if (node) {
-        s_currentSession->touchNode(node->nodeIndex);
-        lua_pushinteger(L, node->nodeIndex);
+        s_currentSession->touchNode(node->nodeId);
+        lua_pushinteger(L, node->nodeId);
         return 1;
     }
     return 0;

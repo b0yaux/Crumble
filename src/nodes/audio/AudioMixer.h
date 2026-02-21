@@ -40,7 +40,7 @@ public:
         if (!graph) return;
 
         // Get all connections to this node
-        auto inputs = graph->getInputConnections(nodeIndex);
+        auto inputs = graph->getInputConnections(nodeId);
         if (inputs.empty()) return;
 
         // Ensure tempBuffer matches output buffer size

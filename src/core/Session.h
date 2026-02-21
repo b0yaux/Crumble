@@ -26,7 +26,7 @@ public:
     // --- Graph primitives (the primary API) ---
 
     Node* addNode(const std::string& type, const std::string& name = "");
-    void  removeNode(int index);
+    void  removeNode(int nodeId);
     void  connect(int fromNode, int toNode, int fromOutput = 0, int toInput = 0);
     void  disconnect(int toNode, int toInput = 0);
     void  removeInput(int toNode, int toInput);
@@ -36,7 +36,7 @@ public:
     
     void beginScript();   // Clear touched flags on all nodes
     void endScript();     // Remove nodes not touched during script
-    void touchNode(int index);  // Mark node as active
+    void touchNode(int nodeId);  // Mark node as active
 
     // --- Lifecycle ---
 
@@ -44,7 +44,7 @@ public:
 
     // --- Node access ---
 
-    Node* getNode(int index);
+    Node* getNode(int nodeId);
     Node* getNode(const std::string& name);
     int   getNodeCount() const;
 
@@ -55,7 +55,7 @@ public:
     template<typename T>
     T* findFirstNode() {
         for (const auto& node : graph.getNodes()) {
-            T* ptr = dynamic_cast<T*>(node.get());
+            T* ptr = dynamic_cast<T*>(node.second.get());
             if (ptr) return ptr;
         }
         return nullptr;
@@ -65,15 +65,15 @@ public:
     std::vector<T*> findAllNodes() {
         std::vector<T*> result;
         for (const auto& node : graph.getNodes()) {
-            T* ptr = dynamic_cast<T*>(node.get());
+            T* ptr = dynamic_cast<T*>(node.second.get());
             if (ptr) result.push_back(ptr);
         }
         return result;
     }
 
     template<typename T>
-    T* getNodeAs(int index) {
-        return dynamic_cast<T*>(getNode(index));
+    T* getNodeAs(int nodeId) {
+        return dynamic_cast<T*>(getNode(nodeId));
     }
 
     // --- Undo / Redo (checkpoint-based) ---

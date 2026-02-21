@@ -1,5 +1,6 @@
 #pragma once
 #include "ofMain.h"
+#include <atomic>
 
 // Minimal base class for all nodes in the graph
 // No Port objects, no ConnectionManager - just data flow
@@ -36,7 +37,10 @@ public:
     // Graph context (set by Graph when added)
     // Used by nodes to access other nodes for pull-based evaluation
     class Graph* graph = nullptr;
-    int nodeIndex = -1;
+    int nodeId = -1;     // Stable ID that persists across add/remove operations
+    
+    // Static counter for generating unique nodeIds
+    static std::atomic<int> nextNodeId;
     
 public:
     // Internal state (public for Graph access, don't use directly)

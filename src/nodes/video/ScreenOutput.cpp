@@ -30,7 +30,7 @@ void ScreenOutput::update(float dt) {
     if (!graph) return;
     
     // Pull input texture from connected node (already updated by graph pull)
-    auto inputs = graph->getInputConnections(nodeIndex);
+    auto inputs = graph->getInputConnections(nodeId);
     if (!inputs.empty()) {
         Node* sourceNode = graph->getNode(inputs[0].fromNode);
         if (sourceNode) {

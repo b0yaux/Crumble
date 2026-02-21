@@ -8,8 +8,8 @@ Node* Session::addNode(const std::string& type, const std::string& name) {
     return graph.createNode(type, name);
 }
 
-void Session::removeNode(int index) {
-    graph.removeNode(index);
+void Session::removeNode(int nodeId) {
+    graph.removeNode(nodeId);
 }
 
 void Session::connect(int fromNode, int toNode, int fromOutput, int toInput) {
@@ -31,24 +31,29 @@ void Session::clear() {
 // --- Script lifecycle ---
 
 void Session::beginScript() {
-    for (auto& node : graph.getNodes()) {
+    for (auto& [nodeId, node] : graph.getNodes()) {
         node->touched = false;
     }
 }
 
 void Session::endScript() {
-    // Remove untouched nodes from highest index to lowest (to preserve indices)
-    for (int i = graph.getNodeCount() - 1; i >= 0; i--) {
-        if (auto node = graph.getNode(i)) {
+    // Remove untouched nodes - iterate over a copy of node IDs since we modify the map
+    std::vector<int> nodeIds;
+    for (const auto& [id, node] : graph.getNodes()) {
+        nodeIds.push_back(id);
+    }
+    
+    for (int nodeId : nodeIds) {
+        if (auto node = graph.getNode(nodeId)) {
             if (!node->touched) {
-                graph.removeNode(i);
+                graph.removeNode(nodeId);
             }
         }
     }
 }
 
-void Session::touchNode(int index) {
-    if (auto node = graph.getNode(index)) {
+void Session::touchNode(int nodeId) {
+    if (auto node = graph.getNode(nodeId)) {
         node->touched = true;
     }
 }
@@ -61,12 +66,12 @@ void Session::update(float dt) {
 
 // --- Node access ---
 
-Node* Session::getNode(int index) {
-    return graph.getNode(index);
+Node* Session::getNode(int nodeId) {
+    return graph.getNode(nodeId);
 }
 
 Node* Session::findNodeByName(const std::string& name) {
-    for (const auto& node : graph.getNodes()) {
+    for (const auto& [id, node] : graph.getNodes()) {
         if (node->name == name) return node.get();
     }
     return nullptr;

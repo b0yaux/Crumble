@@ -8,7 +8,7 @@
  * and the Crumble C++ engine.
  * 
  * Design:
- * 1. Handle-based: Lua refers to nodes by their integer indices (nodeIndex).
+ * 1. Handle-based: Lua refers to nodes by their stable integer IDs (nodeId).
  * 2. Fire-and-Forget: Scripts execute once to build/update the graph, then exit.
  *    This avoids dangling pointers and GC issues with C++ objects in Lua.
  * 3. Reactive Binding: Maps the high-level Lua DSL to C++ Session/Node actions.

@@ -42,7 +42,7 @@ public:
             return;
         }
         
-        auto inputs = graph->getInputConnections(nodeIndex);
+        auto inputs = graph->getInputConnections(nodeId);
         if (inputs.empty()) {
             buffer.set(0);
             return;

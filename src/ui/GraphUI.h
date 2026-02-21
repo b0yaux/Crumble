@@ -10,6 +10,7 @@ public:
     
     void mousePressed(int x, int y, int button);
     void mouseDragged(int x, int y, int button);
+    void mouseReleased(int x, int y, int button);
     void mouseScrolled(int x, int y, float scrollX, float scrollY);
     
     void setVisible(bool v) { visible = v; }
@@ -22,6 +23,8 @@ private:
     float zoom = 1.0f;
     glm::vec2 dragStart;
     glm::vec2 panStart;
+    int draggedNode = -1;
+    glm::vec2 dragOffset;
     
     struct NodeViz {
         glm::vec2 pos;
