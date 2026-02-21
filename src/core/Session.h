@@ -11,9 +11,7 @@ extern class Session* g_session;
 // interaction layer (keyboard, scripting, OSC, GUI).
 //
 // Graph primitives (addNode, connect, etc.) are exposed directly.
-// Undo is checkpoint-based: snapshot the entire graph state as JSON
-// before significant operations, restore on undo. Simple and correct
-// for graphs of any realistic size (<100 nodes).
+// Script-driven workflow: state changes via Lua/JSON, no undo stack.
 
 class Session {
 public:
@@ -75,14 +73,6 @@ public:
         return dynamic_cast<T*>(getNode(nodeId));
     }
 
-    // --- Undo / Redo (checkpoint-based) ---
-
-    void checkpoint();      // Snapshot current graph state
-    void undo();
-    void redo();
-    bool canUndo() const;
-    bool canRedo() const;
-
     // --- Persistence ---
 
     bool save(const std::string& path);
@@ -101,9 +91,4 @@ public:
 private:
     Graph graph;
     AssetPool assetPool;
-
-    // Checkpoint-based undo history
-    std::vector<ofJson> snapshots;
-    int snapshotPos = -1;
-    static constexpr size_t maxSnapshots = 100;
 };

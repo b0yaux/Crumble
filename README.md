@@ -17,7 +17,7 @@ Crumble follows a **Reactive Pull-based Modular** design.
 
 - **`Node`**: The base class. Nodes are self-contained, reactive processors.
 - **`Graph`**: Manages nodes and connections. A `Graph` is itself a `Node`, enabling recursive nesting.
-- **`Session`**: High-level API surface with undo/redo and script lifecycle management.
+- **`Session`**: High-level API surface with script lifecycle management.
 - **`ScriptBridge`**: Facilitates communication between Lua and C++.
 - **`AssetPool`**: Media caching and deduplication for audio resources.
 
@@ -28,7 +28,7 @@ src/
 ├── core/
 │   ├── Node.h/cpp          # Base node & serialization logic
 │   ├── Graph.h/cpp         # Graph & recursive nesting engine
-│   ├── Session.h/cpp       # High-level API, undo/redo, script lifecycle
+│   ├── Session.h/cpp       # High-level API, script lifecycle
 │   ├── ScriptBridge.h/cpp  # Lua bridge & DSL definition
 │   └── AssetPool.h/cpp     # Audio caching & deduplication
 ├── nodes/
@@ -80,6 +80,5 @@ make
 ## Shortcuts
 
 - `G` : Toggle GUI
-- `Cmd+Z` / `Cmd+Shift+Z` : Undo / Redo
 - `Cmd+S` : Save current graph to `main.json`
 - Drag & Drop media files to auto-add as layers

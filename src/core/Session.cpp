@@ -81,51 +81,6 @@ int Session::getNodeCount() const {
     return static_cast<int>(graph.getNodeCount());
 }
 
-// --- Graph output routing ---
-
-// --- Undo / Redo ---
-
-void Session::checkpoint() {
-    // Truncate any redo future
-    if (snapshotPos < (int)snapshots.size() - 1) {
-        snapshots.erase(snapshots.begin() + snapshotPos + 1, snapshots.end());
-    }
-
-    snapshots.push_back(graph.toJson());
-    snapshotPos++;
-
-    // Cap history size
-    if (snapshots.size() > maxSnapshots) {
-        snapshots.erase(snapshots.begin());
-        snapshotPos--;
-    }
-}
-
-void Session::undo() {
-    if (!canUndo()) return;
-    // Before first undo, save current state so redo can restore it
-    if (snapshotPos == (int)snapshots.size() - 1) {
-        snapshots.push_back(graph.toJson());
-    }
-    graph.fromJson(snapshots[snapshotPos]);
-    snapshotPos--;
-}
-
-void Session::redo() {
-    if (!canRedo()) return;
-    snapshotPos++;
-    // The state to restore is one ahead of snapshotPos
-    graph.fromJson(snapshots[snapshotPos + 1]);
-}
-
-bool Session::canUndo() const {
-    return snapshotPos >= 0;
-}
-
-bool Session::canRedo() const {
-    return snapshotPos < (int)snapshots.size() - 2;
-}
-
 // --- Persistence ---
 
 bool Session::save(const std::string& path) {

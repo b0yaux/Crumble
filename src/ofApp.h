@@ -27,8 +27,6 @@ class ofApp : public ofBaseApp{
     // Crumble logic
     void initCrumbleMixer();
     int addVideoLayer(const std::string& filePath);
-    void removeVideoLayer(int layerIndex);
-    void addTestLayers(int count);
     void refreshUIPointers();
     void checkLiveReload();
 
@@ -41,13 +39,10 @@ class ofApp : public ofBaseApp{
     const std::string jsonPath = "scripts/main.json";
 
     // UI state
-    int selectedLayer = 0;
     bool showGui = true;
     GraphUI graphUI;
     
     // Cached node pointers for UI
     VideoMixer* mixer = nullptr;
     ScreenOutput* output = nullptr;
-    
-    void printLayerInfo();
 };

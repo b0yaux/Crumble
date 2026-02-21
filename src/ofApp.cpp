@@ -94,22 +94,6 @@ int ofApp::addVideoLayer(const std::string& filePath) {
     return layerIdx;
 }
 
-void ofApp::removeVideoLayer(int layerIndex) {
-    if (!mixer || layerIndex < 0 || layerIndex >= mixer->getLayerCount()) return;
-    if (mixer->getLayerCount() <= 1) return;
-    Node* sourceNode = mixer->getLayerSource(layerIndex);
-    int sourceNodeIdx = sourceNode ? sourceNode->nodeId : -1;
-    session.removeInput(mixer->nodeId, layerIndex);
-    if (sourceNodeIdx >= 0) session.removeNode(sourceNodeIdx);
-    mixer->removeLayer(layerIndex);
-}
-
-void ofApp::addTestLayers(int count) {
-    session.checkpoint();
-    for (int i = 0; i < count; i++) addVideoLayer("");
-    refreshUIPointers();
-}
-
 void ofApp::update(){
     session.update(ofGetLastFrameTime());
     checkLiveReload();
@@ -129,18 +113,7 @@ void ofApp::keyPressed(int key){
         showGui = !showGui;
         graphUI.setVisible(showGui);
     }
-    if (key == '+' || key == '=') addTestLayers(1);
-    if (key == '-' || key == '_') {
-        session.checkpoint();
-        removeVideoLayer(selectedLayer);
-        refreshUIPointers();
-    }
     if (key == 's' && ofGetKeyPressed(OF_KEY_COMMAND)) session.save("scripts/main.json");
-    if (key == 'z' && ofGetKeyPressed(OF_KEY_COMMAND)) {
-        if (ofGetKeyPressed(OF_KEY_SHIFT)) session.redo();
-        else session.undo();
-        refreshUIPointers();
-    }
 }
 
 void ofApp::mousePressed(int x, int y, int button) {
@@ -168,8 +141,8 @@ void ofApp::dragEvent(ofDragInfo dragInfo){
     for (const auto& file : dragInfo.files) {
         std::string ext = ofFilePath::getFileExt(file);
         if (ext == "mov" || ext == "hap" || ext == "mp4" || ext == "avi") {
-            if (!added) { session.checkpoint(); added = true; }
             addVideoLayer(file);
+            added = true;
         }
     }
     if (added) refreshUIPointers();
