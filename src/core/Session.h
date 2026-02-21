@@ -45,7 +45,6 @@ public:
     // --- Node access ---
 
     Node* getNode(int nodeId);
-    Node* getNode(const std::string& name);
     int   getNodeCount() const;
 
     // --- Search & Inspection ---

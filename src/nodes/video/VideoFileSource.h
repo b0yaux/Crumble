@@ -7,11 +7,11 @@ class VideoFileSource : public Node {
 public:
     VideoFileSource();
     
-    void load(const std::string& videoPath);
-    
+    void load(const std::string& path);
+
     void update(float dt) override;
     ofTexture* getVideoOutput() override;
-    
+
     // Returns filename for UI display
     std::string getDisplayName() const override;
     
@@ -40,7 +40,7 @@ private:
     std::string loadedPath;
     
     // Parameters
-    ofParameter<std::string> videoPath;
+    ofParameter<std::string> path;
     ofParameter<bool> loop;
     ofParameter<float> speed;
     ofParameter<bool> playOnLoad;

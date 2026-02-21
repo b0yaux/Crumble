@@ -139,8 +139,14 @@ void ScriptBridge::bindSessionAPI() {
             _set(targetId, name, value)
         end
 
-        -- Directory Import Helper
+-- Directory Import Helper
         function importFolder(path, extension)
+            if _exists(path) == false then
+                return {}
+            end
+
+            local files = _listDir(path)
+            local imported = {}
             local files = _listDir(path)
             local imported = {}
             
@@ -172,9 +178,9 @@ void ScriptBridge::bindSessionAPI() {
                     if ext:match("%.wav") or ext:match("%.mp3") or ext:match("%.aif") then
                         nodeType = "AudioFileSource"
                     end
-                    
+
                     local node = addNode(nodeType, name)
-                    node.videoPath = f -- We'll rename this to 'path' later for generality
+                    node.path = f
                     table.insert(imported, node)
                 end
             end

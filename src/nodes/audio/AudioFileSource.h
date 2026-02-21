@@ -11,15 +11,15 @@ class AudioFileSource : public Node {
 public:
     AudioFileSource() {
         type = "AudioFileSource";
-        
+
         parameters.setName("AudioSource");
-        parameters.add(audioPath.set("audioPath", ""));
+        parameters.add(path.set("path", ""));
         parameters.add(volume.set("Volume", 1.0, 0.0, 1.0));
         parameters.add(speed.set("Speed", 1.0, -4.0, 4.0));
         parameters.add(loop.set("Loop", true));
         parameters.add(playing.set("Playing", true));
-        
-        audioPath.addListener(this, &AudioFileSource::onPathChanged);
+
+        path.addListener(this, &AudioFileSource::onPathChanged);
     }
     
     void audioOut(ofSoundBuffer& buffer) override {
@@ -65,32 +65,32 @@ public:
     }
     
     std::string getDisplayName() const override {
-        if (audioPath.get().empty()) return "Empty Audio";
-        return ofFilePath::getFileName(audioPath.get());
+        if (path.get().empty()) return "Empty Audio";
+        return ofFilePath::getFileName(path.get());
     }
 
 protected:
     std::shared_ptr<ofxAudioFile> sharedLoader;
     double playhead = 0;
     std::string loadedPath;
-    
-    ofParameter<std::string> audioPath;
+
+    ofParameter<std::string> path;
     ofParameter<float> volume;
     ofParameter<float> speed;
     ofParameter<bool> loop;
     ofParameter<bool> playing;
     
-    void onPathChanged(std::string& path) {
-        if (path.empty() || path == loadedPath) return;
-        
+    void onPathChanged(std::string& p) {
+        if (p.empty() || p == loadedPath) return;
+
         if (g_session) {
-            sharedLoader = g_session->getAssets().getAudio(path);
+            sharedLoader = g_session->getAssets().getAudio(p);
             if (sharedLoader) {
                 playhead = 0;
-                loadedPath = path;
-                ofLogNotice("AudioFileSource") << "Got shared audio: " << path;
+                loadedPath = p;
+                ofLogNotice("AudioFileSource") << "Got shared audio: " << p;
             } else {
-                ofLogError("AudioFileSource") << "FAILED to load: " << path;
+                ofLogError("AudioFileSource") << "FAILED to load: " << p;
             }
         }
     }

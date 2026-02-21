@@ -129,8 +129,7 @@ void Graph::update(float dt) {
     // Pull-based: update all sink nodes (nodes with no outgoing connections).
     // Each sink recursively pulls its inputs, and the lastUpdateFrame guard
     // prevents double-updates when sinks share upstream sources.
-    for (const auto& pair : nodes) {
-        int nodeId = pair.first;
+    for (const auto& [nodeId, node] : nodes) {
         if (getOutputConnections(nodeId).empty()) {
             pullFromNode(nodeId, dt);
         }

@@ -2,13 +2,13 @@
 
 VideoFileSource::VideoFileSource() {
     type = "VideoFileSource";
-    
-    parameters.add(videoPath.set("videoPath", ""));
+
+    parameters.add(path.set("path", ""));
     parameters.add(loop.set("loop", true));
     parameters.add(speed.set("speed", 1.0, -4.0, 4.0));
     parameters.add(playOnLoad.set("playOnLoad", true));
-    
-    videoPath.addListener(this, &VideoFileSource::onPathChanged);
+
+    path.addListener(this, &VideoFileSource::onPathChanged);
 }
 
 void VideoFileSource::onPathChanged(std::string& path) {
@@ -19,7 +19,7 @@ void VideoFileSource::onPathChanged(std::string& path) {
 
 
 void VideoFileSource::load(const std::string& vidPath) {
-    videoPath = vidPath;
+    path = vidPath;
     
     // Check if the path is absolute or relative to data path
     string fullPath = ofToDataPath(vidPath);
@@ -74,13 +74,13 @@ ofTexture* VideoFileSource::getVideoOutput() {
 }
 
 std::string VideoFileSource::getDisplayName() const {
-    std::string path = videoPath.get();
-    if (path.empty()) return name;
-    size_t lastSlash = path.find_last_of("/\\");
+    std::string p = path.get();
+    if (p.empty()) return name;
+    size_t lastSlash = p.find_last_of("/\\");
     if (lastSlash != std::string::npos) {
-        return path.substr(lastSlash + 1);
+        return p.substr(lastSlash + 1);
     }
-    return path;
+    return p;
 }
 
 void VideoFileSource::play() {
@@ -133,20 +133,20 @@ void VideoFileSource::deserialize(const ofJson& json) {
     } else if (j.contains("params")) {
         j = j["params"];
     }
-    
+
     // Manually extract parameters with "loose" type support to prevent Abort trap
+    // Migrate from old "videoPath" key to new "path" key
+    std::string pathValue;
     if (j.contains("videoPath")) {
-        videoPath = getSafeJson<string>(j, "videoPath", videoPath.get());
+        pathValue = getSafeJson<string>(j, "videoPath", "");
+    } else if (j.contains("path")) {
+        pathValue = getSafeJson<string>(j, "path", "");
     }
-    if (j.contains("loop")) {
-        loop = getSafeJson<bool>(j, "loop", loop.get());
-    }
-    if (j.contains("speed")) {
-        speed = getSafeJson<float>(j, "speed", speed.get());
-    }
-    if (j.contains("playOnLoad")) {
-        playOnLoad = getSafeJson<bool>(j, "playOnLoad", playOnLoad.get());
-    }
-    
+    if (!pathValue.empty()) path.set(pathValue);
+
+    if (j.contains("loop")) loop = getSafeJson<bool>(j, "loop", loop.get());
+    if (j.contains("speed")) speed = getSafeJson<float>(j, "speed", speed.get());
+    if (j.contains("playOnLoad")) playOnLoad = getSafeJson<bool>(j, "playOnLoad", playOnLoad.get());
+
     ofDeserialize(j, parameters);
 }
