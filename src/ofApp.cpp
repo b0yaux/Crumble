@@ -11,62 +11,39 @@ void ofApp::setup(){
     scriptBridge.setup(&session);
     
     // 2. Initial load (Lua takes priority if it exists)
-    std::string luaPath = "scripts/main.lua";
-    std::string jsonPath = "scripts/main.json";
-    
     if (ofFile::doesFileExist(luaPath)) {
         scriptBridge.runScript(luaPath);
-        try { lastLuaMod = std::filesystem::last_write_time(ofToDataPath(luaPath)); } catch(...) {}
-        // Also sync JSON time to prevent immediate double-load if it's older
-        if (ofFile::doesFileExist(jsonPath)) {
-            try { lastJsonMod = std::filesystem::last_write_time(ofToDataPath(jsonPath)); } catch(...) {}
-        }
     } else if (ofFile::doesFileExist(jsonPath)) {
         session.load(jsonPath);
-        try { lastJsonMod = std::filesystem::last_write_time(ofToDataPath(jsonPath)); } catch (...) {}
     } else {
         initCrumbleMixer();
     }
+    
+    // 3. Initialize background file watcher
+    fileWatcher.watch(ofToDataPath(luaPath));
+    fileWatcher.watch(ofToDataPath(jsonPath));
+    fileWatcher.start(500); // Poll background thread every 500ms
     
     refreshUIPointers();
     graphUI.setup();
 }
 
 void ofApp::checkLiveReload() {
-    std::string luaPath = "scripts/main.lua";
-    std::string jsonPath = "scripts/main.json";
-    
     // Check Lua first
-    if (ofFile::doesFileExist(luaPath)) {
-        try {
-            auto mtime = std::filesystem::last_write_time(ofToDataPath(luaPath));
-            if (mtime > lastLuaMod) {
-                lastLuaMod = mtime;
-                ofLogNotice("ofApp") << "Live-reloading script: " << luaPath;
-                if (scriptBridge.runScript(luaPath)) {
-                    refreshUIPointers();
-                }
-                // If we reloaded Lua, we consider JSON "up to date" to avoid fighting
-                if (ofFile::doesFileExist(jsonPath)) {
-                    try { lastJsonMod = std::filesystem::last_write_time(ofToDataPath(jsonPath)); } catch(...) {}
-                }
-                return; // Only one reload per frame
-            }
-        } catch (...) {}
+    if (fileWatcher.isDirty(ofToDataPath(luaPath))) {
+        ofLogNotice("ofApp") << "Live-reloading script: " << luaPath;
+        if (scriptBridge.runScript(luaPath)) {
+            refreshUIPointers();
+        }
+        // Consume JSON dirty flag to prevent fighting
+        fileWatcher.isDirty(ofToDataPath(jsonPath));
     }
-
     // Check JSON
-    if (ofFile::doesFileExist(jsonPath)) {
-        try {
-            auto mtime = std::filesystem::last_write_time(ofToDataPath(jsonPath));
-            if (mtime > lastJsonMod) {
-                lastJsonMod = mtime;
-                ofLogNotice("ofApp") << "Live-reloading JSON: " << jsonPath;
-                if (session.load(jsonPath)) {
-                    refreshUIPointers();
-                }
-            }
-        } catch (...) {}
+    else if (fileWatcher.isDirty(ofToDataPath(jsonPath))) {
+        ofLogNotice("ofApp") << "Live-reloading JSON: " << jsonPath;
+        if (session.load(jsonPath)) {
+            refreshUIPointers();
+        }
     }
 }
 

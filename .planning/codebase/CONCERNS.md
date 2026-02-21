@@ -60,11 +60,8 @@
 
 ## Performance Bottlenecks
 
-**Per-Frame Filesystem Polling (Minor):**
-- Problem: `checkLiveReload()` queries the filesystem every frame (60Hz).
-- Impact: Minimal on modern systems, but contributes to general main-thread overhead.
-- Note: Current implementation uses `try...catch` and `ofLoadJson` validation, making it robust against race conditions during file writes.
-- Improvement path: Throttling to 2-5Hz or moving to an event-driven watcher if CPU usage becomes an issue.
+**None Detected.**
+- Previous concern regarding per-frame filesystem polling was resolved by implementing a background `FileWatcher` thread.
 
 ## Fragile Areas
 

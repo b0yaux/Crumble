@@ -6,6 +6,7 @@
 #include "nodes/video/ScreenOutput.h"
 #include "nodes/video/VideoFileSource.h"
 #include "ui/GraphUI.h"
+#include "core/FileWatcher.h"
 
 class ofApp : public ofBaseApp{
 
@@ -33,10 +34,11 @@ class ofApp : public ofBaseApp{
 
     Session session;
     ScriptBridge scriptBridge;
+    FileWatcher fileWatcher;
     
-    // Live-reload state
-    std::filesystem::file_time_type lastJsonMod;
-    std::filesystem::file_time_type lastLuaMod;
+    // Live-reload paths
+    const std::string luaPath = "scripts/main.lua";
+    const std::string jsonPath = "scripts/main.json";
 
     // UI state
     int selectedLayer = 0;
