@@ -29,17 +29,27 @@ void ofApp::setup(){
 }
 
 void ofApp::checkLiveReload() {
-    // Check Lua first
-    if (fileWatcher.isDirty(ofToDataPath(luaPath))) {
+    auto changed = fileWatcher.getChangedFiles();
+    if (changed.empty()) return;
+    
+    // We want to handle Lua first if both changed
+    bool luaChanged = false;
+    bool jsonChanged = false;
+    
+    std::string absLua = ofToDataPath(luaPath);
+    std::string absJson = ofToDataPath(jsonPath);
+    
+    for (const auto& path : changed) {
+        if (path == absLua) luaChanged = true;
+        else if (path == absJson) jsonChanged = true;
+    }
+    
+    if (luaChanged) {
         ofLogNotice("ofApp") << "Live-reloading script: " << luaPath;
         if (scriptBridge.runScript(luaPath)) {
             refreshUIPointers();
         }
-        // Consume JSON dirty flag to prevent fighting
-        fileWatcher.isDirty(ofToDataPath(jsonPath));
-    }
-    // Check JSON
-    else if (fileWatcher.isDirty(ofToDataPath(jsonPath))) {
+    } else if (jsonChanged) {
         ofLogNotice("ofApp") << "Live-reloading JSON: " << jsonPath;
         if (session.load(jsonPath)) {
             refreshUIPointers();

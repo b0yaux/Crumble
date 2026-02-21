@@ -1,99 +1,86 @@
 #pragma once
 
-#include <string>
+#include "ofMain.h"
 #include <map>
 #include <vector>
-#include <thread>
-#include <mutex>
-#include <atomic>
+#include <string>
 #include <filesystem>
 
 /**
  * FileWatcher runs a background thread to monitor file modification times.
- * This prevents blocking the main render thread with synchronous 'stat' calls.
+ * Refactored to use ofThread for better integration with the oF lifecycle.
  */
-class FileWatcher {
+class FileWatcher : public ofThread {
 public:
-    FileWatcher() : running(false) {}
-    ~FileWatcher() { stop(); }
-
-    // Start the background watcher thread
-    void start(int pollIntervalMs = 500) {
-        if (running) return;
-        running = true;
-        this->pollIntervalMs = pollIntervalMs;
-        watcherThread = std::thread(&FileWatcher::run, this);
+    FileWatcher() : pollIntervalMs(500) {}
+    ~FileWatcher() {
+        stop();
     }
 
-    // Stop the background thread
+    void start(int intervalMs = 500) {
+        if (isThreadRunning()) return;
+        pollIntervalMs = intervalMs;
+        startThread();
+    }
+
     void stop() {
-        running = false;
-        if (watcherThread.joinable()) {
-            watcherThread.join();
-        }
+        stopThread();
+        waitForThread(true);
     }
 
-    // Add or update a file to watch
+    // Add a file to monitor
     void watch(const std::string& path) {
         std::lock_guard<std::mutex> lock(mutex);
-        if (files.find(path) == files.end()) {
+        std::string absolutePath = ofToDataPath(path);
+        if (files.find(absolutePath) == files.end()) {
             try {
-                if (std::filesystem::exists(path)) {
-                    files[path] = {std::filesystem::last_write_time(path), false};
+                if (std::filesystem::exists(absolutePath)) {
+                    files[absolutePath] = std::filesystem::last_write_time(absolutePath);
                 } else {
-                    // Watch for future existence
-                    files[path] = {std::filesystem::file_time_type::min(), false};
+                    files[absolutePath] = std::filesystem::file_time_type::min();
                 }
             } catch (...) {
-                files[path] = {std::filesystem::file_time_type::min(), false};
+                files[absolutePath] = std::filesystem::file_time_type::min();
             }
         }
     }
 
-    // Check if a file has been modified since last check
-    // This clears the dirty flag for the file.
-    bool isDirty(const std::string& path) {
+    // Returns a list of all files that have changed since the last call
+    std::vector<std::string> getChangedFiles() {
         std::lock_guard<std::mutex> lock(mutex);
-        auto it = files.find(path);
-        if (it != files.end() && it->second.dirty) {
-            it->second.dirty = false;
-            return true;
-        }
-        return false;
+        std::vector<std::string> changed = changedFiles;
+        changedFiles.clear();
+        return changed;
     }
 
-private:
-    struct FileState {
-        std::filesystem::file_time_type lastModified;
-        bool dirty;
-    };
-
-    void run() {
-        while (running) {
+protected:
+    void threadedFunction() override {
+        while (isThreadRunning()) {
             {
                 std::lock_guard<std::mutex> lock(mutex);
-                for (auto& [path, state] : files) {
+                for (auto& [path, lastMTime] : files) {
                     try {
                         if (std::filesystem::exists(path)) {
-                            auto mtime = std::filesystem::last_write_time(path);
-                            if (mtime > state.lastModified) {
-                                state.lastModified = mtime;
-                                state.dirty = true;
+                            auto currentMTime = std::filesystem::last_write_time(path);
+                            if (currentMTime > lastMTime) {
+                                lastMTime = currentMTime;
+                                // Only add to queue if not already there
+                                if (std::find(changedFiles.begin(), changedFiles.end(), path) == changedFiles.end()) {
+                                    changedFiles.push_back(path);
+                                }
                             }
                         }
                     } catch (...) {
-                        // File might be locked by another process during write
-                        // We'll catch it on the next poll
+                        // File locked during write, will catch on next loop
                     }
                 }
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(pollIntervalMs));
+            sleep(pollIntervalMs);
         }
     }
 
-    std::map<std::string, FileState> files;
-    std::thread watcherThread;
-    std::mutex mutex;
-    std::atomic<bool> running;
+private:
+    std::map<std::string, std::filesystem::file_time_type> files;
+    std::vector<std::string> changedFiles;
     int pollIntervalMs;
 };
