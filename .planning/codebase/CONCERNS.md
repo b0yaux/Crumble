@@ -60,23 +60,11 @@
 
 ## Performance Bottlenecks
 
-**Per-Frame Filesystem Polling:**
-- Problem: `checkLiveReload()` calls `ofFile::doesFileExist` and `std::filesystem::last_write_time` every single frame for both JSON and Lua files.
-- Files: `src/ofApp.cpp`
-- Cause: Simple implementation of hot-reloading via polling.
-- Improvement path: Use a platform-specific file watcher (like `FSEvents` on macOS or `inotify` on Linux) or poll at a lower frequency (e.g., once every 0.5s).
-
-**Redundant Object Creation in VideoMixer:**
-- Problem: `VideoMixer::update` creates a `RenderLayer` struct and a `std::vector` every frame.
-- Files: `src/nodes/video/VideoMixer.cpp`
-- Cause: Transient state management during the render loop.
-- Improvement path: Reuse a member vector to avoid repeated allocations.
-
-**Frame-Rate Dependent UI Physics:**
-- Problem: `GraphUI::forceLayout` simulation speed is directly tied to the draw frame rate.
-- Files: `src/ui/GraphUI.cpp`
-- Cause: Multiplies forces by fixed constants without `dt` (delta time).
-- Improvement path: Use `ofGetLastFrameTime()` to make physics calculations time-independent.
+**Per-Frame Filesystem Polling (Minor):**
+- Problem: `checkLiveReload()` queries the filesystem every frame (60Hz).
+- Impact: Minimal on modern systems, but contributes to general main-thread overhead.
+- Note: Current implementation uses `try...catch` and `ofLoadJson` validation, making it robust against race conditions during file writes.
+- Improvement path: Throttling to 2-5Hz or moving to an event-driven watcher if CPU usage becomes an issue.
 
 ## Fragile Areas
 
