@@ -30,18 +30,25 @@
 
 ## Known Bugs
 
-**Static selectedLayer:**
-- Issue: `selectedLayer` is initialized to 0 and never updated by any UI interaction.
-- Files: `src/ofApp.h`, `src/ofApp.cpp`
-- Impact: Pressing '-' always attempts to remove the first layer (index 0), regardless of user intent.
-- Trigger: Press '-' or '_' in the application.
-- Workaround: None, requires code fix to update `selectedLayer`.
-
 **Incomplete Cycle Detection:**
 - Issue: Kahn's algorithm is used in `validateTopology()` but only logs a warning instead of preventing or gracefully handling cycles.
 - Files: `src/core/Graph.cpp`
 - Impact: If a cycle is created, `pullFromNode` might enter infinite recursion (if not for the `lastUpdateFrame` guard) or produce inconsistent results.
 - Trigger: Connect a node's output back to its input (directly or indirectly).
+
+## Legacy Code & Technical Debt
+
+**Obsolete UI State in ofApp:**
+- Issue: `ofApp` maintains `selectedLayer` and `removeVideoLayer()`, which are holdovers from an older UI paradigm.
+- Files: `src/ofApp.h`, `src/ofApp.cpp`
+- Impact: Confusing for developers; `selectedLayer` is always 0 and the `-` key shortcut is disconnected from the current `GraphUI` logic.
+- Fix approach: Remove legacy members from `ofApp` and unify interaction logic within `GraphUI`.
+
+**Unbounded Parameter Growth in VideoMixer:**
+- Issue: `VideoMixer::resizeLayerArrays` only grows and never shrinks the `layerOpacities` etc. vectors.
+- Files: `src/nodes/video/VideoMixer.cpp`
+- Impact: Continual addition/removal of layers will cause permanent memory growth of the `ofParameterGroup`.
+- Fix approach: Implement a safe way to remove parameters from the group when `numActiveLayers` decreases.
 
 ## Security Considerations
 

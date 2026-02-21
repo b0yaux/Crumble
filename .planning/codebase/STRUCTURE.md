@@ -37,6 +37,11 @@
 - Contains: Audio and Video processing units.
 - Key files: `VideoMixer.cpp`, `VideoFileSource.cpp`, `AudioMixer.h`.
 
+**src/main.cpp/ofApp.cpp:**
+- Purpose: Application entry point and high-level orchestration.
+- Contains: Setup logic, main loop, and legacy input handlers.
+- Note: Currently contains legacy code (e.g., `selectedLayer`) being phased out in favor of `GraphUI`.
+
 **src/ui/:**
 - Purpose: Visualization of the graph. Translates C++ graph state to screen coordinates.
 - Contains: Drawing logic and mouse interaction for nodes.
