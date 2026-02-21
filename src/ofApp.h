@@ -5,6 +5,7 @@
 #include "nodes/video/VideoMixer.h"
 #include "nodes/video/ScreenOutput.h"
 #include "nodes/video/VideoFileSource.h"
+#include "ui/GraphUI.h"
 
 class ofApp : public ofBaseApp{
 
@@ -14,6 +15,9 @@ class ofApp : public ofBaseApp{
 		void draw();
 
 		void keyPressed(int key);
+		void mousePressed(int x, int y, int button);
+		void mouseDragged(int x, int y, int button);
+		void mouseScrolled(int x, int y, float scrollX, float scrollY);
 		void windowResized(int w, int h);
 		void dragEvent(ofDragInfo dragInfo);
 		void exit();
@@ -36,6 +40,7 @@ class ofApp : public ofBaseApp{
     // UI state
     int selectedLayer = 0;
     bool showGui = true;
+    GraphUI graphUI;
     
     // Cached node pointers for UI
     VideoMixer* mixer = nullptr;

@@ -29,6 +29,7 @@ void ofApp::setup(){
     }
     
     refreshUIPointers();
+    graphUI.setup();
 }
 
 void ofApp::checkLiveReload() {
@@ -132,22 +133,16 @@ void ofApp::draw(){
     ofBackground(20);
     if (output) output->draw();
     
-    if (showGui && mixer) {
-        ofSetColor(255);
-        string info = "Crumble [JSON Live-Reload Mode]\n\n";
-        info += "Nodes: " + ofToString(session.getNodeCount()) + "\n";
-        info += "Watching: bin/data/scripts/main.json\n\n";
-        
-        for (int i = 0; i < std::min(8, mixer->getLayerCount()); i++) {
-            string sel = (i == selectedLayer) ? ">" : " ";
-            info += sel + "L" + ofToString(i + 1) + ": " + mixer->getLayerSourceName(i) + "\n";
-        }
-        ofDrawBitmapString(info, 10, 20);
+    if (showGui) {
+        graphUI.draw(session);
     }
 }
 
 void ofApp::keyPressed(int key){
-    if (key == 'g' || key == 'G') showGui = !showGui;
+    if (key == 'g' || key == 'G') {
+        showGui = !showGui;
+        graphUI.setVisible(showGui);
+    }
     if (key == '+' || key == '=') addTestLayers(1);
     if (key == '-' || key == '_') {
         session.checkpoint();
@@ -160,6 +155,18 @@ void ofApp::keyPressed(int key){
         else session.undo();
         refreshUIPointers();
     }
+}
+
+void ofApp::mousePressed(int x, int y, int button) {
+    graphUI.mousePressed(x, y, button);
+}
+
+void ofApp::mouseDragged(int x, int y, int button) {
+    graphUI.mouseDragged(x, y, button);
+}
+
+void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
+    graphUI.mouseScrolled(x, y, scrollX, scrollY);
 }
 
 void ofApp::windowResized(int w, int h){
@@ -183,4 +190,5 @@ void ofApp::refreshUIPointers() {
     output = session.findFirstNode<ScreenOutput>();
 }
 
-void ofApp::exit() {}
+void ofApp::exit() {
+}
