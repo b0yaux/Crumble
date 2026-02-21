@@ -44,5 +44,4 @@ private:
     static int lua_clear(lua_State* L);
     static int lua_listDirectory(lua_State* L);
     static int lua_fileExists(lua_State* L);
-    static int lua_setAudioOutput(lua_State* L);
 };

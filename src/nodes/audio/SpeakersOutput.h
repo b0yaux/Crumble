@@ -37,12 +37,25 @@ public:
     }
     
     void audioOut(ofSoundBuffer& buffer) override {
-        if (!graph) return;
+        if (!graph) {
+            buffer.set(0);
+            return;
+        }
         
-        // Pull from the graph's master audio output
-        graph->audioOut(buffer);
+        auto inputs = graph->getInputConnections(nodeIndex);
+        if (inputs.empty()) {
+            buffer.set(0);
+            return;
+        }
         
-        // Apply master volume
+        Node* sourceNode = graph->getNode(inputs[0].fromNode);
+        if (!sourceNode) {
+            buffer.set(0);
+            return;
+        }
+        
+        sourceNode->audioOut(buffer);
+        
         if (masterVolume != 1.0f) {
             buffer *= (float)masterVolume;
         }

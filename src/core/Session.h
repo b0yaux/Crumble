@@ -76,11 +76,6 @@ public:
         return dynamic_cast<T*>(getNode(index));
     }
 
-    // --- Graph output routing ---
-
-    void setVideoOutputNode(int nodeIndex);
-    void setAudioOutputNode(int nodeIndex);
-
     // --- Undo / Redo (checkpoint-based) ---
 
     void checkpoint();      // Snapshot current graph state

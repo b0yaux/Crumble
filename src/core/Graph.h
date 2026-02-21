@@ -65,18 +65,11 @@ public:
     std::vector<Connection> getInputConnections(int nodeIndex) const;
     std::vector<Connection> getOutputConnections(int nodeIndex) const;
     
-    // Set which nodes provide the graph's outputs
-    void setVideoOutputNode(int nodeIndex);
-    void setAudioOutputNode(int nodeIndex);
-    int getVideoOutputNode() const { return videoOutputNode; }
-    int getAudioOutputNode() const { return audioOutputNode; }
-    
     // Thread safety for audio thread
     std::mutex& getAudioMutex() { return audioMutex; }
     
     // Node interface implementation
     void update(float dt) override;
-    ofTexture* getVideoOutput() override;
     void audioOut(ofSoundBuffer& buffer) override;
     
     // Access for serialization/debugging
@@ -110,10 +103,6 @@ private:
 
     // Topology validation flag
     bool executionDirty = true;
-
-    // Output nodes (indices into nodes array)
-    int videoOutputNode = -1;
-    int audioOutputNode = -1;
     
     std::mutex audioMutex;
 

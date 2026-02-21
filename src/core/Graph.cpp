@@ -92,19 +92,6 @@ void Graph::removeNode(int nodeIndex) {
         if (conn.toNode > nodeIndex) conn.toNode--;
     }
     
-    // Update output nodes
-    if (videoOutputNode == nodeIndex) {
-        videoOutputNode = -1;
-    } else if (videoOutputNode > nodeIndex) {
-        videoOutputNode--;
-    }
-    
-    if (audioOutputNode == nodeIndex) {
-        audioOutputNode = -1;
-    } else if (audioOutputNode > nodeIndex) {
-        audioOutputNode--;
-    }
-    
     executionDirty = true;
 }
 
@@ -114,8 +101,6 @@ void Graph::clear() {
         std::lock_guard<std::mutex> lock(audioMutex);
         nodesToDestroy = std::move(nodes);
         connections.clear();
-        videoOutputNode = -1;
-        audioOutputNode = -1;
         executionDirty = true;
     }
 }
@@ -139,14 +124,6 @@ std::vector<Connection> Graph::getOutputConnections(int nodeIndex) const {
     return result;
 }
 
-void Graph::setVideoOutputNode(int nodeIndex) {
-    videoOutputNode = nodeIndex;
-}
-
-void Graph::setAudioOutputNode(int nodeIndex) {
-    audioOutputNode = nodeIndex;
-}
-
 void Graph::update(float dt) {
     if (executionDirty) {
         validateTopology();
@@ -162,20 +139,9 @@ void Graph::update(float dt) {
     }
 }
 
-ofTexture* Graph::getVideoOutput() {
-    if (videoOutputNode >= 0 && videoOutputNode < nodes.size()) {
-        return nodes[videoOutputNode]->getVideoOutput();
-    }
-    return nullptr;
-}
-
 void Graph::audioOut(ofSoundBuffer& buffer) {
     std::lock_guard<std::mutex> lock(audioMutex);
-    if (audioOutputNode >= 0 && audioOutputNode < nodes.size()) {
-        nodes[audioOutputNode]->audioOut(buffer);
-    } else {
-        buffer.set(0);
-    }
+    buffer.set(0);
 }
 
 void Graph::pullFromNode(int nodeIndex, float dt) {
@@ -322,12 +288,6 @@ ofJson Graph::toJson() const {
     
     // Build outputs object
     ofJson outputsJson;
-    if (videoOutputNode >= 0) {
-        outputsJson["video"] = videoOutputNode;
-    }
-    if (audioOutputNode >= 0) {
-        outputsJson["audio"] = audioOutputNode;
-    }
     
     // Assign in logical order: metadata -> nodes -> connections -> outputs
     json["version"] = "1.0";
@@ -396,12 +356,6 @@ bool Graph::fromJson(const ofJson& json) {
     // Load outputs
     if (json.contains("outputs")) {
         const auto& outputs = json["outputs"];
-        if (outputs.contains("video")) {
-            videoOutputNode = getSafeJson<int>(outputs, "video", -1);
-        }
-        if (outputs.contains("audio")) {
-            audioOutputNode = getSafeJson<int>(outputs, "audio", -1);
-        }
     }
 
     executionDirty = true;

@@ -78,14 +78,6 @@ int Session::getNodeCount() const {
 
 // --- Graph output routing ---
 
-void Session::setVideoOutputNode(int nodeIndex) {
-    graph.setVideoOutputNode(nodeIndex);
-}
-
-void Session::setAudioOutputNode(int nodeIndex) {
-    graph.setAudioOutputNode(nodeIndex);
-}
-
 // --- Undo / Redo ---
 
 void Session::checkpoint() {

@@ -55,7 +55,6 @@ void ScriptBridge::bindSessionAPI() {
     lua_register(L, "_clear", lua_clear);
     lua_register(L, "_listDir", lua_listDirectory);
     lua_register(L, "_exists", lua_fileExists);
-    lua_register(L, "_setAudioOut", lua_setAudioOutput);
     
     // Create the 'session' table and 'Node' metatable in Lua
     std::string helper = R"(
@@ -132,16 +131,6 @@ void ScriptBridge::bindSessionAPI() {
 
         _G.fileExists = _exists
         
-        local function setAudioOutputInternal(node)
-            local id = type(node) == "table" and node.id or node
-            _setAudioOut(id)
-        end
-        _G.setAudioOutput = setAudioOutputInternal
-        session.setAudioOutput = function(s, n)
-            if s == session then return setAudioOutputInternal(n) end
-            return setAudioOutputInternal(s)
-        end
-
         session.checkpoint = function() end
 
         session.setParam = function(s, a, b, c)
@@ -219,13 +208,6 @@ int ScriptBridge::lua_fileExists(lua_State* L) {
     ofFile file(path);
     lua_pushboolean(L, file.exists());
     return 1;
-}
-
-int ScriptBridge::lua_setAudioOutput(lua_State* L) {
-    if (!s_currentSession) return 0;
-    int nodeIdx = luaL_checkinteger(L, 1);
-    s_currentSession->setAudioOutputNode(nodeIdx);
-    return 0;
 }
 
 int ScriptBridge::lua_addNode(lua_State* L) {

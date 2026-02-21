@@ -82,7 +82,6 @@ void ofApp::initCrumbleMixer() {
         outputNode->setup(0, 0, 1920, 1080);
     }
     session.connect(0, 1);
-    session.setVideoOutputNode(0);
     refreshUIPointers();
 }
 
@@ -163,6 +162,10 @@ void ofApp::mousePressed(int x, int y, int button) {
 
 void ofApp::mouseDragged(int x, int y, int button) {
     graphUI.mouseDragged(x, y, button);
+}
+
+void ofApp::mouseReleased(int x, int y, int button) {
+    graphUI.mouseReleased(x, y, button);
 }
 
 void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
