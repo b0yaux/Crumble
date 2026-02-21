@@ -28,6 +28,31 @@ void Session::clear() {
     graph.clear();
 }
 
+// --- Script lifecycle ---
+
+void Session::beginScript() {
+    for (auto& node : graph.getNodes()) {
+        node->touched = false;
+    }
+}
+
+void Session::endScript() {
+    // Remove untouched nodes from highest index to lowest (to preserve indices)
+    for (int i = graph.getNodeCount() - 1; i >= 0; i--) {
+        if (auto node = graph.getNode(i)) {
+            if (!node->touched) {
+                graph.removeNode(i);
+            }
+        }
+    }
+}
+
+void Session::touchNode(int index) {
+    if (auto node = graph.getNode(index)) {
+        node->touched = true;
+    }
+}
+
 // --- Lifecycle ---
 
 void Session::update(float dt) {

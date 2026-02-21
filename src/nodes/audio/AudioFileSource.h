@@ -72,6 +72,7 @@ public:
 protected:
     std::shared_ptr<ofxAudioFile> sharedLoader;
     double playhead = 0;
+    std::string loadedPath;
     
     ofParameter<std::string> audioPath;
     ofParameter<float> volume;
@@ -80,12 +81,13 @@ protected:
     ofParameter<bool> playing;
     
     void onPathChanged(std::string& path) {
-        if (path.empty()) return;
+        if (path.empty() || path == loadedPath) return;
         
         if (g_session) {
             sharedLoader = g_session->getAssets().getAudio(path);
             if (sharedLoader) {
                 playhead = 0;
+                loadedPath = path;
                 ofLogNotice("AudioFileSource") << "Got shared audio: " << path;
             } else {
                 ofLogError("AudioFileSource") << "FAILED to load: " << path;

@@ -31,6 +31,12 @@ public:
     void  disconnect(int toNode, int toInput = 0);
     void  removeInput(int toNode, int toInput);
     void  clear();
+    
+    // --- Script lifecycle (for idempotent reloading) ---
+    
+    void beginScript();   // Clear touched flags on all nodes
+    void endScript();     // Remove nodes not touched during script
+    void touchNode(int index);  // Mark node as active
 
     // --- Lifecycle ---
 

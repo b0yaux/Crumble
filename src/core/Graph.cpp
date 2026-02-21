@@ -16,7 +16,17 @@ void Graph::addNode(std::unique_ptr<Node> node) {
 }
 
 void Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
-    // Remove existing connection to this input
+    // Check if this exact connection already exists
+    for (const auto& conn : connections) {
+        if (conn.toNode == toNode && conn.toInput == toInput) {
+            if (conn.fromNode == fromNode && conn.fromOutput == fromOutput) {
+                return; // Already connected, skip
+            }
+            break; // Different source, will replace
+        }
+    }
+    
+    // Remove existing connection to this input (if any)
     disconnect(toNode, toInput);
     
     // Add new connection
@@ -24,8 +34,6 @@ void Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
     executionDirty = true;
     
     // Notify the destination node that an input has been connected.
-    // This allows nodes like VideoMixer to react immediately (e.g. expanding capacity)
-    // so that subsequent parameter sets in a script (like opacity_N) target valid parameters.
     if (toNode >= 0 && toNode < (int)nodes.size()) {
         int dummy = toInput; 
         nodes[toNode]->onInputConnected(dummy);

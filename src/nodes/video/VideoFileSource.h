@@ -37,6 +37,7 @@ public:
 private:
     void onPathChanged(std::string& path);
     ofxHapPlayer player;
+    std::string loadedPath;
     
     // Parameters
     ofParameter<std::string> videoPath;

@@ -42,6 +42,7 @@ public:
     // Internal state (public for Graph access, don't use directly)
     bool dirty = true;  // True if cached output needs recalculation
     uint64_t lastUpdateFrame = UINT64_MAX;  // For pull-based caching (UINT64_MAX = never updated)
+    bool touched = false;  // Set during script execution to track active nodes
     
     // Serialization - each node controls its own format
     virtual ofJson serialize() const;

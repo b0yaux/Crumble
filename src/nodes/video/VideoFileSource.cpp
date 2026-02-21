@@ -12,7 +12,7 @@ VideoFileSource::VideoFileSource() {
 }
 
 void VideoFileSource::onPathChanged(std::string& path) {
-    if (!path.empty()) {
+    if (!path.empty() && path != loadedPath) {
         load(path);
     }
 }
@@ -45,6 +45,7 @@ void VideoFileSource::load(const std::string& vidPath) {
         if (playOnLoad) {
             player.play();
         }
+        loadedPath = vidPath;
         ofLogNotice("VideoFileSource") << "Successfully loaded and playing: " << fullPath;
     } else {
         ofLogError("VideoFileSource") << "Failed to load: " << fullPath;

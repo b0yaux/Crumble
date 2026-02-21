@@ -22,17 +22,20 @@ bool ScriptBridge::runScript(const std::string& path) {
     
     s_currentSession = session;
     
-    // Fire-and-forget: we clear and rebuild (or the script can choose to modify)
-    // Most live-coding scripts will start with session.clear()
-    
     ofFile script(path);
     if (!script.exists()) {
         ofLogError("ScriptBridge") << "Script not found: " << path;
         return false;
     }
     
+    // Prepare for idempotent script execution
+    session->beginScript();
+    
     // Execute the script
     lua.doScript(path);
+    
+    // Remove nodes that weren't touched
+    session->endScript();
     
     s_currentSession = nullptr;
     return true;
@@ -236,6 +239,7 @@ int ScriptBridge::lua_addNode(lua_State* L) {
     if (!name.empty()) {
         if (Node* existing = s_currentSession->findNodeByName(name)) {
             if (existing->type == type) {
+                s_currentSession->touchNode(existing->nodeIndex);
                 lua_pushinteger(L, existing->nodeIndex);
                 return 1;
             }
@@ -244,6 +248,7 @@ int ScriptBridge::lua_addNode(lua_State* L) {
     
     Node* node = s_currentSession->addNode(type, name);
     if (node) {
+        s_currentSession->touchNode(node->nodeIndex);
         lua_pushinteger(L, node->nodeIndex);
         return 1;
     }
