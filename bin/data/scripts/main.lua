@@ -65,7 +65,7 @@ for _, path in ipairs(files) do
         end
         
         -- Safety: limit to 10 layers for stability during tests
-        if videoCount >= 1 then break end
+        if videoCount >= 2 then break end
     end
 end
 
