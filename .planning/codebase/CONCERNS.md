@@ -7,7 +7,7 @@
 **Undo/Redo via JSON Snapshots:**
 - Issue: `Session::undo()` and `redo()` take full JSON snapshots of the entire graph and store them in memory.
 - Files: `src/core/Session.cpp`, `src/core/Session.h`
-- Impact: Inefficient for large graphs; causes memory bloat and potential performance stuttering during checkpointing. Restoring from JSON clears and rebuilds the entire graph, likely causing visual/audio flickers.
+- Impact: Inefficient for large graphs; causes memory bloat and potential performance stuttering during checkpointing. Restoring from JSON clears and rebuilds the entire graph, likely causing visual flickers.
 - Fix approach: Implement a Command pattern where only the changes (diffs) are stored in the undo stack.
 
 **Recursive Graph Evaluation:**
@@ -36,12 +36,6 @@
 - Impact: Pressing '-' always attempts to remove the first layer (index 0), regardless of user intent.
 - Trigger: Press '-' or '_' in the application.
 - Workaround: None, requires code fix to update `selectedLayer`.
-
-**Audio Output Stub:**
-- Issue: `Graph::audioOut()` and many audio nodes are currently stubs or lack full implementation.
-- Files: `src/core/Graph.cpp`, `src/nodes/audio/*`
-- Impact: The application currently produces no audio output despite having a graph system capable of it.
-- Fix approach: Implement the audio pulling logic in `Graph::audioOut` and complete audio node implementations.
 
 **Incomplete Cycle Detection:**
 - Issue: Kahn's algorithm is used in `validateTopology()` but only logs a warning instead of preventing or gracefully handling cycles.
