@@ -8,13 +8,6 @@ Graph::~Graph() {
     clear();
 }
 
-void Graph::addNode(std::unique_ptr<Node> node) {
-    node->nodeId = Node::nextNodeId.fetch_add(1);
-    node->graph = this;
-    nodes[node->nodeId] = std::move(node);
-    executionDirty = true;
-}
-
 bool Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
     if (fromNode == toNode) return false; // Self-loop
     
@@ -49,29 +42,6 @@ bool Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
     
     executionDirty = true;
     return true;
-}
-
-    
-    // Check if this exact connection already exists
-    for (const auto& conn : connections) {
-        if (conn.toNode == toNode && conn.toInput == toInput) {
-            if (conn.fromNode == fromNode && conn.fromOutput == fromOutput) {
-                return; // Already connected, skip
-            }
-            break; // Different source, will replace
-        }
-    }
-    
-    // Remove existing connection to this input (if any)
-    disconnect(toNode, toInput);
-    
-    // Add new connection
-    connections.push_back({fromNode, toNode, fromOutput, toInput});
-    executionDirty = true;
-    
-    // Notify the destination node that an input has been connected.
-    int dummy = toInput; 
-    toIt->second->onInputConnected(dummy);
 }
 
 void Graph::disconnect(int toNode, int toInput) {
