@@ -2,6 +2,11 @@
 #include "GraphUI.h"
 #include <cmath>
 #include <string>
+#include <algorithm>
+#include <map>
+#include <set>
+#include <queue>
+#include <unordered_map>
 
 void GraphUI::setup() {
 }
@@ -18,7 +23,9 @@ void GraphUI::mousePressed(int x, int y, int button) {
         if (wp.x >= nv.pos.x && wp.x <= nv.pos.x + 80 &&
             wp.y >= nv.pos.y && wp.y <= nv.pos.y + 24) {
             draggedNode = id;
+            isDragging = true;
             dragOffset = nv.pos - wp;
+            nv.vel = {0, 0};
             return;
         }
     }
@@ -33,7 +40,7 @@ void GraphUI::mouseDragged(int x, int y, int button) {
     if (draggedNode >= 0 && nodes.count(draggedNode)) {
         glm::vec2 wp = screenToWorld(x, y);
         nodes[draggedNode].pos = wp + dragOffset;
-        nodes[draggedNode].vel = {0, 0};
+        nodes[draggedNode].vel = {0, 0};  // Keep velocity zeroed while dragging
         return;
     }
     
@@ -42,7 +49,10 @@ void GraphUI::mouseDragged(int x, int y, int button) {
 }
 
 void GraphUI::mouseReleased(int x, int y, int button) {
+    // Simply release the node - physics will naturally settle
+    // No plasticity (idealLength updates) to avoid messy layouts after drag
     draggedNode = -1;
+    isDragging = false;
 }
 
 void GraphUI::mouseScrolled(int x, int y, float scrollX, float scrollY) {
@@ -60,6 +70,9 @@ void GraphUI::draw(Session& session) {
     auto& graphNodes = session.getGraph().getNodes();
     auto& conns = session.getGraph().getConnections();
     
+    // Cache connections for use in mouseReleased (where session isn't available)
+    cachedConnections = conns;
+    
     // 1. Cleanup: Prune UI nodes that no longer exist in the core graph
     for (auto it = nodes.begin(); it != nodes.end(); ) {
         if (graphNodes.find(it->first) == graphNodes.end()) {
@@ -69,26 +82,105 @@ void GraphUI::draw(Session& session) {
         }
     }
     
-    // 2. Init: random positions for new nodes
-    // Sources spawn farther from center, outputs closer
+    // 2. Init: Island-aware depth-based positions for new nodes
     const float canvasW = 1200.0f;
-    const float canvasH = 900.0f;
+    const float padding = 50.0f;
+    const float layerHeight = 100.0f;
+    
+    // Build adjacency list for island detection (undirected)
+    std::map<int, std::vector<int>> adj;
+    for (auto& c : session.getGraph().getConnections()) {
+        adj[c.fromNode].push_back(c.toNode);
+        adj[c.toNode].push_back(c.fromNode);
+    }
+    
+    // Identify Islands (Connected Components)
+    std::set<int> visitedIsland;
+    std::vector<std::vector<int>> islands;
     for (auto& n : graphNodes) {
-        if (!n.second || nodes.count(n.first)) continue;
+        if (visitedIsland.find(n.first) == visitedIsland.end()) {
+            std::vector<int> island;
+            std::queue<int> q;
+            q.push(n.first);
+            visitedIsland.insert(n.first);
+            while(!q.empty()) {
+                int curr = q.front(); q.pop();
+                island.push_back(curr);
+                for(int neighbor : adj[curr]) {
+                    if(visitedIsland.find(neighbor) == visitedIsland.end()) {
+                        visitedIsland.insert(neighbor);
+                        q.push(neighbor);
+                    }
+                }
+            }
+            islands.push_back(island);
+        }
+    }
+    
+    // Position each island in its own territory
+    float sliceWidth = (canvasW - 2 * padding) / std::max(1, (int)islands.size());
+    for (size_t islandIdx = 0; islandIdx < islands.size(); islandIdx++) {
+        const auto& islandNodes = islands[islandIdx];
+        float sliceX = padding + islandIdx * sliceWidth;
         
-        std::string t = n.second->type;
-        bool isSource = (t.find("Source") != std::string::npos);
-        float minDist = isSource ? 300.0f : 150.0f;
+        // Compute depth within this island
+        std::map<int, int> nodeDepth;
+        std::map<int, std::vector<int>> nodesAtDepth;
+        std::set<int> islandSet(islandNodes.begin(), islandNodes.end());
         
-        float x, y;
-        int attempts = 0;
-        do {
-            x = ofRandom(50.0f, canvasW - 50.0f);
-            y = ofRandom(50.0f, canvasH - 50.0f);
-            attempts++;
-        } while (ofDist(x, y, canvasW/2, canvasH/2) < minDist && attempts < 50);
+        // Find roots of this island (nodes with no inputs FROM WITHIN THIS ISLAND)
+        std::queue<int> qDepth;
+        for (int id : islandNodes) {
+            bool hasIn = false;
+            for (auto& c : session.getGraph().getConnections()) {
+                if (c.toNode == id && islandSet.count(c.fromNode)) {
+                    hasIn = true;
+                    break;
+                }
+            }
+            if (!hasIn) {
+                nodeDepth[id] = 0;
+                qDepth.push(id);
+            }
+        }
         
-        nodes[n.first] = {{x, y}, {0, 0}};
+        // Fallback for islands that are cycles
+        if (qDepth.empty() && !islandNodes.empty()) {
+            nodeDepth[islandNodes[0]] = 0;
+            qDepth.push(islandNodes[0]);
+        }
+        
+        while (!qDepth.empty()) {
+            int current = qDepth.front(); qDepth.pop();
+            int d = nodeDepth[current];
+            for (auto& c : session.getGraph().getConnections()) {
+                if (c.fromNode == current && islandSet.count(c.toNode)) {
+                    if (!nodeDepth.count(c.toNode)) {
+                        nodeDepth[c.toNode] = d + 1;
+                        qDepth.push(c.toNode);
+                    }
+                }
+            }
+        }
+        
+        // Group by depth
+        for (int id : islandNodes) {
+            int d = nodeDepth.count(id) ? nodeDepth[id] : 0;
+            nodesAtDepth[d].push_back(id);
+        }
+        
+        // Position new nodes in this island slice
+        for (auto& [depth, nodeList] : nodesAtDepth) {
+            float y = padding + depth * layerHeight;
+            float xOffset = sliceWidth / (nodeList.size() + 1);
+            for (size_t i = 0; i < nodeList.size(); i++) {
+                int id = nodeList[i];
+                if (!nodes.count(id)) {
+                    float x = sliceX + (i + 1) * xOffset;
+                    nodes[id] = {{x, y}, {0, 0}};
+                }
+            }
+        }
     }
     
     forceLayout(session);
@@ -103,7 +195,8 @@ void GraphUI::draw(Session& session) {
         if (!nodes.count(c.fromNode) || !nodes.count(c.toNode)) continue;
         auto& from = nodes[c.fromNode];
         auto& to = nodes[c.toNode];
-        ofDrawLine(from.pos.x + 80, from.pos.y + 12, to.pos.x, to.pos.y + 12);
+        // Center to center
+        ofDrawLine(from.pos.x + 40, from.pos.y + 12, to.pos.x + 40, to.pos.y + 12);
     }
     
     for (auto& n : graphNodes) {
@@ -119,73 +212,59 @@ void GraphUI::forceLayout(Session& session) {
     
     if (nodes.empty()) return;
     
-    // Physics: higher = more damping (slower movement), 0.9-0.99
-    const float damping = 0.98f;
-    // Physics: max pixels per frame, 0.5-5.0
-    const float maxVel = 1.5f;
-    
+    // 1. Port crowding detection
+    std::map<int, int> inDegree;
     std::map<int, int> outDegree;
     for (auto& c : conns) {
         outDegree[c.fromNode]++;
-    }
-    
-    for (auto& [id, nv] : nodes) {
-        if (!std::isfinite(nv.pos.x) || !std::isfinite(nv.pos.y)) {
-            nv.pos = {200.0f, 200.0f};
-            nv.vel = {0.0f, 0.0f};
-        }
-        nv.vel.x *= damping;
-        nv.vel.y *= damping;
-        
-        if (nv.vel.x > maxVel) nv.vel.x = maxVel;
-        if (nv.vel.x < -maxVel) nv.vel.x = -maxVel;
-        if (nv.vel.y > maxVel) nv.vel.y = maxVel;
-        if (nv.vel.y < -maxVel) nv.vel.y = -maxVel;
-    }
-    
-    // Physics: base distance between nodes, 50-200
-    const float spacing = 100.0f;
-    
-    // Physics: repulsion when closer than spacing, 0.0005-0.005
-    for (auto& [idA, nodeA] : nodes) {
-        for (auto& [idB, nodeB] : nodes) {
-            if (idA >= idB) continue;
-            float dx = nodeB.pos.x - nodeA.pos.x;
-            float dy = nodeB.pos.y - nodeA.pos.y;
-            float dist = sqrtf(dx*dx + dy*dy);
-            if (dist < spacing && dist > 1.0f) {
-                float force = (spacing - dist) * 0.002f;
-                float fx = (dx / dist) * force;
-                float fy = (dy / dist) * force;
-                nodeA.vel.x -= fx;
-                nodeA.vel.y -= fy;
-                nodeB.vel.x += fx;
-                nodeB.vel.y += fy;
-            }
-        }
-    }
-    
-    // Physics: spring attraction, 0.001-0.01
-    // Tweak: targetDegree controls uniqueness - fewer connections to target = tighter bond
-    std::map<int, int> inDegree;
-    for (auto& c : conns) {
         inDegree[c.toNode]++;
     }
     
+    // Physics Parameters: "Structural Rigidity"
+    // Stronger springs for organic structure, balanced repulsion to prevent overlap
+    const float damping = 0.92f;           // High damping for stability
+    const float maxVel = 4.0f;             // Moderate speed
+    const float baseSpringStrength = 0.04f; // Strong springs create structure
+    const float baseIdealLength = 60.0f;
+    
+    // 2. Apply spring forces
+    // PLASTICITY: Only use stored idealLength if explicitly set by user drag.
+    // Otherwise, use adaptive length for organic initial layout.
     for (auto& c : conns) {
         if (!nodes.count(c.fromNode) || !nodes.count(c.toNode)) continue;
+        
         auto& from = nodes[c.fromNode];
         auto& to = nodes[c.toNode];
+        
+        int crowd = inDegree[c.toNode] + outDegree[c.fromNode];
+        
+        // ADAPTIVE RIGIDITY:
+        // Crowded connections (clouds) are rigid and structured.
+        // Rare connections (Mixer->Output) are stretchy and allow "long-range" drift.
+        float strength = baseSpringStrength + std::min(crowd * 0.0015f, 0.04f);
+        
+        // Ideal length: rare connections stay close, crowded spread out
+        // crowd=1: 60px, crowd=5: 90px, crowd=10: 120px, crowd=20: 170px
+        float idealLength;
+        if (crowd <= 1) {
+            idealLength = baseIdealLength;
+        } else if (crowd <= 5) {
+            idealLength = baseIdealLength + (crowd - 1) * 7.5f;
+        } else {
+            idealLength = baseIdealLength + 30.0f + (crowd - 5) * 5.0f;
+        }
+        
         float dx = to.pos.x - from.pos.x;
         float dy = to.pos.y - from.pos.y;
         float dist = sqrtf(dx*dx + dy*dy);
+        
         if (dist > 1.0f) {
-            float targetDegree = (float)inDegree.count(c.toNode) ? inDegree[c.toNode] : 1;
-            float targetDist = spacing * (0.2f + targetDegree * 0.04f);
-            if (targetDist < spacing * 0.5f) targetDist = spacing * 0.5f;
-            float force = (dist - targetDist) * 0.002f;
+            float displacement = dist - idealLength;
+            float force = displacement * strength;
+            
             float fx = (dx / dist) * force;
             float fy = (dy / dist) * force;
+            
             from.vel.x += fx;
             from.vel.y += fy;
             to.vel.x -= fx;
@@ -193,22 +272,61 @@ void GraphUI::forceLayout(Session& session) {
         }
     }
     
-    // Physics: gravity toward center for output nodes only
-    // Tweak: centerX, centerY, gravity strength (0.001-0.02)
-    const float centerX = 400.0f;
-    const float centerY = 300.0f;
-    const float outputGravity = 0.002f;
-    auto& graphNodes = session.getGraph().getNodes();
-    for (auto& n : graphNodes) {
-        if (!n.second || !nodes.count(n.first)) continue;
-        if (n.second->type.find("Output") != std::string::npos) {
-            auto& nv = nodes[n.first];
-            nv.vel.x += (centerX - nv.pos.x) * outputGravity;
-            nv.vel.y += (centerY - nv.pos.y) * outputGravity;
+    // 3. Cleaner Repulsion: Inverse-distance based (Fast spreading)
+    const float repelRadius = 150.0f;  // Medium radius - push nearby nodes apart
+    const float repelStrength = 1.2f;  // Balanced - works with strong springs
+    
+    for (auto& [idA, nodeA] : nodes) {
+        for (auto& [idB, nodeB] : nodes) {
+            if (idA >= idB) continue;
+            
+            float dx = (nodeB.pos.x + 40) - (nodeA.pos.x + 40);
+            float dy = (nodeB.pos.y + 12) - (nodeA.pos.y + 12);
+            float distSq = dx*dx + dy*dy;
+            
+            if (distSq < repelRadius * repelRadius && distSq > 1.0f) {
+                float dist = sqrtf(distSq);
+                
+                // Soft collision: quadratic force proportional to overlap
+                // Allows slight overlap to reduce jitter, but pushes apart
+                // Based on D3's forceCollide principle - soft constraint
+                const float minDist = 85.0f; // Node size + padding
+                float overlap = minDist - dist;
+                
+                if (overlap > 0) {
+                    // Quadratic force - smooth, no explosion
+                    float force = repelStrength * overlap * overlap * 0.01f;
+                    
+                    float fx = (dx / dist) * force;
+                    float fy = (dy / dist) * force;
+                    
+                    nodeA.vel.x -= fx;
+                    nodeA.vel.y -= fy;
+                    nodeB.vel.x += fx;
+                    nodeB.vel.y += fy;
+                }
+            }
         }
     }
     
+    // 4. Update positions with "Drift"
     for (auto& [id, nv] : nodes) {
+        // Dragged node position is fixed by mouse, but it still participates in physics
+        // (pushes other nodes via springs/repulsion)
+        if (id == draggedNode && isDragging) {
+            nv.vel = {0, 0};
+            continue;
+        }
+
+        // Apply damping
+        nv.vel.x *= damping;
+        nv.vel.y *= damping;
+        
+        // Clamp velocity
+        nv.vel.x = std::max(-maxVel, std::min(maxVel, nv.vel.x));
+        nv.vel.y = std::max(-maxVel, std::min(maxVel, nv.vel.y));
+        
+        // Update position
         nv.pos.x += nv.vel.x;
         nv.pos.y += nv.vel.y;
     }

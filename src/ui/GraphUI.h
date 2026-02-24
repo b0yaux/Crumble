@@ -24,13 +24,18 @@ private:
     glm::vec2 dragStart;
     glm::vec2 panStart;
     int draggedNode = -1;
+    bool isDragging = false;
     glm::vec2 dragOffset;
     
     struct NodeViz {
         glm::vec2 pos;
         glm::vec2 vel;
+        std::unordered_map<int, float> idealLengths; // Per-connection ideal lengths for "sticky" dragged positions
     };
     std::map<int, NodeViz> nodes;
+    
+    // Cached connections for use in mouseReleased (where session isn't available)
+    std::vector<Connection> cachedConnections;
     
     glm::vec2 screenToWorld(int x, int y);
     void forceLayout(Session& session);
