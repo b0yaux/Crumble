@@ -20,7 +20,7 @@ struct LayoutConfig {
 struct Config {
     PhysicsConfig physics;
     LayoutConfig layout;
-    std::vector<std::string> entryScripts;
+    std::string entryScript;
     std::string defaultLuaPath = "scripts/main.lua";
     std::string defaultJsonPath = "scripts/main.json";
 };

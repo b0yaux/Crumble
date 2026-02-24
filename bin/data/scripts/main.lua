@@ -1,4 +1,9 @@
 -- Crumble
+-- Entry point: loaded via config.json entryScript
+-- Use require() to load other modules:
+--   require("infrastructure")  -- mixers, outputs
+--   require("sources")         -- video files
+--   require("effects")         -- optional
 
 -- 1. Setup Core Graph
 local vMixer = addNode("VideoMixer", "VMixer")

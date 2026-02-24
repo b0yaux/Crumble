@@ -15,9 +15,9 @@ void ofApp::setup(){
     crumble::registerNodes(session);
     scriptBridge.setup(&session);
     
-    // 2. Initial load - use config scripts list, fallback to single path
-    if (!config.entryScripts.empty()) {
-        scriptBridge.runScripts(config.entryScripts);
+    // 2. Initial load - use config entryScript, fallback to default path
+    if (!config.entryScript.empty()) {
+        scriptBridge.runScript(config.entryScript);
     } else if (ofFile::doesFileExist(config.defaultLuaPath)) {
         scriptBridge.runScript(config.defaultLuaPath);
     } else if (ofFile::doesFileExist(config.defaultJsonPath)) {
@@ -27,8 +27,10 @@ void ofApp::setup(){
     }
     
     // 3. Initialize background file watcher
-    for (const auto& script : config.entryScripts) {
-        fileWatcher.watch(ofToDataPath(script));
+    if (!config.entryScript.empty()) {
+        fileWatcher.watch(ofToDataPath(config.entryScript));
+    } else {
+        fileWatcher.watch(ofToDataPath(config.defaultLuaPath));
     }
     fileWatcher.watch(ofToDataPath(config.defaultJsonPath));
     fileWatcher.start(500); // Poll background thread every 500ms
@@ -50,19 +52,14 @@ void ofApp::checkLiveReload() {
         std::string absPath = ofToDataPath(path);
         if (absPath == ofToDataPath(config.defaultJsonPath)) {
             jsonChanged = true;
-        } else {
-            for (const auto& script : config.entryScripts) {
-                if (absPath == ofToDataPath(script)) {
-                    scriptsChanged = true;
-                    break;
-                }
-            }
+        } else if (!config.entryScript.empty() && absPath == ofToDataPath(config.entryScript)) {
+            scriptsChanged = true;
         }
     }
     
     if (scriptsChanged) {
-        ofLogNotice("ofApp") << "Live-reloading scripts...";
-        scriptBridge.runScripts(config.entryScripts);
+        ofLogNotice("ofApp") << "Live-reloading: " << config.entryScript;
+        scriptBridge.runScript(config.entryScript);
         refreshUIPointers();
     } else if (jsonChanged) {
         ofLogNotice("ofApp") << "Live-reloading JSON: " << config.defaultJsonPath;

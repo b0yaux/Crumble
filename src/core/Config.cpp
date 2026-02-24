@@ -30,10 +30,8 @@ bool ConfigManager::load(const std::string& path) {
             config.layout.initialPositioning = l.value("initialPositioning", config.layout.initialPositioning);
         }
         
-        if (j.contains("scripts")) {
-            for (auto& s : j["scripts"]) {
-                config.entryScripts.push_back(s.get<std::string>());
-            }
+        if (j.contains("entryScript")) {
+            config.entryScript = j["entryScript"].get<std::string>();
         }
         
         if (j.contains("paths")) {
