@@ -13,7 +13,7 @@ connect(vMixer, vOutput)
 local aMixer = addNode("AudioMixer", "AMixer")
 local aOutput = addNode("SpeakersOutput", "AOutput")
 connect(aMixer, aOutput)
-aOutput["volume"] = 0
+aOutput.Volume = 0
 
 -- 2. Define Directory
 local videoDir = "/Users/jaufre/works/superstratum_video-data"

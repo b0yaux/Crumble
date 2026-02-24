@@ -220,6 +220,9 @@ void GraphUI::forceLayout(Session& session) {
     
     if (nodes.empty()) return;
     
+    // Check if physics is enabled
+    if (!physicsConfig.enabled) return;
+    
     // 1. Port crowding detection
     std::map<int, int> inDegree;
     std::map<int, int> outDegree;
@@ -280,37 +283,39 @@ void GraphUI::forceLayout(Session& session) {
     }
     
     // 3. Cleaner Repulsion: Inverse-distance based (Fast spreading)
-    const float repelRadius = 150.0f;  // Medium radius - push nearby nodes apart
-    const float repelStrength = 1.2f;  // Balanced - works with strong springs
-    
-    for (auto& [idA, nodeA] : nodes) {
-        for (auto& [idB, nodeB] : nodes) {
-            if (idA >= idB) continue;
-            
-            float dx = (nodeB.pos.x + 40) - (nodeA.pos.x + 40);
-            float dy = (nodeB.pos.y + 12) - (nodeA.pos.y + 12);
-            float distSq = dx*dx + dy*dy;
-            
-            if (distSq < repelRadius * repelRadius && distSq > 1.0f) {
-                float dist = sqrtf(distSq);
+    if (physicsConfig.repulsionEnabled) {
+        const float repelRadius = physicsConfig.repulsionRadius;
+        const float repelStrength = physicsConfig.repulsionStrength * 100.0f;
+        
+        for (auto& [idA, nodeA] : nodes) {
+            for (auto& [idB, nodeB] : nodes) {
+                if (idA >= idB) continue;
                 
-                // Soft collision: quadratic force proportional to overlap
-                // Allows slight overlap to reduce jitter, but pushes apart
-                // Based on D3's forceCollide principle - soft constraint
-                const float minDist = 85.0f; // Node size + padding
-                float overlap = minDist - dist;
+                float dx = (nodeB.pos.x + 40) - (nodeA.pos.x + 40);
+                float dy = (nodeB.pos.y + 12) - (nodeA.pos.y + 12);
+                float distSq = dx*dx + dy*dy;
                 
-                if (overlap > 0) {
-                    // Quadratic force - smooth, no explosion
-                    float force = repelStrength * overlap * overlap * 0.01f;
+                if (distSq < repelRadius * repelRadius && distSq > 1.0f) {
+                    float dist = sqrtf(distSq);
                     
-                    float fx = (dx / dist) * force;
-                    float fy = (dy / dist) * force;
+                    // Soft collision: quadratic force proportional to overlap
+                    // Allows slight overlap to reduce jitter, but pushes apart
+                    // Based on D3's forceCollide principle - soft constraint
+                    const float minDist = 85.0f; // Node size + padding
+                    float overlap = minDist - dist;
                     
-                    nodeA.vel.x -= fx;
-                    nodeA.vel.y -= fy;
-                    nodeB.vel.x += fx;
-                    nodeB.vel.y += fy;
+                    if (overlap > 0) {
+                        // Quadratic force - smooth, no explosion
+                        float force = repelStrength * overlap * overlap * 0.01f;
+                        
+                        float fx = (dx / dist) * force;
+                        float fy = (dy / dist) * force;
+                        
+                        nodeA.vel.x -= fx;
+                        nodeA.vel.y -= fy;
+                        nodeB.vel.x += fx;
+                        nodeB.vel.y += fy;
+                    }
                 }
             }
         }

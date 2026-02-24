@@ -7,22 +7,20 @@ struct PhysicsConfig {
     float maxVelocity = 2.0f;
     float springStrength = 0.008f;
     float idealEdgeLength = 100.0f;
-    float centerGravity = 0.0005f;
     bool repulsionEnabled = false;
     float repulsionStrength = 0.002f;
     float repulsionRadius = 100.0f;
 };
 
 struct LayoutConfig {
-    std::string initialPositioning = "topological";
+    std::string spawnPosition = "topological";
 };
 
 struct Config {
     PhysicsConfig physics;
     LayoutConfig layout;
     std::string entryScript;
-    std::string defaultLuaPath = "scripts/main.lua";
-    std::string defaultJsonPath = "scripts/main.json";
+    std::string configPath = "config.json";
 };
 
 class ConfigManager {

@@ -19,7 +19,6 @@ bool ConfigManager::load(const std::string& path) {
             config.physics.maxVelocity = p.value("maxVelocity", config.physics.maxVelocity);
             config.physics.springStrength = p.value("springStrength", config.physics.springStrength);
             config.physics.idealEdgeLength = p.value("idealEdgeLength", config.physics.idealEdgeLength);
-            config.physics.centerGravity = p.value("centerGravity", config.physics.centerGravity);
             config.physics.repulsionEnabled = p.value("repulsionEnabled", config.physics.repulsionEnabled);
             config.physics.repulsionStrength = p.value("repulsionStrength", config.physics.repulsionStrength);
             config.physics.repulsionRadius = p.value("repulsionRadius", config.physics.repulsionRadius);
@@ -27,16 +26,11 @@ bool ConfigManager::load(const std::string& path) {
         
         if (j.contains("graph") && j["graph"].contains("layout")) {
             auto& l = j["graph"]["layout"];
-            config.layout.initialPositioning = l.value("initialPositioning", config.layout.initialPositioning);
+            config.layout.spawnPosition = l.value("spawnPosition", config.layout.spawnPosition);
         }
         
         if (j.contains("entryScript")) {
             config.entryScript = j["entryScript"].get<std::string>();
-        }
-        
-        if (j.contains("paths")) {
-            config.defaultLuaPath = j["paths"].value("lua", config.defaultLuaPath);
-            config.defaultJsonPath = j["paths"].value("json", config.defaultJsonPath);
         }
         
         ofLogNotice("Config") << "Loaded config from: " << absPath;
