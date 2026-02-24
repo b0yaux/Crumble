@@ -2,6 +2,7 @@
 
 #include "ofMain.h"
 #include "core/Session.h"
+#include "core/Config.h"
 
 class GraphUI {
 public:
@@ -16,8 +17,11 @@ public:
     void setVisible(bool v) { visible = v; }
     bool isVisible() const { return visible; }
     
+    void loadConfig(const std::string& path = "config.json");
+    
 private:
     bool visible = true;
+    PhysicsConfig physicsConfig;
     
     glm::vec2 pan{0, 0};
     float zoom = 1.0f;

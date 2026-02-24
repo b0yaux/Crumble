@@ -41,6 +41,20 @@ bool ScriptBridge::runScript(const std::string& path) {
     return true;
 }
 
+bool ScriptBridge::runScripts(const std::vector<std::string>& paths) {
+    if (!session) return false;
+    
+    bool allSuccess = true;
+    for (const auto& path : paths) {
+        ofLogNotice("ScriptBridge") << "Loading script: " << path;
+        if (!runScript(path)) {
+            ofLogError("ScriptBridge") << "Failed to load script: " << path;
+            allSuccess = false;
+        }
+    }
+    return allSuccess;
+}
+
 void ScriptBridge::errorReceived(std::string& msg) {
     ofLogError("ScriptBridge") << "Lua Error: " << msg;
 }

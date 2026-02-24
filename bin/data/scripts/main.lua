@@ -1,4 +1,4 @@
--- Crumble: Synchronized A/V Folder Jam
+-- Crumble
 
 -- 1. Setup Core Graph
 local vMixer = addNode("VideoMixer", "VMixer")
@@ -8,6 +8,7 @@ connect(vMixer, vOutput)
 local aMixer = addNode("AudioMixer", "AMixer")
 local aOutput = addNode("SpeakersOutput", "AOutput")
 connect(aMixer, aOutput)
+aOutput["volume"] = 0
 
 -- 2. Define Directory
 local videoDir = "/Users/jaufre/works/superstratum_video-data"
@@ -40,8 +41,8 @@ for _, path in ipairs(files) do
             vMixer["opacity_" .. idx] = 0.02
             vMixer["blend_" .. idx] = 0 -- ALPHA
         else
-            vMixer["opacity_" .. idx] = 0.2
-            vMixer["blend_" .. idx] = 2 -- ADD
+            vMixer["opacity_" .. idx] = 0.038
+            vMixer["blend_" .. idx] = 1 -- ADD
         end
         
         -- 4. Check for matching audio (.wav)
@@ -65,7 +66,7 @@ for _, path in ipairs(files) do
         end
         
         -- Safety: limit to 10 layers for stability during tests
-        if videoCount >= 2 then break end
+        if videoCount >= 88 then break end
     end
 end
 

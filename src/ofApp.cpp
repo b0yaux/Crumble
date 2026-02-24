@@ -1,27 +1,36 @@
 #include "ofApp.h"
 #include "crumble/Registry.h"
+#include "core/Config.h"
 
 void ofApp::setup(){
     ofSetFrameRate(60);
     ofSetVerticalSync(true);
     ofBackground(20);
     
+    // 0. Load config
+    ConfigManager::get().load("config.json");
+    const auto& config = ConfigManager::get().getConfig();
+    
     // 1. Register node capabilities
     crumble::registerNodes(session);
     scriptBridge.setup(&session);
     
-    // 2. Initial load (Lua takes priority if it exists)
-    if (ofFile::doesFileExist(luaPath)) {
-        scriptBridge.runScript(luaPath);
-    } else if (ofFile::doesFileExist(jsonPath)) {
-        session.load(jsonPath);
+    // 2. Initial load - use config scripts list, fallback to single path
+    if (!config.entryScripts.empty()) {
+        scriptBridge.runScripts(config.entryScripts);
+    } else if (ofFile::doesFileExist(config.defaultLuaPath)) {
+        scriptBridge.runScript(config.defaultLuaPath);
+    } else if (ofFile::doesFileExist(config.defaultJsonPath)) {
+        session.load(config.defaultJsonPath);
     } else {
         initCrumbleMixer();
     }
     
     // 3. Initialize background file watcher
-    fileWatcher.watch(ofToDataPath(luaPath));
-    fileWatcher.watch(ofToDataPath(jsonPath));
+    for (const auto& script : config.entryScripts) {
+        fileWatcher.watch(ofToDataPath(script));
+    }
+    fileWatcher.watch(ofToDataPath(config.defaultJsonPath));
     fileWatcher.start(500); // Poll background thread every 500ms
     
     refreshUIPointers();
@@ -32,26 +41,32 @@ void ofApp::checkLiveReload() {
     auto changed = fileWatcher.getChangedFiles();
     if (changed.empty()) return;
     
-    // We want to handle Lua first if both changed
-    bool luaChanged = false;
+    const auto& config = ConfigManager::get().getConfig();
+    
+    bool scriptsChanged = false;
     bool jsonChanged = false;
     
-    std::string absLua = ofToDataPath(luaPath);
-    std::string absJson = ofToDataPath(jsonPath);
-    
     for (const auto& path : changed) {
-        if (path == absLua) luaChanged = true;
-        else if (path == absJson) jsonChanged = true;
+        std::string absPath = ofToDataPath(path);
+        if (absPath == ofToDataPath(config.defaultJsonPath)) {
+            jsonChanged = true;
+        } else {
+            for (const auto& script : config.entryScripts) {
+                if (absPath == ofToDataPath(script)) {
+                    scriptsChanged = true;
+                    break;
+                }
+            }
+        }
     }
     
-    if (luaChanged) {
-        ofLogNotice("ofApp") << "Live-reloading script: " << luaPath;
-        if (scriptBridge.runScript(luaPath)) {
-            refreshUIPointers();
-        }
+    if (scriptsChanged) {
+        ofLogNotice("ofApp") << "Live-reloading scripts...";
+        scriptBridge.runScripts(config.entryScripts);
+        refreshUIPointers();
     } else if (jsonChanged) {
-        ofLogNotice("ofApp") << "Live-reloading JSON: " << jsonPath;
-        if (session.load(jsonPath)) {
+        ofLogNotice("ofApp") << "Live-reloading JSON: " << config.defaultJsonPath;
+        if (session.load(config.defaultJsonPath)) {
             refreshUIPointers();
         }
     }

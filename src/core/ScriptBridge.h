@@ -23,6 +23,9 @@ public:
     // Execute a script to build or modify the current session
     bool runScript(const std::string& path);
     
+    // Execute multiple scripts in order
+    bool runScripts(const std::vector<std::string>& paths);
+    
     // ofxLuaListener callbacks
     void errorReceived(std::string& msg) override;
 

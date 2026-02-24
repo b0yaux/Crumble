@@ -9,6 +9,14 @@
 #include <unordered_map>
 
 void GraphUI::setup() {
+    loadConfig();
+}
+
+void GraphUI::loadConfig(const std::string& path) {
+    ConfigManager::get().load(path);
+    physicsConfig = ConfigManager::get().getConfig().physics;
+    ofLogNotice("GraphUI") << "Physics config loaded: damping=" << physicsConfig.damping 
+                          << ", spring=" << physicsConfig.springStrength;
 }
 
 glm::vec2 GraphUI::screenToWorld(int x, int y) {
@@ -220,12 +228,11 @@ void GraphUI::forceLayout(Session& session) {
         inDegree[c.toNode]++;
     }
     
-    // Physics Parameters: "Structural Rigidity"
-    // Stronger springs for organic structure, balanced repulsion to prevent overlap
-    const float damping = 0.92f;           // High damping for stability
-    const float maxVel = 4.0f;             // Moderate speed
-    const float baseSpringStrength = 0.04f; // Strong springs create structure
-    const float baseIdealLength = 60.0f;
+    // Physics Parameters: from Config
+    const float damping = physicsConfig.damping;
+    const float maxVel = physicsConfig.maxVelocity;
+    const float baseSpringStrength = physicsConfig.springStrength;
+    const float baseIdealLength = physicsConfig.idealEdgeLength;
     
     // 2. Apply spring forces
     // PLASTICITY: Only use stored idealLength if explicitly set by user drag.
