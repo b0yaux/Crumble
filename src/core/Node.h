@@ -6,6 +6,7 @@
 // No Port objects, no ConnectionManager - just data flow
 class Node {
 public:
+    Node();
     virtual ~Node() = default;
     
     // Main processing - called once per frame
@@ -29,6 +30,7 @@ public:
     // Parameter reflection for GUI/DSL
     // ofParameterGroup enables automatic UI generation
     ofParameterGroup parameters;
+    ofParameter<std::string> script;  // Path to Lua script for nested graph execution
     
     // Node metadata
     std::string name = "unnamed";
@@ -55,6 +57,10 @@ public:
     // Event notifications from Graph
     virtual void onInputConnected(int& toInput) {}
     virtual void onInputDisconnected(int& toInput) {}
+    
+    // Called when a parameter value changes (via script or UI)
+    // Override in derived classes to react to parameter changes
+    virtual void onParameterChanged(const std::string& paramName) {}
     
 protected:
 

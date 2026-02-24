@@ -3,6 +3,10 @@
 // Static counter for generating unique nodeIds
 std::atomic<int> Node::nextNodeId(0);
 
+Node::Node() {
+    parameters.add(script.set("script", ""));
+}
+
 ofJson Node::serialize() const {
     ofJson j;
     ofSerialize(j, parameters);

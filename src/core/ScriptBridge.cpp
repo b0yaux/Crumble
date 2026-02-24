@@ -1,8 +1,13 @@
 #include "ScriptBridge.h"
+#include "Session.h"
+
+ScriptBridge* g_scriptBridge = nullptr;
 
 Session* ScriptBridge::s_currentSession = nullptr;
+Graph* ScriptBridge::s_currentNestedGraph = nullptr;
 
 ScriptBridge::ScriptBridge() {
+    g_scriptBridge = this;
 }
 
 ScriptBridge::~ScriptBridge() {
@@ -24,10 +29,18 @@ void ScriptBridge::setup(Session* s) {
     bindSessionAPI();
 }
 
+Graph* ScriptBridge::getCurrentGraph() {
+    if (s_currentNestedGraph) {
+        return s_currentNestedGraph;
+    }
+    return &s_currentSession->getGraph();
+}
+
 bool ScriptBridge::runScript(const std::string& path) {
     if (!session) return false;
     
     s_currentSession = session;
+    s_currentNestedGraph = nullptr;
     
     ofFile script(path);
     if (!script.exists()) {
@@ -45,7 +58,46 @@ bool ScriptBridge::runScript(const std::string& path) {
     session->endScript();
     
     s_currentSession = nullptr;
+    s_currentNestedGraph = nullptr;
     return true;
+}
+
+bool ScriptBridge::runScriptInGraph(const std::string& path, Graph* nestedGraph) {
+    if (!session || !nestedGraph) return false;
+    
+    s_currentSession = session;
+    s_currentNestedGraph = nestedGraph;
+    
+    ofFile script(path);
+    if (!script.exists()) {
+        ofLogError("ScriptBridge") << "Script not found: " << path;
+        return false;
+    }
+    
+    // Note: We don't call beginScript/endScript for nested graphs yet
+    // This would require adding those methods to Graph
+    
+    lua.doScript(path);
+    
+    s_currentNestedGraph = nullptr;
+    return true;
+}
+
+void ScriptBridge::executeInNestedGraph(const std::string& path, Graph* nestedGraph) {
+    // This is called from Graph::onParameterChanged which happens during script execution
+    // The s_currentSession should already be set from the outer runScript call
+    if (!nestedGraph || !g_scriptBridge) return;
+    
+    ofFile script(path);
+    if (!script.exists()) {
+        ofLogError("ScriptBridge") << "Nested script not found: " << path;
+        return;
+    }
+    
+    // Set nested context and execute
+    s_currentNestedGraph = nestedGraph;
+    g_scriptBridge->runScriptInGraph(path, nestedGraph);
+    s_currentNestedGraph = nullptr;
 }
 
 bool ScriptBridge::runScripts(const std::vector<std::string>& paths) {
@@ -243,20 +295,23 @@ int ScriptBridge::lua_addNode(lua_State* L) {
     std::string name = "";
     if (lua_gettop(L) >= 2) name = luaL_checkstring(L, 2);
     
+    Graph* graph = getCurrentGraph();
+    
     // Idempotent: if name provided and node with that name exists, return existing
     if (!name.empty()) {
-        if (Node* existing = s_currentSession->findNodeByName(name)) {
-            if (existing->type == type) {
-                s_currentSession->touchNode(existing->nodeId);
+        for (const auto& pair : graph->getNodes()) {
+            Node* existing = pair.second.get();
+            if (existing && existing->name == name && existing->type == type) {
+                existing->touched = true;
                 lua_pushinteger(L, existing->nodeId);
                 return 1;
             }
         }
     }
     
-    Node* node = s_currentSession->addNode(type, name);
+    Node* node = graph->createNode(type, name);
     if (node) {
-        s_currentSession->touchNode(node->nodeId);
+        node->touched = true;
         lua_pushinteger(L, node->nodeId);
         return 1;
     }
@@ -274,7 +329,8 @@ int ScriptBridge::lua_connect(lua_State* L) {
     if (lua_gettop(L) >= 3) fromOut = luaL_checkinteger(L, 3);
     if (lua_gettop(L) >= 4) toIn = luaL_checkinteger(L, 4);
     
-    s_currentSession->connect(fromNode, toNode, fromOut, toIn);
+    Graph* graph = getCurrentGraph();
+    graph->connect(fromNode, toNode, fromOut, toIn);
     return 0;
 }
 
@@ -284,8 +340,23 @@ int ScriptBridge::lua_setParam(lua_State* L) {
     int nodeIdx = luaL_checkinteger(L, 1);
     std::string paramName = luaL_checkstring(L, 2);
     
-    Node* node = s_currentSession->getNode(nodeIdx);
+    Graph* graph = getCurrentGraph();
+    Node* node = graph->getNode(nodeIdx);
     if (!node) return 0;
+    
+    // Special case: Graph nodes with 'script' parameter execute nested graphs
+    if (paramName == "script" && node->type == "Graph" && lua_isstring(L, 3)) {
+        std::string scriptPath = lua_tostring(L, 3);
+        if (!scriptPath.empty()) {
+            Graph* graphNode = dynamic_cast<Graph*>(node);
+            if (graphNode) {
+                Graph* child = graphNode->getOrCreateChildGraph();
+                ofLogNotice("ScriptBridge") << "Executing nested script: " << scriptPath << " for: " << node->name;
+                executeInNestedGraph(scriptPath, child);
+            }
+        }
+        return 0;
+    }
     
     // Try to find the parameter
     if (node->parameters.contains(paramName)) {
@@ -308,6 +379,9 @@ int ScriptBridge::lua_setParam(lua_State* L) {
         } else if (lua_isstring(L, 3)) {
             p.fromString(lua_tostring(L, 3));
         }
+        
+        // Notify the node that a parameter changed (enables reactive behavior)
+        node->onParameterChanged(paramName);
     }
     
     return 0;
@@ -315,6 +389,7 @@ int ScriptBridge::lua_setParam(lua_State* L) {
 
 int ScriptBridge::lua_clear(lua_State* L) {
     if (!s_currentSession) return 0;
-    s_currentSession->clear();
+    Graph* graph = getCurrentGraph();
+    graph->clear();
     return 0;
 }

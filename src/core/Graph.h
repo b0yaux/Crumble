@@ -98,10 +98,19 @@ public:
     bool saveToFile(const std::string& path) const;
     bool loadFromFile(const std::string& path);
     
+    // Child graph management for recursive nesting
+    Graph* getOrCreateChildGraph();
+    Graph* getChildGraph() const { return childGraph.get(); }
+    bool hasChildGraph() const { return childGraph != nullptr; }
+    
 private:
     std::unordered_map<int, std::unique_ptr<Node>> nodes;
     std::vector<Connection> connections;
 
+    // Owned child graph for recursive nesting (TouchDesigner-style components)
+    // Created on-demand when this Graph node contains nested structure
+    std::unique_ptr<Graph> childGraph;
+    
     // Topology validation flag
     bool executionDirty = true;
     

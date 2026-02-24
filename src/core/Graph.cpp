@@ -411,3 +411,15 @@ bool Graph::loadFromFile(const std::string& path) {
     }
     return fromJson(json);
 }
+
+Graph* Graph::getOrCreateChildGraph() {
+    if (!childGraph) {
+        childGraph = std::make_unique<Graph>();
+        childGraph->nodeId = this->nodeId;
+        childGraph->graph = this;
+        childGraph->type = "Graph";
+        childGraph->name = this->name + "_child";
+        ofLogNotice("Graph") << "Created child graph for: " << name;
+    }
+    return childGraph.get();
+}
