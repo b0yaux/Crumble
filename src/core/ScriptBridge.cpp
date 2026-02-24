@@ -14,6 +14,13 @@ void ScriptBridge::setup(Session* s) {
     lua.init();
     lua.addListener(this);
     
+    // Add scripts directory to Lua's package.path for require()
+    std::string scriptsPath = ofToDataPath("scripts", true);
+    ofLogNotice("ScriptBridge") << "Scripts path: " << scriptsPath;
+    std::string pathSetup = "package.path = '" + scriptsPath + "/?.lua;" + scriptsPath + "/?.lua;' .. package.path";
+    ofLogNotice("ScriptBridge") << "Path setup: " << pathSetup;
+    lua.doString(pathSetup);
+    
     bindSessionAPI();
 }
 
@@ -160,7 +167,6 @@ void ScriptBridge::bindSessionAPI() {
             end
 
             local files = _listDir(path)
-            local imported = {}
             local files = _listDir(path)
             local imported = {}
             

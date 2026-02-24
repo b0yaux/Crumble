@@ -70,6 +70,24 @@ for i, node in ipairs(clips) do
 end
 ```
 
+### Modular Directory Scanning
+```lua
+-- Generic loader module - caller decides the workflow
+local loader = require("loader")
+
+-- Scan directory, returns files grouped by extension
+local data = loader.scan("path/to/media", { limit = 32 })
+local videos = data[".mov"] or {}
+local audios = data[".wav"] or {}
+
+-- Create nodes with equal opacity distribution
+for i, video in ipairs(videos) do
+    local v = addNode("VideoFileSource", "v" .. (i-1) .. "_" .. video.name)
+    v.path = video.path
+    vMixer["opacity_" .. (i-1)] = 1.0 / #videos
+end
+```
+
 ## Building
 
 ```bash
@@ -90,7 +108,7 @@ make
 ```json
 {
   "physics": { "damping": 0.85, "springStrength": 0.2, "repulsion": 500 },
-  "entryScripts": ["main", "sources"]
+  "entryScript": "scripts/main.lua"
 }
 ```
 
