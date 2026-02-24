@@ -131,16 +131,30 @@ void Graph::update(float dt) {
             it->second->update(dt);
         }
     }
+    
+    // Propagate update to child graph if present
+    if (childGraph) {
+        childGraph->update(dt);
+    }
+}
+
+ofTexture* Graph::getVideoOutput() {
+    if (childGraph) {
+        return childGraph->getVideoOutput();
+    }
+    return nullptr;
 }
 
 void Graph::audioOut(ofSoundBuffer& buffer) {
     std::lock_guard<std::mutex> lock(audioMutex);
     
-    // In our simplified engine, SpeakersOutput (the sink) 
-    // drives the audio thread by pulling from the graph.
-    // However, if we wanted global audio processing, we'd 
-    // iterate through traversalOrder here too.
-    buffer.set(0); 
+    // Route audio through child graph if present
+    if (childGraph) {
+        childGraph->audioOut(buffer);
+        return;
+    }
+    
+    buffer.set(0);
 }
 
 bool Graph::validateTopology() {
@@ -287,6 +301,11 @@ ofJson Graph::toJson() const {
     json["connections"] = connectionsJson;
     json["outputs"] = outputsJson;
     
+    // Serialize child graph if present
+    if (childGraph) {
+        json["childGraph"] = childGraph->toJson();
+    }
+    
     // Also include the ofParameterGroup (masterOpacity, etc. if we add them to Graph)
     ofJson paramsJson;
     ofSerialize(paramsJson, parameters);
@@ -372,6 +391,11 @@ bool Graph::fromJson(const ofJson& json) {
         const auto& outputs = json["outputs"];
     }
 
+    // Load child graph if present
+    if (json.contains("childGraph")) {
+        getOrCreateChildGraph()->fromJson(json["childGraph"]);
+    }
+
     executionDirty = true;
     
     return true;
@@ -415,7 +439,6 @@ bool Graph::loadFromFile(const std::string& path) {
 Graph* Graph::getOrCreateChildGraph() {
     if (!childGraph) {
         childGraph = std::make_unique<Graph>();
-        childGraph->nodeId = this->nodeId;
         childGraph->graph = this;
         childGraph->type = "Graph";
         childGraph->name = this->name + "_child";

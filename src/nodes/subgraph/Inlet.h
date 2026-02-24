@@ -1,13 +1,16 @@
 #pragma once
 #include "../../core/Node.h"
+#include "../../core/Graph.h"
 
 // Inlet: Input boundary node for nested subgraphs
-// Connects to parent graph, exposes as input within child graph
+// Acts as a source inside child graph, pulling from parent graph connections
+// When parent connects: parentNode -> Graph(Inlet), Inlet provides that data internally
 class Inlet : public Node {
 public:
     Inlet();
     
     ofTexture* getVideoOutput() override;
+    void audioOut(ofSoundBuffer& buffer) override;
     
     // The index of this inlet (0, 1, 2, ...)
     int inletIndex = 0;
