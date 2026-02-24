@@ -82,3 +82,20 @@ make
 - `G` : Toggle GUI
 - `Cmd+S` : Save current graph to `main.json`
 - Drag & Drop media files to auto-add as layers
+
+## Configuration
+
+`bin/data/config.json` controls physics and scripts:
+
+```json
+{
+  "physics": { "damping": 0.85, "springStrength": 0.2, "repulsion": 500 },
+  "entryScripts": ["main", "sources"]
+}
+```
+
+## Recent Changes
+
+- Fixed drag over-reactivity, lowered damping
+- Added config.json for physics parameters and multiple script loading
+- Added topological spawn positioning
