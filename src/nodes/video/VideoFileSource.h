@@ -34,6 +34,9 @@ public:
     ofJson serialize() const override;
     void deserialize(const ofJson& json) override;
     
+    // React to parameter changes from Lua
+    void onParameterChanged(const std::string& paramName) override;
+    
 private:
     void onPathChanged(std::string& path);
     ofxHapPlayer player;

@@ -61,6 +61,12 @@ void VideoFileSource::update(float dt) {
     }
 }
 
+void VideoFileSource::onParameterChanged(const std::string& paramName) {
+    if (paramName == "speed" && player.isLoaded()) {
+        player.setSpeed(speed);
+    }
+}
+
 ofTexture* VideoFileSource::getVideoOutput(int index) {
     if (index != 0) return nullptr;
     if (player.isLoaded()) {
