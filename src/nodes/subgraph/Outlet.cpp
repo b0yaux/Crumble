@@ -14,10 +14,8 @@ ofTexture* Outlet::getVideoOutput() {
     auto inputs = childGraph->getInputConnections(nodeId);
     for (const auto& conn : inputs) {
         if (conn.toInput == 0) {
-            Node* sourceNode = childGraph->getNode(conn.fromNode);
-            if (sourceNode) {
-                return sourceNode->getVideoOutput();
-            }
+            Node* source = childGraph->getNode(conn.fromNode);
+            if (source) return source->getVideoOutput();
         }
     }
     
@@ -39,9 +37,9 @@ void Outlet::audioOut(ofSoundBuffer& buffer) {
     auto inputs = childGraph->getInputConnections(nodeId);
     for (const auto& conn : inputs) {
         if (conn.toInput == 0) {
-            Node* sourceNode = childGraph->getNode(conn.fromNode);
-            if (sourceNode) {
-                sourceNode->audioOut(buffer);
+            Node* source = childGraph->getNode(conn.fromNode);
+            if (source) {
+                source->audioOut(buffer);
                 return;
             }
         }

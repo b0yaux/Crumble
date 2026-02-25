@@ -466,3 +466,17 @@ Graph* Graph::getOrCreateChildGraph() {
     }
     return childGraph.get();
 }
+
+Graph* Graph::getParentGraph() const {
+    if (graph && dynamic_cast<Graph*>(graph)) {
+        return static_cast<Graph*>(graph);
+    }
+    return nullptr;
+}
+
+Node* Graph::getContainingNode() const {
+    if (graph && dynamic_cast<Node*>(graph)) {
+        return static_cast<Node*>(graph);
+    }
+    return nullptr;
+}

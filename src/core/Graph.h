@@ -104,6 +104,12 @@ public:
     Graph* getChildGraph() const { return childGraph.get(); }
     bool hasChildGraph() const { return childGraph != nullptr; }
     
+    // Parent graph navigation (for nested subgraphs)
+    // Returns the containing graph if this is a nested subgraph
+    Graph* getParentGraph() const;
+    // Returns the Graph node that owns this subgraph (if nested)
+    Node* getContainingNode() const;
+    
 private:
     std::unordered_map<int, std::unique_ptr<Node>> nodes;
     std::vector<Connection> connections;

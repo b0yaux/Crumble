@@ -11,19 +11,17 @@ ofTexture* Inlet::getVideoOutput() {
     Graph* childGraph = dynamic_cast<Graph*>(graph);
     if (!childGraph) return nullptr;
     
-    Graph* parentGraphNode = dynamic_cast<Graph*>(childGraph->graph);
-    if (!parentGraphNode) return nullptr;
+    Node* containingNode = childGraph->getContainingNode();
+    if (!containingNode) return nullptr;
     
-    Graph* parentGraph = dynamic_cast<Graph*>(parentGraphNode->graph);
+    Graph* parentGraph = childGraph->getParentGraph();
     if (!parentGraph) return nullptr;
     
-    auto inputs = parentGraph->getInputConnections(parentGraphNode->nodeId);
+    auto inputs = parentGraph->getInputConnections(containingNode->nodeId);
     for (const auto& conn : inputs) {
         if (conn.toInput == inletIndex) {
-            Node* sourceNode = parentGraph->getNode(conn.fromNode);
-            if (sourceNode) {
-                return sourceNode->getVideoOutput();
-            }
+            Node* source = parentGraph->getNode(conn.fromNode);
+            if (source) return source->getVideoOutput();
         }
     }
     
@@ -42,24 +40,24 @@ void Inlet::audioOut(ofSoundBuffer& buffer) {
         return;
     }
     
-    Graph* parentGraphNode = dynamic_cast<Graph*>(childGraph->graph);
-    if (!parentGraphNode) {
+    Node* containingNode = childGraph->getContainingNode();
+    if (!containingNode) {
         buffer.set(0);
         return;
     }
     
-    Graph* parentGraph = dynamic_cast<Graph*>(parentGraphNode->graph);
+    Graph* parentGraph = childGraph->getParentGraph();
     if (!parentGraph) {
         buffer.set(0);
         return;
     }
     
-    auto inputs = parentGraph->getInputConnections(parentGraphNode->nodeId);
+    auto inputs = parentGraph->getInputConnections(containingNode->nodeId);
     for (const auto& conn : inputs) {
         if (conn.toInput == inletIndex) {
-            Node* sourceNode = parentGraph->getNode(conn.fromNode);
-            if (sourceNode) {
-                sourceNode->audioOut(buffer);
+            Node* source = parentGraph->getNode(conn.fromNode);
+            if (source) {
+                source->audioOut(buffer);
                 return;
             }
         }
