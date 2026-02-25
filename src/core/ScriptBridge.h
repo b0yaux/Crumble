@@ -50,10 +50,17 @@ private:
     // Get the current graph (root or nested context)
     static Graph* getCurrentGraph();
     
-    // Lua-callable wrappers
-    // We use a static pointer to the current session for the Lua C-functions
+    // Context stack for nested graph execution
+    static thread_local std::vector<Graph*> s_graphStack;
     static Session* s_currentSession;
-    static Graph* s_currentNestedGraph;
+    
+    // RAII helper for graph context switching
+    struct GraphContext {
+        GraphContext(Graph* graph) { s_graphStack.push_back(graph); }
+        ~GraphContext() { if (!s_graphStack.empty()) s_graphStack.pop_back(); }
+    };
+    
+    // Lua-callable wrappers
     
     // Bridge functions (C-style for Lua)
     static int lua_addNode(lua_State* L);

@@ -4,7 +4,7 @@
 ScriptBridge* g_scriptBridge = nullptr;
 
 Session* ScriptBridge::s_currentSession = nullptr;
-Graph* ScriptBridge::s_currentNestedGraph = nullptr;
+thread_local std::vector<Graph*> ScriptBridge::s_graphStack;
 
 ScriptBridge::ScriptBridge() {
     g_scriptBridge = this;
@@ -36,8 +36,8 @@ void ScriptBridge::setup(Session* s) {
 }
 
 Graph* ScriptBridge::getCurrentGraph() {
-    if (s_currentNestedGraph) {
-        return s_currentNestedGraph;
+    if (!s_graphStack.empty()) {
+        return s_graphStack.back();
     }
     return &s_currentSession->getGraph();
 }
@@ -46,13 +46,15 @@ bool ScriptBridge::runScript(const std::string& path) {
     if (!session) return false;
     
     s_currentSession = session;
-    s_currentNestedGraph = nullptr;
     
     ofFile script(path);
     if (!script.exists()) {
         ofLogError("ScriptBridge") << "Script not found: " << path;
         return false;
     }
+    
+    // Root graph context
+    GraphContext ctx(&session->getGraph());
     
     // Prepare for idempotent script execution
     session->beginScript();
@@ -64,7 +66,6 @@ bool ScriptBridge::runScript(const std::string& path) {
     session->endScript();
     
     s_currentSession = nullptr;
-    s_currentNestedGraph = nullptr;
     return true;
 }
 
@@ -72,7 +73,6 @@ bool ScriptBridge::runScriptInGraph(const std::string& path, Graph* nestedGraph)
     if (!session || !nestedGraph) return false;
     
     s_currentSession = session;
-    s_currentNestedGraph = nestedGraph;
     
     ofFile script(path);
     if (!script.exists()) {
@@ -80,18 +80,13 @@ bool ScriptBridge::runScriptInGraph(const std::string& path, Graph* nestedGraph)
         return false;
     }
     
-    // Note: We don't call beginScript/endScript for nested graphs yet
-    // This would require adding those methods to Graph
-    
+    GraphContext ctx(nestedGraph);
     lua.doScript(path);
     
-    s_currentNestedGraph = nullptr;
     return true;
 }
 
 void ScriptBridge::executeInNestedGraph(const std::string& path, Graph* nestedGraph) {
-    // This is called from Graph::onParameterChanged which happens during script execution
-    // The s_currentSession should already be set from the outer runScript call
     if (!nestedGraph || !g_scriptBridge) return;
     
     ofFile script(path);
@@ -100,10 +95,7 @@ void ScriptBridge::executeInNestedGraph(const std::string& path, Graph* nestedGr
         return;
     }
     
-    // Set nested context and execute
-    s_currentNestedGraph = nestedGraph;
     g_scriptBridge->runScriptInGraph(path, nestedGraph);
-    s_currentNestedGraph = nullptr;
 }
 
 bool ScriptBridge::runScripts(const std::vector<std::string>& paths) {
