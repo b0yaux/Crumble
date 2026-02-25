@@ -1,119 +1,192 @@
 # Crumble
 
-Minimal modular video graph system for openFrameworks.
+A minimal modular video + audio graph system built with openFrameworks and Lua.
 
-## Features
-
-- **Live Scripting**: Rapid "jam-style" graph construction using Lua with idempotent reload.
-- **Reactive Architecture**: Parameters automatically trigger C++ actions (loading files, resizing arrays) via `ofParameter` listeners.
-- **Recursive Modularity**: Support for nested sub-graphs and encapsulated components.
-- **Directory Batching**: Easily import and wire entire folders of video/audio media via Lua.
-- **Asset Caching**: Automatic deduplication of audio files to prevent redundant RAM usage.
-- **HAP Integration**: Native support for HAP codec via `ofxHapPlayer`.
-
-## Architecture
-
-Crumble follows a **Reactive Pull-based Modular** design.
-
-- **`Node`**: The base class. Nodes are self-contained, reactive processors.
-- **`Graph`**: Manages nodes and connections. A `Graph` is itself a `Node`, enabling recursive nesting.
-- **`Session`**: High-level API surface with script lifecycle management.
-- **`ScriptBridge`**: Facilitates communication between Lua and C++.
-- **`AssetPool`**: Media caching and deduplication for audio resources.
-
-### Directory Structure
-
-```
-src/
-├── core/
-│   ├── Node.h/cpp          # Base node & serialization logic
-│   ├── Graph.h/cpp         # Graph & recursive nesting engine
-│   ├── Session.h/cpp       # High-level API, script lifecycle
-│   ├── ScriptBridge.h/cpp  # Lua bridge & DSL definition
-│   └── AssetPool.h/cpp     # Audio caching & deduplication
-├── nodes/
-│   ├── video/
-│   │   ├── VideoFileSource.h/.cpp  # HAP-based video player
-│   │   ├── VideoMixer.h/.cpp       # Auto-expanding compositing mixer
-│   │   └── ScreenOutput.h/.cpp     # Display sink
-│   └── audio/
-│       ├── AudioFileSource.h/.cpp  # RAM-cached audio playback
-│       ├── AudioMixer.h/.cpp       # Reactive audio summation
-│       └── SpeakersOutput.h/.cpp   # Audio output sink
-├── ui/
-│   └── GraphUI.h/.cpp     # Interactive graph visualization
-└── crumble/
-    └── Registry.h/cpp     # Node type factory registration
-```
-
-## Live Scripting DSL
-
-### Basic Setup
-```lua
-clear()
-local v = addNode("VideoFileSource", "V1")
-v.path = "path/to/video.mov"
-
-local mixer = addNode("VideoMixer")
-connect(v, mixer, 0, 0) -- Mixer auto-expands on connect
-mixer["opacity_0"] = 0.5
-```
-
-### Batch Importing
-```lua
--- Automatically imports video (.mov/.hap/.mp4/.avi)
--- and audio (.wav/.mp3/.aif) files and wires them to a mixer
-local clips = importFolder("videos/loops")
-
-for i, node in ipairs(clips) do
-    connect(node, mixer, 0, i-1)
-end
-```
-
-### Modular Directory Scanning
-```lua
--- Generic loader module - caller decides the workflow
-local loader = require("loader")
-
--- Scan directory, returns files grouped by extension
-local data = loader.scan("path/to/media", { limit = 32 })
-local videos = data[".mov"] or {}
-local audios = data[".wav"] or {}
-
--- Create nodes with equal opacity distribution
-for i, video in ipairs(videos) do
-    local v = addNode("VideoFileSource", "v" .. (i-1) .. "_" .. video.name)
-    v.path = video.path
-    vMixer["opacity_" .. (i-1)] = 1.0 / #videos
-end
-```
-
-## Building
+## Quick Start
 
 ```bash
 cd Crumble
 make
+make RunRelease     # or run executable
 ```
 
-## Shortcuts
+The app loads `bin/data/config.json` which specifies the entry script. By default it runs `scripts/main.lua`.
 
-- `G` : Toggle GUI
-- `Cmd+S` : Save current graph to `main.json`
-- Drag & Drop media files to auto-add as layers
+## How It Works
+
+**Core concepts:**
+- **Node**: A single processing unit (video player, mixer, output)
+- **Graph**: Container holding nodes and their connections
+- **Session**: Manages the graph lifecycle and script reloading
+
+Data flows from sources → mixers → outputs.
+
+## Architecture
+
+| Component | Role |
+|-----------|------|
+| `Node` | Base class for all processing units |
+| `Graph` | Manages nodes + connections; recursively nestable |
+| `Session` | Script lifecycle, reload, asset management |
+| `ScriptBridge` | Lua ↔ C++ communication |
+| `AssetPool` | Audio RAM deduplication |
+| `FileWatcher` | Live script reload on file change |
+
+## File Tree
+
+```
+src/
+├── main.cpp, ofApp.cpp     # Entry point
+├── core/
+│   ├── Node.h/.cpp         # Base node, serialization
+│   ├── Graph.h/.cpp        # Connections, recursive nesting
+│   ├── Session.h/.cpp     # Script lifecycle
+│   ├── ScriptBridge.h/.cpp # Lua DSL
+│   ├── AssetPool.h         # Audio cache
+│   ├── FileWatcher.h       # File change monitoring
+│   └── Config.h/.cpp       # Runtime config
+├── nodes/
+│   ├── video/              # VideoFileSource, VideoMixer, ScreenOutput
+│   └── audio/              # AudioFileSource, AudioMixer, SpeakersOutput
+├── ui/GraphUI.cpp          # Graph visualization
+└── crumble/Registry.cpp    # Node factory
+```
+
+## Lua API
+
+### Graph Construction
+
+```lua
+-- Create nodes: addNode(type, name?)
+local video = addNode("VideoFileSource", "myVideo")
+local mixer = addNode("VideoMixer")
+local output = addNode("ScreenOutput")
+
+-- Connect: connect(from, to, fromOutput?, toInput?)
+connect(video, mixer, 0, 0)
+connect(mixer, output)
+
+-- Set parameters directly
+video.path = "clips/loop.mov"
+mixer.opacity_0 = 0.5
+mixer.blend_0 = 1  -- ADD blend mode
+```
+
+### Parameters
+
+VideoMixer auto-expands when you connect inputs:
+```lua
+mixer.opacity_0 = 0.5   -- first input opacity
+mixer.opacity_1 = 0.3   -- second input opacity
+mixer.blend_0 = 1       -- blend mode (0=normal, 1=ADD)
+```
+
+### Recursive Scripting 'Lua loads Lua'
+
+Use `require()` to use a lua script inside another.
+
+/!\ To be verified : generic `loader` lua module:
+
+```lua
+local loader = require("loader")
+
+-- Returns { ".ext": [{name, path, ext}, ...], ... }
+local data = loader.scan("path/to/media", { limit = 32 })
+
+local videos = data[".mov"] or {}
+for i, v in ipairs(videos) do
+    local node = addNode("VideoFileSource", "v" .. (i-1) .. "_" .. v.name)
+    node.path = v.path
+    connect(node, mixer, 0, i-1)
+    mixer["opacity_" .. (i-1)] = 1.0 / #videos
+end
+```
+
+### Utilities
+
+```lua
+clear()           -- Reset graph
+listDir("path")   -- Returns table of file paths
+fileExists("path") -- Boolean check
+```
+
+## Node Types
+
+### Subgraph
+| Type | Description |
+|------|-------------|
+| `Inlet` | Input boundary - pulls from parent graph connections |
+| `Outlet` | Output boundary - exposes internal node output to parent |
+
+## Subgraph Composition
+
+Create a subgraph by adding a `Graph` node and setting its `script` parameter:
+
+```lua
+-- main.lua (parent graph)
+local sub = addNode("Graph", "mySubgraph")
+sub.script = "scripts/inner.lua"  -- Loads this script into the subgraph
+
+local parentVideo = addNode("VideoFileSource", "parentVideo")
+parentVideo.path = "clips/intro.mov"
+
+-- Connect to subgraph: data flows through Inlet/Outlet
+connect(parentVideo, sub, 0, 0)  -- → subgraph's Inlet
+connect(sub, 0, 0)               -- subgraph's Outlet → ScreenOutput
+```
+
+```lua
+-- inner.lua (subgraph script)
+-- Inside subgraph: add Inlet/Outlet boundaries
+local inlet = addNode("Inlet", "in")
+local outlet = addNode("Outlet", "out")
+
+-- Add internal nodes
+local video = addNode("VideoFileSource", "innerVideo")
+video.path = "clips/loop.mov"
+
+local mixer = addNode("VideoMixer")
+
+-- Wire: Inlet → mixer ← video → Outlet
+connect(inlet, mixer, 0, 0)
+connect(video, mixer, 0, 1)
+connect(mixer, outlet, 0, 0)
+```
+
+The `Inlet` node pulls from parent graph connections, and `Outlet` exposes internal output to the parent.
+
+### Video
+| Type | Description |
+|------|-------------|
+| `AudioFileSource` | RAM-cached audio player |
+| `AudioMixer` | Reactive audio summation |
+| `SpeakersOutput` | Audio output sink |
 
 ## Configuration
 
-`bin/data/config.json` controls physics and scripts:
+Edit `bin/data/config.json`:
 
 ```json
 {
-  "physics": { "damping": 0.85, "springStrength": 0.2, "repulsion": 500 },
-  "entryScript": "scripts/main.lua"
+  "entryScript": "scripts/main.lua",
+  "layout": {
+    "spawnPosition": "topological"
+  },
+       "physics": {
+    "damping": 0.85,
+    "springStrength": 0.2
+  }
 }
 ```
 
-## Recent Changes
+- **entryScript**: Path to your main Lua script
+- **layout.spawnPosition**: `topological` or `center`
+- **physics**: Graph layout simulation parameters
 
-- Fixed drag over-reactivity, lowered damping
-- Added config.json for physics parameters and multiple script loading
-- Added topological spawn positioning
+## Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `G` | Toggle GUI |
+| `Cmd+S` | Save graph to `main.json` |
+| Drag & Drop | Add media files as layers |
