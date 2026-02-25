@@ -16,6 +16,12 @@ ScriptBridge::~ScriptBridge() {
 
 void ScriptBridge::setup(Session* s) {
     session = s;
+    
+    // Register the nested script executor in Graph
+    Graph::setScriptExecutor([](const std::string& path, Graph* nestedGraph) {
+        executeInNestedGraph(path, nestedGraph);
+    });
+    
     lua.init();
     lua.addListener(this);
     
@@ -343,20 +349,6 @@ int ScriptBridge::lua_setParam(lua_State* L) {
     Graph* graph = getCurrentGraph();
     Node* node = graph->getNode(nodeIdx);
     if (!node) return 0;
-    
-    // Special case: Graph nodes with 'script' parameter execute nested graphs
-    if (paramName == "script" && node->type == "Graph" && lua_isstring(L, 3)) {
-        std::string scriptPath = lua_tostring(L, 3);
-        if (!scriptPath.empty()) {
-            Graph* graphNode = dynamic_cast<Graph*>(node);
-            if (graphNode) {
-                Graph* child = graphNode->getOrCreateChildGraph();
-                ofLogNotice("ScriptBridge") << "Executing nested script: " << scriptPath << " for: " << node->name;
-                executeInNestedGraph(scriptPath, child);
-            }
-        }
-        return 0;
-    }
     
     // Try to find the parameter
     if (node->parameters.contains(paramName)) {

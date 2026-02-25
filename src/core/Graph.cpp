@@ -1,13 +1,19 @@
 #include "Graph.h"
 
 // Static node type registry - shared by all Graph instances
-std::map<std::string, Graph::NodeCreator> Graph::Graph::nodeTypes;
+std::map<std::string, Graph::NodeCreator> Graph::nodeTypes;
+
+// Static script executor callback
+Graph::ScriptExecutor Graph::s_scriptExecutor = nullptr;
 
 Graph::Graph() {
     type = "Graph";
+    parameters.add(scriptParam.set("script", ""));
+    scriptParam.addListener(this, &Graph::onScriptChanged);
 }
 
 Graph::~Graph() {
+    scriptParam.removeListener(this, &Graph::onScriptChanged);
     clear();
 }
 
@@ -449,6 +455,13 @@ bool Graph::loadFromFile(const std::string& path) {
         return false;
     }
     return fromJson(json);
+}
+
+void Graph::onScriptChanged(std::string& path) {
+    if (!path.empty() && s_scriptExecutor) {
+        ofLogNotice("Graph") << "Script parameter changed to: " << path << " for: " << name;
+        s_scriptExecutor(path, getOrCreateChildGraph());
+    }
 }
 
 Graph* Graph::getOrCreateChildGraph() {

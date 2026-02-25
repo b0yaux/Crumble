@@ -110,6 +110,17 @@ public:
     // Returns the Graph node that owns this subgraph (if nested)
     Node* getContainingNode() const;
     
+    // Set the callback for executing scripts in nested graphs
+    using ScriptExecutor = std::function<void(const std::string&, Graph*)>;
+    static void setScriptExecutor(ScriptExecutor callback) { s_scriptExecutor = callback; }
+    
+private:
+    static ScriptExecutor s_scriptExecutor;
+    
+    // Parameter listener
+    ofParameter<std::string> scriptParam;
+    void onScriptChanged(std::string& path);
+    
 private:
     std::unordered_map<int, std::unique_ptr<Node>> nodes;
     std::vector<Connection> connections;
