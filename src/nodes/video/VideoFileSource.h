@@ -10,7 +10,7 @@ public:
     void load(const std::string& path);
 
     void update(float dt) override;
-    ofTexture* getVideoOutput() override;
+    ofTexture* getVideoOutput(int index = 0) override;
 
     // Returns filename for UI display
     std::string getDisplayName() const override;

@@ -5,7 +5,7 @@ Outlet::Outlet() {
     name = "Outlet";
 }
 
-ofTexture* Outlet::getVideoOutput() {
+ofTexture* Outlet::getVideoOutput(int index) {
     if (!graph) return nullptr;
     
     Graph* childGraph = dynamic_cast<Graph*>(graph);
@@ -15,14 +15,14 @@ ofTexture* Outlet::getVideoOutput() {
     for (const auto& conn : inputs) {
         if (conn.toInput == 0) {
             Node* source = childGraph->getNode(conn.fromNode);
-            if (source) return source->getVideoOutput();
+            if (source) return source->getVideoOutput(conn.fromOutput);
         }
     }
     
     return nullptr;
 }
 
-void Outlet::audioOut(ofSoundBuffer& buffer) {
+void Outlet::pullAudio(ofSoundBuffer& buffer, int index) {
     if (!graph) {
         buffer.set(0);
         return;
@@ -39,7 +39,7 @@ void Outlet::audioOut(ofSoundBuffer& buffer) {
         if (conn.toInput == 0) {
             Node* source = childGraph->getNode(conn.fromNode);
             if (source) {
-                source->audioOut(buffer);
+                source->pullAudio(buffer, conn.fromOutput);
                 return;
             }
         }

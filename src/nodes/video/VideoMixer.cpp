@@ -292,7 +292,8 @@ void VideoMixer::update(float dt) {
     dirty = false;
 }
 
-ofTexture* VideoMixer::getVideoOutput() {
+ofTexture* VideoMixer::getVideoOutput(int index) {
+    if (index != 0) return nullptr;
     return &outputFbo.getTexture();
 }
 

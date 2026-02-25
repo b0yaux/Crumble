@@ -61,7 +61,8 @@ void VideoFileSource::update(float dt) {
     }
 }
 
-ofTexture* VideoFileSource::getVideoOutput() {
+ofTexture* VideoFileSource::getVideoOutput(int index) {
+    if (index != 0) return nullptr;
     if (player.isLoaded()) {
         ofTexture* tex = player.getTexture();
         if (tex && tex->isAllocated()) {

@@ -9,8 +9,8 @@ class Outlet : public Node {
 public:
     Outlet();
     
-    ofTexture* getVideoOutput() override;
-    void audioOut(ofSoundBuffer& buffer) override;
+    ofTexture* getVideoOutput(int index = 0) override;
+    void pullAudio(ofSoundBuffer& buffer, int index = 0) override;
     
     // The index of this outlet (0, 1, 2, ...)
     int outletIndex = 0;

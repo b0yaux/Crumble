@@ -18,11 +18,13 @@ public:
     
     // Type-safe outputs - return nullptr if not supported
     // Derived classes override these to provide data
-    virtual ofTexture* getVideoOutput() { return nullptr; }
+    // index: Which output to pull from (for nodes with multiple outputs)
+    virtual ofTexture* getVideoOutput(int index = 0) { return nullptr; }
     
     // Audio processing hook - called from the audio thread
     // Nodes should either fill (source), sum (mixer), or transform (effect) the buffer.
-    virtual void audioOut(ofSoundBuffer& buffer) {}
+    // index: Which output to pull from (for nodes with multiple outputs)
+    virtual void pullAudio(ofSoundBuffer& buffer, int index = 0) {}
     
     // Human-readable name for UI display (override for richer info)
     virtual std::string getDisplayName() const { return name; }

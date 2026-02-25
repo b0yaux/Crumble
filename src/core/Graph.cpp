@@ -1,4 +1,5 @@
 #include "Graph.h"
+#include "../nodes/subgraph/Outlet.h"
 
 // Static node type registry - shared by all Graph instances
 std::map<std::string, Graph::NodeCreator> Graph::nodeTypes;
@@ -144,27 +145,34 @@ void Graph::update(float dt) {
     }
 }
 
-ofTexture* Graph::getVideoOutput() {
-    // Search internal nodes for an 'Outlet'
+ofTexture* Graph::getVideoOutput(int index) {
+    // Search internal nodes for an 'Outlet' with matching index
     for (const auto& pair : nodes) {
         Node* node = pair.second.get();
         if (node && node->type == "Outlet") {
-            return node->getVideoOutput();
+            // We need to cast to access outletIndex
+            Outlet* outlet = static_cast<Outlet*>(node);
+            if (outlet->outletIndex == index) {
+                return node->getVideoOutput();
+            }
         }
     }
     
     return nullptr;
 }
 
-void Graph::audioOut(ofSoundBuffer& buffer) {
+void Graph::pullAudio(ofSoundBuffer& buffer, int index) {
     std::lock_guard<std::mutex> lock(audioMutex);
     
-    // Search internal nodes for an 'Outlet' and pull audio from it
+    // Search internal nodes for an 'Outlet' with matching index
     for (const auto& pair : nodes) {
         Node* node = pair.second.get();
         if (node && node->type == "Outlet") {
-            node->audioOut(buffer);
-            return;
+            Outlet* outlet = static_cast<Outlet*>(node);
+            if (outlet->outletIndex == index) {
+                node->pullAudio(buffer);
+                return;
+            }
         }
     }
     

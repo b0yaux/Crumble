@@ -19,7 +19,7 @@ public:
     void setup(int width, int height);
     
     void update(float dt) override;
-    ofTexture* getVideoOutput() override;
+    ofTexture* getVideoOutput(int index = 0) override;
     
     // React to graph connections
     void onInputConnected(int& toInput) override;

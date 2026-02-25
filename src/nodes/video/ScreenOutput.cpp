@@ -34,7 +34,7 @@ void ScreenOutput::update(float dt) {
     if (!inputs.empty()) {
         Node* sourceNode = graph->getNode(inputs[0].fromNode);
         if (sourceNode) {
-            inputTexture = sourceNode->getVideoOutput();
+            inputTexture = sourceNode->getVideoOutput(inputs[0].fromOutput);
         }
     }
 }

@@ -5,7 +5,7 @@ Inlet::Inlet() {
     name = "Inlet";
 }
 
-ofTexture* Inlet::getVideoOutput() {
+ofTexture* Inlet::getVideoOutput(int index) {
     if (!graph) return nullptr;
     
     Graph* childGraph = dynamic_cast<Graph*>(graph);
@@ -21,14 +21,14 @@ ofTexture* Inlet::getVideoOutput() {
     for (const auto& conn : inputs) {
         if (conn.toInput == inletIndex) {
             Node* source = parentGraph->getNode(conn.fromNode);
-            if (source) return source->getVideoOutput();
+            if (source) return source->getVideoOutput(conn.fromOutput);
         }
     }
     
     return nullptr;
 }
 
-void Inlet::audioOut(ofSoundBuffer& buffer) {
+void Inlet::pullAudio(ofSoundBuffer& buffer, int index) {
     if (!graph) {
         buffer.set(0);
         return;
@@ -57,7 +57,7 @@ void Inlet::audioOut(ofSoundBuffer& buffer) {
         if (conn.toInput == inletIndex) {
             Node* source = parentGraph->getNode(conn.fromNode);
             if (source) {
-                source->audioOut(buffer);
+                source->pullAudio(buffer, conn.fromOutput);
                 return;
             }
         }

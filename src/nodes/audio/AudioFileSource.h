@@ -22,7 +22,8 @@ public:
         path.addListener(this, &AudioFileSource::onPathChanged);
     }
     
-    void audioOut(ofSoundBuffer& buffer) override {
+    void pullAudio(ofSoundBuffer& buffer, int index) override {
+        if (index != 0) return;
         if (!playing || !sharedLoader || !sharedLoader->loaded() || sharedLoader->length() == 0) {
             return;
         }

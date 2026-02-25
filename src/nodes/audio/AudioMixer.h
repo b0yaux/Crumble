@@ -36,7 +36,7 @@ public:
         }
     }
 
-    void audioOut(ofSoundBuffer& buffer) override {
+    void pullAudio(ofSoundBuffer& buffer, int index) override {
         if (!graph) return;
 
         // Get all connections to this node
@@ -56,7 +56,7 @@ public:
             Node* source = graph->getNode(conn.fromNode);
             if (source) {
                 tempBuffer.set(0);
-                source->audioOut(tempBuffer);
+                source->pullAudio(tempBuffer, conn.fromOutput);
                 
                 float gain = inputGains[idx]->get();
                 if (gain > 0) {

@@ -36,7 +36,16 @@ public:
         initStream();
     }
     
-    void audioOut(ofSoundBuffer& buffer) override {
+    // Callback for ofSoundStream (OpenFrameworks system callback)
+    // Note: No 'override' here because this is an OF-specific callback, 
+    // not part of the Crumble Node interface.
+    void audioOut(ofSoundBuffer& buffer) {
+        // The sound stream always pulls from our connected input (logical output 0 of source)
+        pullAudio(buffer, 0);
+    }
+    
+    // Crumble Graph API override
+    void pullAudio(ofSoundBuffer& buffer, int index) override {
         if (!graph) {
             buffer.set(0);
             return;
@@ -54,7 +63,7 @@ public:
             return;
         }
         
-        sourceNode->audioOut(buffer);
+        sourceNode->pullAudio(buffer, inputs[0].fromOutput);
         
         if (masterVolume != 1.0f) {
             buffer *= (float)masterVolume;

@@ -73,11 +73,11 @@ public:
     // Propagates update to all internal nodes in topological order
     void update(float dt) override;
     
-    // Pull-based video routing: finds the first 'Outlet' node and returns its texture
-    ofTexture* getVideoOutput() override;
+    // Pull-based video routing: finds the 'Outlet' node with matching index
+    ofTexture* getVideoOutput(int index = 0) override;
     
-    // Pull-based audio routing: finds the first 'Outlet' node and pulls audio from it
-    void audioOut(ofSoundBuffer& buffer) override;
+    // Pull-based audio routing: finds the 'Outlet' node with matching index and pulls from it
+    void pullAudio(ofSoundBuffer& buffer, int index = 0) override;
     
     // Access for serialization/debugging
     const std::unordered_map<int, std::unique_ptr<Node>>& getNodes() const { return nodes; }
