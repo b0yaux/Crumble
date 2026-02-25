@@ -134,32 +134,22 @@ void Graph::update(float dt) {
     }
     
     // Iterative evaluation using pre-computed topological order
+    // This automatically handles recursion: if a node is a Graph,
+    // it will update its own internal nodes during its update() call.
     for (int nodeId : traversalOrder) {
         auto it = nodes.find(nodeId);
         if (it != nodes.end() && it->second) {
             it->second->update(dt);
         }
     }
-    
-    // Propagate update to child graph if present
-    if (childGraph) {
-        childGraph->update(dt);
-    }
 }
 
 ofTexture* Graph::getVideoOutput() {
-    // If has childGraph (deeper nesting), route to it
-    if (childGraph) {
-        return childGraph->getVideoOutput();
-    }
-    
-    // If this IS a subgraph (has nodes like Inlet/Outlet), find Outlet
-    if (!nodes.empty()) {
-        for (const auto& pair : nodes) {
-            Node* node = pair.second.get();
-            if (node && node->type == "Outlet") {
-                return node->getVideoOutput();
-            }
+    // Search internal nodes for an 'Outlet'
+    for (const auto& pair : nodes) {
+        Node* node = pair.second.get();
+        if (node && node->type == "Outlet") {
+            return node->getVideoOutput();
         }
     }
     
@@ -169,10 +159,13 @@ ofTexture* Graph::getVideoOutput() {
 void Graph::audioOut(ofSoundBuffer& buffer) {
     std::lock_guard<std::mutex> lock(audioMutex);
     
-    // Route audio through child graph if present
-    if (childGraph) {
-        childGraph->audioOut(buffer);
-        return;
+    // Search internal nodes for an 'Outlet' and pull audio from it
+    for (const auto& pair : nodes) {
+        Node* node = pair.second.get();
+        if (node && node->type == "Outlet") {
+            node->audioOut(buffer);
+            return;
+        }
     }
     
     buffer.set(0);
@@ -322,11 +315,6 @@ ofJson Graph::toJson() const {
     json["connections"] = connectionsJson;
     json["outputs"] = outputsJson;
     
-    // Serialize child graph if present
-    if (childGraph) {
-        json["childGraph"] = childGraph->toJson();
-    }
-    
     // Also include the ofParameterGroup (masterOpacity, etc. if we add them to Graph)
     ofJson paramsJson;
     ofSerialize(paramsJson, parameters);
@@ -412,11 +400,6 @@ bool Graph::fromJson(const ofJson& json) {
         const auto& outputs = json["outputs"];
     }
 
-    // Load child graph if present
-    if (json.contains("childGraph")) {
-        getOrCreateChildGraph()->fromJson(json["childGraph"]);
-    }
-
     executionDirty = true;
     
     return true;
@@ -460,20 +443,10 @@ bool Graph::loadFromFile(const std::string& path) {
 void Graph::onScriptChanged(std::string& path) {
     if (!path.empty() && s_scriptExecutor) {
         ofLogNotice("Graph") << "Script parameter changed to: " << path << " for: " << name;
-        s_scriptExecutor(path, getOrCreateChildGraph());
+        // Execute the script directly into this graph. 
+        // This graph acts as the container for the nodes created by the script.
+        s_scriptExecutor(path, this);
     }
-}
-
-Graph* Graph::getOrCreateChildGraph() {
-    if (!childGraph) {
-        childGraph = std::make_unique<Graph>();
-        childGraph->graph = this;
-        childGraph->type = "Graph";
-        childGraph->name = this->name + "_child";
-        
-        ofLogNotice("Graph") << "Created child graph for: " << name;
-    }
-    return childGraph.get();
 }
 
 Graph* Graph::getParentGraph() const {

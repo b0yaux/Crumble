@@ -70,8 +70,13 @@ public:
     std::mutex& getAudioMutex() { return audioMutex; }
     
     // Node interface implementation
+    // Propagates update to all internal nodes in topological order
     void update(float dt) override;
+    
+    // Pull-based video routing: finds the first 'Outlet' node and returns its texture
     ofTexture* getVideoOutput() override;
+    
+    // Pull-based audio routing: finds the first 'Outlet' node and pulls audio from it
     void audioOut(ofSoundBuffer& buffer) override;
     
     // Access for serialization/debugging
@@ -99,11 +104,6 @@ public:
     bool saveToFile(const std::string& path) const;
     bool loadFromFile(const std::string& path);
     
-    // Child graph management for recursive nesting
-    Graph* getOrCreateChildGraph();
-    Graph* getChildGraph() const { return childGraph.get(); }
-    bool hasChildGraph() const { return childGraph != nullptr; }
-    
     // Parent graph navigation (for nested subgraphs)
     // Returns the containing graph if this is a nested subgraph
     Graph* getParentGraph() const;
@@ -117,17 +117,13 @@ public:
 private:
     static ScriptExecutor s_scriptExecutor;
     
-    // Parameter listener
+    // Parameter listener: triggers script execution when 'script' path is set
     ofParameter<std::string> scriptParam;
     void onScriptChanged(std::string& path);
     
 private:
     std::unordered_map<int, std::unique_ptr<Node>> nodes;
     std::vector<Connection> connections;
-
-    // Owned child graph for recursive nesting (TouchDesigner-style components)
-    // Created on-demand when this Graph node contains nested structure
-    std::unique_ptr<Graph> childGraph;
     
     // Topology validation flag
     bool executionDirty = true;
