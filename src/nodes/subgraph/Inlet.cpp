@@ -14,7 +14,7 @@ ofTexture* Inlet::getVideoOutput() {
     Graph* parentGraphNode = dynamic_cast<Graph*>(childGraph->graph);
     if (!parentGraphNode) return nullptr;
     
-    Graph* parentGraph = parentGraphNode->graph;
+    Graph* parentGraph = dynamic_cast<Graph*>(parentGraphNode->graph);
     if (!parentGraph) return nullptr;
     
     auto inputs = parentGraph->getInputConnections(parentGraphNode->nodeId);
@@ -48,7 +48,7 @@ void Inlet::audioOut(ofSoundBuffer& buffer) {
         return;
     }
     
-    Graph* parentGraph = parentGraphNode->graph;
+    Graph* parentGraph = dynamic_cast<Graph*>(parentGraphNode->graph);
     if (!parentGraph) {
         buffer.set(0);
         return;

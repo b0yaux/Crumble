@@ -139,9 +139,21 @@ void Graph::update(float dt) {
 }
 
 ofTexture* Graph::getVideoOutput() {
+    // If has childGraph (deeper nesting), route to it
     if (childGraph) {
         return childGraph->getVideoOutput();
     }
+    
+    // If this IS a subgraph (has nodes like Inlet/Outlet), find Outlet
+    if (!nodes.empty()) {
+        for (const auto& pair : nodes) {
+            Node* node = pair.second.get();
+            if (node && node->type == "Outlet") {
+                return node->getVideoOutput();
+            }
+        }
+    }
+    
     return nullptr;
 }
 
@@ -442,6 +454,14 @@ Graph* Graph::getOrCreateChildGraph() {
         childGraph->graph = this;
         childGraph->type = "Graph";
         childGraph->name = this->name + "_child";
+        
+        // Find root graph and copy nodeTypes from there
+        Graph* root = this;
+        while (root->graph && dynamic_cast<Graph*>(root->graph)) {
+            root = static_cast<Graph*>(root->graph);
+        }
+        childGraph->nodeTypes = root->nodeTypes;
+        
         ofLogNotice("Graph") << "Created child graph for: " << name;
     }
     return childGraph.get();
