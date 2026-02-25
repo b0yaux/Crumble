@@ -13,7 +13,7 @@ public:
     void pullAudio(ofSoundBuffer& buffer, int index = 0) override;
     
     // The index of this inlet (0, 1, 2, ...)
-    int inletIndex = 0;
+    ofParameter<int> inletIndex;
     
     // Friendly name for UI
     std::string getDisplayName() const override;

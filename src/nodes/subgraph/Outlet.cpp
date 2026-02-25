@@ -3,9 +3,10 @@
 Outlet::Outlet() {
     type = "Outlet";
     name = "Outlet";
+    parameters.add(outletIndex.set("index", 0, 0, 16));
 }
 
-ofTexture* Outlet::getVideoOutput(int index) {
+ofTexture* Outlet::getVideoOutput(int idx) {
     if (!graph) return nullptr;
     
     Graph* childGraph = dynamic_cast<Graph*>(graph);
@@ -22,7 +23,7 @@ ofTexture* Outlet::getVideoOutput(int index) {
     return nullptr;
 }
 
-void Outlet::pullAudio(ofSoundBuffer& buffer, int index) {
+void Outlet::pullAudio(ofSoundBuffer& buffer, int idx) {
     if (!graph) {
         buffer.set(0);
         return;
