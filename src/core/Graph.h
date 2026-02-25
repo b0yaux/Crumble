@@ -123,8 +123,8 @@ private:
     
     std::mutex audioMutex;
 
-    // Node type registry
-    std::map<std::string, NodeCreator> nodeTypes;
+    // Node type registry - static global, shared by all Graph instances
+    static std::map<std::string, NodeCreator> nodeTypes;
 
     // Validate topology (cycle detection and sort) when graph changes
     // Returns true if graph is a valid DAG

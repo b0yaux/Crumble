@@ -1,5 +1,8 @@
 #include "Graph.h"
 
+// Static node type registry - shared by all Graph instances
+std::map<std::string, Graph::NodeCreator> Graph::Graph::nodeTypes;
+
 Graph::Graph() {
     type = "Graph";
 }
@@ -233,12 +236,12 @@ bool Graph::validateTopology() {
 
 // Node Factory
 void Graph::registerNodeType(const std::string& type, NodeCreator creator) {
-    nodeTypes[type] = creator;
+    Graph::nodeTypes[type] = creator;
 }
 
 Node* Graph::createNode(const std::string& type, const std::string& name) {
-    auto it = nodeTypes.find(type);
-    if (it == nodeTypes.end()) {
+    auto it = Graph::nodeTypes.find(type);
+    if (it == Graph::nodeTypes.end()) {
         ofLogError("Graph") << "Unknown node type: " << type;
         return nullptr;
     }
@@ -257,7 +260,7 @@ Node* Graph::createNode(const std::string& type, const std::string& name) {
 
 std::vector<std::string> Graph::getRegisteredTypes() const {
     std::vector<std::string> types;
-    for (const auto& pair : nodeTypes) {
+    for (const auto& pair : Graph::nodeTypes) {
         types.push_back(pair.first);
     }
     return types;
@@ -351,8 +354,8 @@ bool Graph::fromJson(const ofJson& json) {
             int nodeId = getSafeJson<int>(nodeJson, "id", -1);
 
             // Get the node creator
-            auto it = nodeTypes.find(type);
-            if (it == nodeTypes.end()) {
+            auto it = Graph::nodeTypes.find(type);
+            if (it == Graph::nodeTypes.end()) {
                 ofLogError("Graph") << "Unknown node type: " << type;
                 continue;
             }
@@ -454,13 +457,6 @@ Graph* Graph::getOrCreateChildGraph() {
         childGraph->graph = this;
         childGraph->type = "Graph";
         childGraph->name = this->name + "_child";
-        
-        // Find root graph and copy nodeTypes from there
-        Graph* root = this;
-        while (root->graph && dynamic_cast<Graph*>(root->graph)) {
-            root = static_cast<Graph*>(root->graph);
-        }
-        childGraph->nodeTypes = root->nodeTypes;
         
         ofLogNotice("Graph") << "Created child graph for: " << name;
     }
