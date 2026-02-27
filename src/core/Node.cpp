@@ -4,6 +4,7 @@
 std::atomic<int> Node::nextNodeId(0);
 
 Node::Node() {
+    drawLayer.set("drawLayer", 0, -100, 100);
 }
 
 ofJson Node::serialize() const {

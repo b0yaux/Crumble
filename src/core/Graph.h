@@ -125,6 +125,7 @@ private:
     // Parameter listener: triggers script execution when 'script' path is set
     ofParameter<std::string> scriptParam;
     void onScriptChanged(std::string& path);
+    void onNodeLayerChanged(int& layer) { updateRenderList(); }
     
 private:
     std::unordered_map<int, std::unique_ptr<Node>> nodes;

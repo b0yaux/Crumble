@@ -21,7 +21,7 @@ public:
     // Registration Hint
     // Set to true in the constructor if the node needs its draw() method called.
     bool canDraw = false;
-    int drawLayer = 0;
+    ofParameter<int> drawLayer;
     
     // Type-safe outputs - return nullptr if not supported
     // Derived classes override these to provide data

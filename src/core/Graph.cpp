@@ -282,6 +282,9 @@ Node* Graph::createNode(const std::string& type, const std::string& name) {
     node->nodeId = Node::nextNodeId.fetch_add(1);
     node->graph = this;
     
+    // Listen to drawLayer changes to re-sort the render list
+    node->drawLayer.addListener(this, &Graph::onNodeLayerChanged);
+    
     Node* ptr = node.get();
     nodes[node->nodeId] = std::move(node);
     executionDirty = true;
