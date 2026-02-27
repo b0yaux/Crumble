@@ -65,6 +65,7 @@ private:
     // Bridge functions (C-style for Lua)
     static int lua_addNode(lua_State* L);
     static int lua_connect(lua_State* L);
+    static int lua_getParam(lua_State* L);
     static int lua_setParam(lua_State* L);
     static int lua_clear(lua_State* L);
     static int lua_listDirectory(lua_State* L);

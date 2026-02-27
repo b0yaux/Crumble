@@ -17,10 +17,6 @@ void AVSampler::update(float dt) {
     // Update internal sources normally
     audioSource.update(dt);
     videoSource.update(dt);
-    
-    // Synchronize playback state
-    audioSource.parameters[std::string("playing")].cast<bool>() = playing;
-    videoSource.parameters[std::string("playOnLoad")].cast<bool>() = playing;
 }
 
 void AVSampler::pullAudio(ofSoundBuffer& buffer, int index) {
@@ -68,19 +64,19 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
         }
     } else if (paramName == "speed") {
         // Propagate speed to both sources
-        audioSource.parameters[std::string("speed")].cast<float>() = speed;
-        videoSource.parameters[std::string("speed")].cast<float>() = speed;
+        audioSource.parameters[std::string("speed")].cast<float>() = speed.get();
+        videoSource.parameters[std::string("speed")].cast<float>() = speed.get();
     } else if (paramName == "volume") {
         // Propagate volume to audio source
-        audioSource.parameters[std::string("volume")].cast<float>() = volume;
+        audioSource.parameters[std::string("volume")].cast<float>() = volume.get();
     } else if (paramName == "loop") {
         // Propagate loop state to both sources
-        audioSource.parameters[std::string("loop")].cast<bool>() = loop;
-        videoSource.parameters[std::string("loop")].cast<bool>() = loop;
+        audioSource.parameters[std::string("loop")].cast<bool>() = loop.get();
+        videoSource.parameters[std::string("loop")].cast<bool>() = loop.get();
     } else if (paramName == "playing") {
         // Propagate playing state
-        audioSource.parameters[std::string("playing")].cast<bool>() = playing;
-        videoSource.parameters[std::string("playOnLoad")].cast<bool>() = playing;
+        audioSource.parameters[std::string("playing")].cast<bool>() = playing.get();
+        videoSource.parameters[std::string("playOnLoad")].cast<bool>() = playing.get();
     }
 }
 

@@ -122,6 +122,7 @@ void ScriptBridge::bindSessionAPI() {
     // Register global C functions
     lua_register(L, "_addNode", lua_addNode);
     lua_register(L, "_connect", lua_connect);
+    lua_register(L, "_get", lua_getParam);
     lua_register(L, "_set", lua_setParam);
     lua_register(L, "_clear", lua_clear);
     lua_register(L, "_listDir", lua_listDirectory);
@@ -152,8 +153,10 @@ void ScriptBridge::bindSessionAPI() {
                     _connect(self.id, toId, fromOut or 0, toIn or 0)
                     return self
                 end
+            else
+                -- Try to get parameter value from node
+                return _get(t.id, k)
             end
-            return rawget(NodeMeta, k)
         end
 
         -- Internal helper
@@ -367,6 +370,43 @@ int ScriptBridge::lua_setParam(lua_State* L) {
         node->onParameterChanged(paramName);
     }
     
+    return 0;
+}
+
+int ScriptBridge::lua_getParam(lua_State* L) {
+    if (!s_currentSession) return 0;
+    
+    int nodeIdx = luaL_checkinteger(L, 1);
+    std::string paramName = luaL_checkstring(L, 2);
+    
+    Graph* graph = getCurrentGraph();
+    Node* node = graph->getNode(nodeIdx);
+    if (!node) return 0;
+    
+    // Try to find the parameter
+    if (node->parameters.contains(paramName)) {
+        auto& p = node->parameters.get(paramName);
+        
+        // Push the parameter value to Lua stack
+        if (p.type() == typeid(ofParameter<bool>).name()) {
+            lua_pushboolean(L, p.cast<bool>());
+        } else if (p.type() == typeid(ofParameter<int>).name()) {
+            lua_pushinteger(L, p.cast<int>());
+        } else if (p.type() == typeid(ofParameter<float>).name()) {
+            lua_pushnumber(L, p.cast<float>());
+        } else if (p.type() == typeid(ofParameter<double>).name()) {
+            lua_pushnumber(L, p.cast<double>());
+        } else if (p.type() == typeid(ofParameter<std::string>).name()) {
+            std::string val = p.cast<std::string>();
+            lua_pushstring(L, val.c_str());
+        } else {
+            // Fallback: try to convert to string
+            lua_pushstring(L, p.toString().c_str());
+        }
+        return 1;
+    }
+    
+    // Parameter not found, return nil
     return 0;
 }
 
