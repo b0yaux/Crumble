@@ -6,7 +6,7 @@ VideoFileSource::VideoFileSource() {
     parameters.add(path.set("path", ""));
     parameters.add(loop.set("loop", true));
     parameters.add(speed.set("speed", 1.0, -4.0, 4.0));
-    parameters.add(playOnLoad.set("playOnLoad", true));
+    parameters.add(playing.set("playing", true));
 
     path.addListener(this, &VideoFileSource::onPathChanged);
 }
@@ -42,7 +42,7 @@ void VideoFileSource::load(const std::string& vidPath) {
         player.setLoopState(loop ? OF_LOOP_NORMAL : OF_LOOP_NONE);
         player.setSpeed(speed);
         
-        if (playOnLoad) {
+        if (playing) {
             player.play();
         }
         loadedPath = vidPath;
@@ -56,14 +56,21 @@ void VideoFileSource::update(float dt) {
     player.update();
     
     // Auto-play safety: ensure playing if it's supposed to be
-    if (playOnLoad && player.isLoaded() && !player.isPlaying() && !player.isPaused()) {
+    if (playing && player.isLoaded() && !player.isPlaying() && !player.isPaused()) {
         player.play();
     }
 }
 
 void VideoFileSource::onParameterChanged(const std::string& paramName) {
-    if (paramName == "speed" && player.isLoaded()) {
+    if (!player.isLoaded()) return;
+
+    if (paramName == "speed") {
         player.setSpeed(speed);
+    } else if (paramName == "loop") {
+        player.setLoopState(loop ? OF_LOOP_NORMAL : OF_LOOP_NONE);
+    } else if (paramName == "playing") {
+        if (playing) player.play();
+        else player.setPaused(true);
     }
 }
 
@@ -153,7 +160,8 @@ void VideoFileSource::deserialize(const ofJson& json) {
 
     if (j.contains("loop")) loop = getSafeJson<bool>(j, "loop", loop.get());
     if (j.contains("speed")) speed = getSafeJson<float>(j, "speed", speed.get());
-    if (j.contains("playOnLoad")) playOnLoad = getSafeJson<bool>(j, "playOnLoad", playOnLoad.get());
+    if (j.contains("playOnLoad")) playing = getSafeJson<bool>(j, "playOnLoad", playing.get());
+    if (j.contains("playing")) playing = getSafeJson<bool>(j, "playing", playing.get());
 
     ofDeserialize(j, parameters);
 }

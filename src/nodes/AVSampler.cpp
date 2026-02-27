@@ -66,6 +66,7 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
         // Propagate speed to both sources
         audioSource.parameters[std::string("speed")].cast<float>() = speed.get();
         videoSource.parameters[std::string("speed")].cast<float>() = speed.get();
+        videoSource.onParameterChanged("speed");
     } else if (paramName == "volume") {
         // Propagate volume to audio source
         audioSource.parameters[std::string("volume")].cast<float>() = volume.get();
@@ -73,10 +74,12 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
         // Propagate loop state to both sources
         audioSource.parameters[std::string("loop")].cast<bool>() = loop.get();
         videoSource.parameters[std::string("loop")].cast<bool>() = loop.get();
+        videoSource.onParameterChanged("loop");
     } else if (paramName == "playing") {
         // Propagate playing state
         audioSource.parameters[std::string("playing")].cast<bool>() = playing.get();
-        videoSource.parameters[std::string("playOnLoad")].cast<bool>() = playing.get();
+        videoSource.parameters[std::string("playing")].cast<bool>() = playing.get();
+        videoSource.onParameterChanged("playing");
     }
 }
 

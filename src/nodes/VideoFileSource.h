@@ -46,5 +46,5 @@ private:
     ofParameter<std::string> path;
     ofParameter<bool> loop;
     ofParameter<float> speed;
-    ofParameter<bool> playOnLoad;
+    ofParameter<bool> playing;
 };
