@@ -1,5 +1,5 @@
 #pragma once
-#include "../../core/Node.h"
+#include "../core/Node.h"
 
 // Blend modes for video compositing
 enum class BlendMode {

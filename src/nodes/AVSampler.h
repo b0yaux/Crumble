@@ -1,7 +1,7 @@
 #pragma once
-#include "../../core/Node.h"
-#include "../video/VideoFileSource.h"
-#include "../audio/AudioFileSource.h"
+#include "../core/Node.h"
+#include "VideoFileSource.h"
+#include "AudioFileSource.h"
 
 /**
  * AVSampler - Unified audio/visual sampler with synchronized playback.

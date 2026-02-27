@@ -1,5 +1,5 @@
 #include "AVSampler.h"
-#include "../../core/Session.h"
+#include "../core/Session.h"
 
 AVSampler::AVSampler() {
     type = "AVSampler";

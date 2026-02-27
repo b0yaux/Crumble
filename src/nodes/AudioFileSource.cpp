@@ -1,5 +1,5 @@
 #include "AudioFileSource.h"
-#include "../../core/Session.h"
+#include "../core/Session.h"
 
 AudioFileSource::AudioFileSource() {
     type = "AudioFileSource";

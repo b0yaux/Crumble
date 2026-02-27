@@ -1,5 +1,5 @@
 #include "ScreenOutput.h"
-#include "../../core/Graph.h"
+#include "../core/Graph.h"
 
 ScreenOutput::ScreenOutput() {
     type = "ScreenOutput";

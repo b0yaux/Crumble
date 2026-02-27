@@ -1,5 +1,5 @@
 #pragma once
-#include "../../core/Node.h"
+#include "../core/Node.h"
 #include "ofxHapPlayer.h"
 
 // Video file source using HAP codec for high-performance playback

@@ -1,5 +1,5 @@
 #include "SpeakersOutput.h"
-#include "../../core/Graph.h"
+#include "../core/Graph.h"
 
 SpeakersOutput::SpeakersOutput() {
     type = "SpeakersOutput";

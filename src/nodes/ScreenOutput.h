@@ -1,5 +1,5 @@
 #pragma once
-#include "../../core/Node.h"
+#include "../core/Node.h"
 
 // Screen output sink node
 // Simply draws the input texture to the screen

@@ -1,5 +1,5 @@
 #include "AudioMixer.h"
-#include "../../core/Graph.h"
+#include "../core/Graph.h"
 
 AudioMixer::AudioMixer() {
     type = "AudioMixer";

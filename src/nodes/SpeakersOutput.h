@@ -1,5 +1,5 @@
 #pragma once
-#include "../../core/Node.h"
+#include "../core/Node.h"
 
 /**
  * SpeakersOutput acts as the final audio sink.
