@@ -36,8 +36,8 @@ public:
     void touchNode(int nodeId);  // Mark node as active
 
     // --- Lifecycle ---
-
     void update(float dt);
+    void draw();
 
     // --- Node access ---
 

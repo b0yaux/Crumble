@@ -9,6 +9,7 @@ Graph::ScriptExecutor Graph::s_scriptExecutor = nullptr;
 
 Graph::Graph() {
     type = "Graph";
+    canDraw = true; // Graphs can contain drawable nodes
     parameters.add(scriptParam.set("script", ""));
     scriptParam.addListener(this, &Graph::onScriptChanged);
 }
@@ -91,9 +92,13 @@ void Graph::removeNode(int nodeId) {
     );
     
     // Remove node - no index update needed since we use stable nodeId
+    Node* nodePtr = getNode(nodeId);
+    bool wasDrawable = nodePtr ? nodePtr->canDraw : false;
     nodes.erase(nodeId);
     
+    updateRenderList();
     executionDirty = true;
+    if (wasDrawable) updateRenderList();
 }
 
 void Graph::clear() {
@@ -102,6 +107,7 @@ void Graph::clear() {
         std::lock_guard<std::mutex> lock(audioMutex);
         nodesToDestroy = std::move(nodes);
         connections.clear();
+        renderList.clear();
         executionDirty = true;
     }
 }
@@ -139,6 +145,27 @@ void Graph::update(float dt) {
             it->second->update(dt);
         }
     }
+}
+
+void Graph::draw() {
+    for (Node* node : renderList) {
+        node->draw();
+    }
+}
+
+void Graph::updateRenderList() {
+    renderList.clear();
+    for (auto& [id, node] : nodes) {
+        if (node && node->canDraw) {
+            renderList.push_back(node.get());
+        }
+    }
+    
+    // Sort by drawLayer, then by nodeId for determinism
+    std::sort(renderList.begin(), renderList.end(), [](Node* a, Node* b) {
+        if (a->drawLayer != b->drawLayer) return a->drawLayer < b->drawLayer;
+        return a->nodeId < b->nodeId;
+    });
 }
 
 ofTexture* Graph::getVideoOutput(int index) {
@@ -258,6 +285,7 @@ Node* Graph::createNode(const std::string& type, const std::string& name) {
     Node* ptr = node.get();
     nodes[node->nodeId] = std::move(node);
     executionDirty = true;
+    if (ptr->canDraw) updateRenderList();
     return ptr;
 }
 
@@ -398,7 +426,8 @@ bool Graph::fromJson(const ofJson& json) {
             }
         }
     }
-
+    
+    updateRenderList();
     executionDirty = true;
     
     return true;

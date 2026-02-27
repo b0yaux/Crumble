@@ -28,21 +28,14 @@ public:
         waitForThread(true);
     }
 
-    // Add a file to monitor
-    void watch(const std::string& path) {
+    // Add a file or directory to monitor
+    void watch(const std::string& path, bool recursive = false) {
         std::lock_guard<std::mutex> lock(mutex);
         std::string absolutePath = ofToDataPath(path);
-        if (files.find(absolutePath) == files.end()) {
-            try {
-                if (std::filesystem::exists(absolutePath)) {
-                    files[absolutePath] = std::filesystem::last_write_time(absolutePath);
-                } else {
-                    files[absolutePath] = std::filesystem::file_time_type::min();
-                }
-            } catch (...) {
-                files[absolutePath] = std::filesystem::file_time_type::min();
-            }
-        }
+        watchedRoots[absolutePath] = recursive;
+        
+        // Initial scan to populate file times
+        updatePath(absolutePath, recursive);
     }
 
     // Returns a list of all files that have changed since the last call
@@ -54,25 +47,61 @@ public:
     }
 
 protected:
+    void updatePath(const std::string& path, bool recursive) {
+        try {
+            if (!std::filesystem::exists(path)) return;
+
+            if (std::filesystem::is_directory(path)) {
+                if (recursive) {
+                    for (const auto& entry : std::filesystem::recursive_directory_iterator(path)) {
+                        if (entry.is_regular_file()) {
+                            checkFile(entry.path().string());
+                        }
+                    }
+                } else {
+                    for (const auto& entry : std::filesystem::directory_iterator(path)) {
+                        if (entry.is_regular_file()) {
+                            checkFile(entry.path().string());
+                        }
+                    }
+                }
+            } else {
+                checkFile(path);
+            }
+        } catch (...) {
+            // Handle filesystem errors (e.g. permission denied)
+        }
+    }
+
+    void checkFile(const std::string& filePath) {
+        try {
+            if (std::filesystem::exists(filePath)) {
+                auto currentMTime = std::filesystem::last_write_time(filePath);
+                
+                auto it = fileTimes.find(filePath);
+                if (it != fileTimes.end()) {
+                    if (currentMTime > it->second) {
+                        it->second = currentMTime;
+                        if (std::find(changedFiles.begin(), changedFiles.end(), filePath) == changedFiles.end()) {
+                            changedFiles.push_back(filePath);
+                        }
+                    }
+                } else {
+                    // First time seeing this file
+                    fileTimes[filePath] = currentMTime;
+                }
+            }
+        } catch (...) {
+            // File might be locked
+        }
+    }
+
     void threadedFunction() override {
         while (isThreadRunning()) {
             {
                 std::lock_guard<std::mutex> lock(mutex);
-                for (auto& [path, lastMTime] : files) {
-                    try {
-                        if (std::filesystem::exists(path)) {
-                            auto currentMTime = std::filesystem::last_write_time(path);
-                            if (currentMTime > lastMTime) {
-                                lastMTime = currentMTime;
-                                // Only add to queue if not already there
-                                if (std::find(changedFiles.begin(), changedFiles.end(), path) == changedFiles.end()) {
-                                    changedFiles.push_back(path);
-                                }
-                            }
-                        }
-                    } catch (...) {
-                        // File locked during write, will catch on next loop
-                    }
+                for (auto const& [path, recursive] : watchedRoots) {
+                    updatePath(path, recursive);
                 }
             }
             sleep(pollIntervalMs);
@@ -80,7 +109,9 @@ protected:
     }
 
 private:
-    std::map<std::string, std::filesystem::file_time_type> files;
+    std::map<std::string, bool> watchedRoots; // path -> recursive
+    std::map<std::string, std::filesystem::file_time_type> fileTimes;
     std::vector<std::string> changedFiles;
+    std::mutex mutex;
     int pollIntervalMs;
 };

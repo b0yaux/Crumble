@@ -38,6 +38,7 @@ public:
         T& ref = *node;
         nodes[node->nodeId] = std::move(node);
         executionDirty = true;
+        if (ref.canDraw) updateRenderList();
         return ref;
     }
     
@@ -73,6 +74,9 @@ public:
     // Node interface implementation
     // Propagates update to all internal nodes in topological order
     void update(float dt) override;
+    
+    // Propagates draw to nodes with canDraw = true
+    void draw() override;
     
     // Pull-based video routing: finds the 'Outlet' node with matching index
     ofTexture* getVideoOutput(int index = 0) override;
@@ -140,4 +144,8 @@ private:
 
     // The order in which nodes should be updated (Topological Sort)
     std::vector<int> traversalOrder;
+
+    // Nodes that have canDraw = true, kept for efficient rendering
+    std::vector<Node*> renderList;
+    void updateRenderList();
 };

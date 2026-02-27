@@ -60,6 +60,10 @@ void Session::update(float dt) {
     graph.update(dt);
 }
 
+void Session::draw() {
+    graph.draw();
+}
+
 // --- Node access ---
 
 Node* Session::getNode(int nodeId) {

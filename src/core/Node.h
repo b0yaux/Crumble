@@ -13,15 +13,20 @@ public:
     // dt: delta time in seconds
     virtual void update(float dt) {}
     
+    // Optional Functional Hooks
+    // draw() is only called if canDraw is set to true.
+    virtual void draw() {}
+    virtual void pullAudio(ofSoundBuffer& buffer, int index = 0) {}
+    
+    // Registration Hint
+    // Set to true in the constructor if the node needs its draw() method called.
+    bool canDraw = false;
+    int drawLayer = 0;
+    
     // Type-safe outputs - return nullptr if not supported
     // Derived classes override these to provide data
     // index: Which output to pull from (for nodes with multiple outputs)
     virtual ofTexture* getVideoOutput(int index = 0) { return nullptr; }
-    
-    // Audio processing hook - called from the audio thread
-    // Nodes should either fill (source), sum (mixer), or transform (effect) the buffer.
-    // index: Which output to pull from (for nodes with multiple outputs)
-    virtual void pullAudio(ofSoundBuffer& buffer, int index = 0) {}
     
     // Human-readable name for UI display (override for richer info)
     virtual std::string getDisplayName() const { return name; }

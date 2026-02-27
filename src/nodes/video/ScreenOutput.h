@@ -9,9 +9,10 @@ public:
     
     void setup(float x, float y, float w, float h);
     void update(float dt) override;
-    void draw();  // Call this in ofApp::draw()
+    void draw() override;
     
     ofParameter<bool> enabled;
+    ofParameter<bool> autoFullscreen;
     ofParameter<float> x, y, width, height;
     
     // Input texture pulled from connected source during update()

@@ -2,7 +2,6 @@
 #include "ofMain.h"
 #include "core/Session.h"
 #include "core/ScriptBridge.h"
-#include "nodes/video/ScreenOutput.h"
 #include "ui/GraphUI.h"
 #include "core/FileWatcher.h"
 
@@ -22,7 +21,6 @@ class ofApp : public ofBaseApp{
 		void dragEvent(ofDragInfo dragInfo);
 		void exit();
 
-    void refreshUIPointers();
     void checkLiveReload();
 
     Session session;
@@ -32,7 +30,4 @@ class ofApp : public ofBaseApp{
     // UI state
     bool showGui = true;
     GraphUI graphUI;
-    
-    // Cached node pointer for rendering
-    ScreenOutput* output = nullptr;
 };

@@ -24,13 +24,9 @@ void ofApp::setup(){
     
     // 3. Initialize background file watcher
     fileWatcher.watch(ofToDataPath("config.json"));
-    if (!config.entryScript.empty()) {
-        fileWatcher.watch(ofToDataPath(config.entryScript));
-    }
-    fileWatcher.watch(ofToDataPath("scripts/main.json"));
+    fileWatcher.watch(ofToDataPath("scripts"), true); // Watch scripts directory recursively
     fileWatcher.start(500); // Poll background thread every 500ms
     
-    refreshUIPointers();
     graphUI.setup();
 }
 
@@ -45,12 +41,12 @@ void ofApp::checkLiveReload() {
     bool jsonChanged = false;
     
     for (const auto& path : changed) {
-        std::string absPath = ofToDataPath(path);
+        std::string absPath = path; // fileWatcher already returns absolute paths
         if (absPath == ofToDataPath("config.json")) {
             configChanged = true;
         } else if (absPath == ofToDataPath("scripts/main.json")) {
             jsonChanged = true;
-        } else if (!config.entryScript.empty() && absPath == ofToDataPath(config.entryScript)) {
+        } else if (ofFilePath::getFileExt(absPath) == "lua") {
             scriptsChanged = true;
         }
     }
@@ -66,17 +62,13 @@ void ofApp::checkLiveReload() {
         if (newConfig.entryScript != oldEntryScript && !newConfig.entryScript.empty()) {
             ofLogNotice("ofApp") << "Entry script changed, loading: " << newConfig.entryScript;
             scriptBridge.runScript(newConfig.entryScript);
-            refreshUIPointers();
         }
     } else if (scriptsChanged) {
         ofLogNotice("ofApp") << "Live-reloading: " << config.entryScript;
         scriptBridge.runScript(config.entryScript);
-        refreshUIPointers();
     } else if (jsonChanged) {
         ofLogNotice("ofApp") << "Live-reloading JSON: scripts/main.json";
-        if (session.load("scripts/main.json")) {
-            refreshUIPointers();
-        }
+        session.load("scripts/main.json");
     }
 }
 
@@ -87,7 +79,7 @@ void ofApp::update(){
 
 void ofApp::draw(){
     ofBackground(20);
-    if (output) output->draw();
+    session.draw();
     
     if (showGui) {
         graphUI.draw(session);
@@ -109,7 +101,6 @@ void ofApp::keyPressed(int key){
         if (config.entryScript != oldEntryScript && !config.entryScript.empty()) {
             ofLogNotice("ofApp") << "Loading new entry script: " << config.entryScript;
             scriptBridge.runScript(config.entryScript);
-            refreshUIPointers();
         }
     }
 }
@@ -131,14 +122,9 @@ void ofApp::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 }
 
 void ofApp::windowResized(int w, int h){
-    if (output) output->setup(0, 0, w, h);
 }
 
 void ofApp::dragEvent(ofDragInfo dragInfo){
-}
-
-void ofApp::refreshUIPointers() {
-    output = session.findFirstNode<ScreenOutput>();
 }
 
 void ofApp::exit() {
