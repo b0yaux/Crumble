@@ -13,9 +13,6 @@ public:
     // dt: delta time in seconds
     virtual void update(float dt) {}
     
-    // Mark node as needing recalculation (currently unused — reserved for future invalidation propagation)
-    void invalidate() { dirty = true; }
-    
     // Type-safe outputs - return nullptr if not supported
     // Derived classes override these to provide data
     // index: Which output to pull from (for nodes with multiple outputs)
@@ -32,7 +29,6 @@ public:
     // Parameter reflection for GUI/DSL
     // ofParameterGroup enables automatic UI generation
     ofParameterGroup parameters;
-    ofParameter<std::string> script;  // Path to Lua script for nested graph execution
     
     // Node metadata
     std::string name = "unnamed";
@@ -48,8 +44,6 @@ public:
     
 public:
     // Internal state (public for Graph access, don't use directly)
-    bool dirty = true;  // True if cached output needs recalculation
-    uint64_t lastUpdateFrame = UINT64_MAX;  // For pull-based caching (UINT64_MAX = never updated)
     bool touched = false;  // Set during script execution to track active nodes
     
     // Serialization - each node controls its own format

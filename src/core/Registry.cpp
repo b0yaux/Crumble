@@ -1,5 +1,5 @@
 #include "Registry.h"
-#include "../core/Graph.h"
+#include "Graph.h"
 #include "../nodes/video/VideoMixer.h"
 #include "../nodes/video/VideoFileSource.h"
 #include "../nodes/video/ScreenOutput.h"

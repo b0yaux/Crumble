@@ -27,7 +27,6 @@ public:
     void  removeNode(int nodeId);
     void  connect(int fromNode, int toNode, int fromOutput = 0, int toInput = 0);
     void  disconnect(int toNode, int toInput = 0);
-    void  removeInput(int toNode, int toInput);
     void  clear();
     
     // --- Script lifecycle (for idempotent reloading) ---

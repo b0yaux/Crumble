@@ -1,5 +1,5 @@
 #pragma once
-#include "../core/Session.h"
+#include "Session.h"
 
 namespace crumble {
 

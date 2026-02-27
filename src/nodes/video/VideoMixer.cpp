@@ -99,14 +99,21 @@ void VideoMixer::removeLayer(int layerIndex) {
         return;
     }
     
-    // Shift parameter arrays down (graph connections shifted by Graph::removeInput)
+    // 1. Disconnect the graph connection for this layer
+    if (graph) {
+        graph->disconnect(nodeId, layerIndex);
+        // Shift higher-numbered connection indices down to close the gap
+        graph->compactInputIndices(nodeId, layerIndex);
+    }
+    
+    // 2. Shift per-layer parameter values down
     for (int i = layerIndex; i < numActiveLayers - 1; i++) {
         layerOpacities[i] = layerOpacities[i + 1];
         layerBlendModes[i] = layerBlendModes[i + 1];
         layerActive[i] = layerActive[i + 1];
     }
     
-    // Decrement count
+    // 3. Shrink layer count
     numActiveLayers--;
     
     ofLogVerbose("VideoMixer") << "Removed layer " << layerIndex << " (total: " << numActiveLayers << ")";
@@ -288,8 +295,6 @@ void VideoMixer::update(float dt) {
     
     ofDisableBlendMode();
     outputFbo.end();
-    
-    dirty = false;
 }
 
 ofTexture* VideoMixer::getVideoOutput(int index) {

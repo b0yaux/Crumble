@@ -46,9 +46,10 @@ public:
     bool connect(int fromNode, int toNode, int fromOutput = 0, int toInput = 0);
     void disconnect(int toNode, int toInput = 0);
     
-    // Disconnect an input AND shift all higher-numbered inputs down by 1.
-    // Used when removing a mixer layer: atomically closes the gap.
-    void removeInput(int toNode, int toInput);
+    // Shift all input indices above 'removedInput' down by 1 for a given node.
+    // Pure topology utility — does NOT disconnect. Caller is responsible for
+    // disconnecting first (e.g. VideoMixer::removeLayer, AudioMixer::removeInput).
+    void compactInputIndices(int toNode, int removedInput);
     
     void removeNode(int nodeId);
     void clear();

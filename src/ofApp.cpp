@@ -1,5 +1,5 @@
 #include "ofApp.h"
-#include "crumble/Registry.h"
+#include "core/Registry.h"
 #include "core/Config.h"
 
 void ofApp::setup(){

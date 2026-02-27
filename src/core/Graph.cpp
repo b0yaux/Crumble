@@ -65,13 +65,9 @@ void Graph::disconnect(int toNode, int toInput) {
     executionDirty = true;
 }
 
-void Graph::removeInput(int toNode, int toInput) {
-    // 1. Disconnect the specific input
-    disconnect(toNode, toInput);
-    
-    // 2. Shift all higher-numbered inputs down by 1
+void Graph::compactInputIndices(int toNode, int removedInput) {
     for (auto& conn : connections) {
-        if (conn.toNode == toNode && conn.toInput > toInput) {
+        if (conn.toNode == toNode && conn.toInput > removedInput) {
             conn.toInput--;
         }
     }
@@ -403,11 +399,6 @@ bool Graph::fromJson(const ofJson& json) {
         }
     }
 
-    // Load outputs
-    if (json.contains("outputs")) {
-        const auto& outputs = json["outputs"];
-    }
-
     executionDirty = true;
     
     return true;
@@ -458,15 +449,11 @@ void Graph::onScriptChanged(std::string& path) {
 }
 
 Graph* Graph::getParentGraph() const {
-    if (graph && dynamic_cast<Graph*>(graph)) {
-        return static_cast<Graph*>(graph);
-    }
-    return nullptr;
+    // graph is already typed Graph*, so no cast needed
+    return graph;
 }
 
 Node* Graph::getContainingNode() const {
-    if (graph && dynamic_cast<Node*>(graph)) {
-        return static_cast<Node*>(graph);
-    }
-    return nullptr;
+    // Graph IS-A Node, so graph (which is Graph*) is always a valid Node*
+    return graph;
 }

@@ -20,10 +20,6 @@ void Session::disconnect(int toNode, int toInput) {
     graph.disconnect(toNode, toInput);
 }
 
-void Session::removeInput(int toNode, int toInput) {
-    graph.removeInput(toNode, toInput);
-}
-
 void Session::clear() {
     graph.clear();
 }

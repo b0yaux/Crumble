@@ -12,15 +12,18 @@ connect(vMixer, vOutput)
 local aMixer = addNode("AudioMixer", "AMixer")
 local aOutput = addNode("SpeakersOutput", "AOutput")
 connect(aMixer, aOutput)
-aOutput.Volume = 0
+aOutput.volume = 0.5
+
 
 -- 2. Load directory - generic loader returns by extension
 local workDir = "/Users/jaufre/works/superstratum_video-data"
-local data = loader.scan(workDir, { limit = 32 })
+local data = loader.scan(workDir, { limit = 4 })
 
 -- 3. Caller decides what to do with the data
 local videos = data[".mov"] or {}
 local audios = data[".wav"] or {}
+
+
 
 -- 4. Create video nodes
 for i, video in ipairs(videos) do

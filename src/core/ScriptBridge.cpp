@@ -217,7 +217,6 @@ void ScriptBridge::bindSessionAPI() {
             end
 
             local files = _listDir(path)
-            local files = _listDir(path)
             local imported = {}
             
             -- Default supported extensions if none provided
