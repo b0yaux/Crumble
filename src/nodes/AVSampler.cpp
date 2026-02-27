@@ -14,9 +14,19 @@ AVSampler::AVSampler() {
 }
 
 void AVSampler::update(float dt) {
-    // Update internal sources normally
+    // Update internal sources
     audioSource.update(dt);
+    
+    // Hard-Sync Video to Audio playhead
+    if (playing.get() && !audioPath.get().empty() && !videoPath.get().empty()) {
+        double audioPos = audioSource.getRelativePosition();
+        videoSource.setPosition(audioPos);
+    }
+    
     videoSource.update(dt);
+    
+    // Update master playhead for external reference
+    masterPlayhead = audioSource.getRelativePosition();
 }
 
 void AVSampler::pullAudio(ofSoundBuffer& buffer, int index) {

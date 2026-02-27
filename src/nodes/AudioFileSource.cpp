@@ -117,3 +117,10 @@ void AudioFileSource::onPathChanged(std::string& p) {
         }
     }
 }
+
+double AudioFileSource::getRelativePosition() const {
+    if (!sharedLoader || !sharedLoader->loaded() || sharedLoader->length() == 0) {
+        return 0.0;
+    }
+    return playhead / (double)sharedLoader->length();
+}

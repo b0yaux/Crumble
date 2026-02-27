@@ -16,6 +16,9 @@ public:
     // Serialization
     ofJson serialize() const override;
     void deserialize(const ofJson& json) override;
+    
+    // Get normalized playhead position (0.0 to 1.0)
+    double getRelativePosition() const;
 
 protected:
     std::shared_ptr<ofxAudioFile> sharedLoader;
