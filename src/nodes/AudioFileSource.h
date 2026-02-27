@@ -19,6 +19,7 @@ public:
     
     // Get normalized playhead position (0.0 to 1.0)
     double getRelativePosition() const;
+    void setRelativePosition(double pct);
 
 protected:
     std::shared_ptr<ofxAudioFile> sharedLoader;

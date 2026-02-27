@@ -11,6 +11,7 @@ AVSampler::AVSampler() {
     parameters.add(volume.set("volume", 1.0, 0.0, 1.0));
     parameters.add(loop.set("loop", true));
     parameters.add(playing.set("playing", true));
+    parameters.add(position.set("position", 0.0, 0.0, 1.0));
 }
 
 void AVSampler::update(float dt) {
@@ -18,9 +19,14 @@ void AVSampler::update(float dt) {
     audioSource.update(dt);
     
     // Hard-Sync Video to Audio playhead
-    if (playing.get() && !audioPath.get().empty() && !videoPath.get().empty()) {
+    // We do this even when not playing to allow scrubbing while paused
+    if (!audioPath.get().empty() && !videoPath.get().empty()) {
         double audioPos = audioSource.getRelativePosition();
-        videoSource.setPosition(audioPos);
+        videoSource.setPosition((float)audioPos);
+        
+        // Update the position parameter for script feedback
+        // We use set() which avoids triggering listeners if value hasn't changed much
+        position.set((float)audioPos);
     }
     
     videoSource.update(dt);
@@ -90,6 +96,12 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
         audioSource.parameters[std::string("playing")].cast<bool>() = playing.get();
         videoSource.parameters[std::string("playing")].cast<bool>() = playing.get();
         videoSource.onParameterChanged("playing");
+    } else if (paramName == "position") {
+        // Seek both sources to the new position
+        audioSource.setRelativePosition(position.get());
+        videoSource.setPosition(position.get());
+        // Force immediate update of master playhead
+        masterPlayhead = position.get();
     }
 }
 

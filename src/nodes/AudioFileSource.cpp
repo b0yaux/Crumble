@@ -124,3 +124,10 @@ double AudioFileSource::getRelativePosition() const {
     }
     return playhead / (double)sharedLoader->length();
 }
+
+void AudioFileSource::setRelativePosition(double pct) {
+    if (!sharedLoader || !sharedLoader->loaded() || sharedLoader->length() == 0) {
+        return;
+    }
+    playhead = ofClamp(pct, 0.0, 1.0) * (double)sharedLoader->length();
+}

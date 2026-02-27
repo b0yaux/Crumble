@@ -57,10 +57,7 @@ private:
     ofParameter<float> volume;     // Audio volume
     ofParameter<bool> loop;        // Shared loop state
     ofParameter<bool> playing;     // Shared playback state
-    
-    // Future: 
-    // ofParameter<float> position;  // Start position
-    // ofParameter<float> duration;  // Play duration before stop/loop
+    ofParameter<float> position;   // Current normalized position (0.0 to 1.0)
     // ofParameterGroup envelope;    // Envelope control
     
     std::string loadedAudioPath;
