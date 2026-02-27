@@ -6,6 +6,7 @@
 #include "../nodes/audio/SpeakersOutput.h"
 #include "../nodes/audio/AudioFileSource.h"
 #include "../nodes/audio/AudioMixer.h"
+#include "../nodes/av/AVSampler.h"
 #include "../nodes/subgraph/Inlet.h"
 #include "../nodes/subgraph/Outlet.h"
 
@@ -32,6 +33,9 @@ void registerNodes(Session& s) {
     });
     s.registerNodeType("AudioMixer", []() {
         return std::make_unique<AudioMixer>();
+    });
+    s.registerNodeType("AVSampler", []() {
+        return std::make_unique<AVSampler>();
     });
     s.registerNodeType("Inlet", []() {
         return std::make_unique<Inlet>();
