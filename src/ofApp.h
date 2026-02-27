@@ -2,9 +2,7 @@
 #include "ofMain.h"
 #include "core/Session.h"
 #include "core/ScriptBridge.h"
-#include "nodes/video/VideoMixer.h"
 #include "nodes/video/ScreenOutput.h"
-#include "nodes/video/VideoFileSource.h"
 #include "ui/GraphUI.h"
 #include "core/FileWatcher.h"
 
@@ -24,25 +22,17 @@ class ofApp : public ofBaseApp{
 		void dragEvent(ofDragInfo dragInfo);
 		void exit();
 
-    // Crumble logic
-    void initCrumbleMixer();
-    int addVideoLayer(const std::string& filePath);
     void refreshUIPointers();
     void checkLiveReload();
 
     Session session;
     ScriptBridge scriptBridge;
     FileWatcher fileWatcher;
-    
-    // Live-reload paths
-    const std::string luaPath = "scripts/main.lua";
-    const std::string jsonPath = "scripts/main.json";
 
     // UI state
     bool showGui = true;
     GraphUI graphUI;
     
-    // Cached node pointers for UI
-    VideoMixer* mixer = nullptr;
+    // Cached node pointer for rendering
     ScreenOutput* output = nullptr;
 };

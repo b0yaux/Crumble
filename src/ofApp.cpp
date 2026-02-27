@@ -15,11 +15,11 @@ void ofApp::setup(){
     crumble::registerNodes(session);
     scriptBridge.setup(&session);
     
-    // 2. Initial load - use config entryScript, fallback to init
+    // 2. Initial load from entry script
     if (!config.entryScript.empty() && ofFile::doesFileExist(config.entryScript)) {
         scriptBridge.runScript(config.entryScript);
     } else {
-        initCrumbleMixer();
+        ofLogWarning("ofApp") << "No entry script configured. Set entryScript in config.json.";
     }
     
     // 3. Initialize background file watcher
@@ -80,43 +80,6 @@ void ofApp::checkLiveReload() {
     }
 }
 
-void ofApp::initCrumbleMixer() {
-    session.clear();
-    auto* mixerNode = dynamic_cast<VideoMixer*>(session.addNode("VideoMixer", "Mixer"));
-    if (mixerNode) {
-        mixerNode->setup(1920, 1080);
-        mixerNode->setLayerCount(1);
-    }
-    auto* outputNode = dynamic_cast<ScreenOutput*>(session.addNode("ScreenOutput", "Output"));
-    if (outputNode) {
-        outputNode->setup(0, 0, 1920, 1080);
-    }
-    session.connect(0, 1);
-    refreshUIPointers();
-}
-
-int ofApp::addVideoLayer(const std::string& filePath) {
-    if (!mixer) return -1;
-    auto* source = dynamic_cast<VideoFileSource*>(session.addNode("VideoFileSource"));
-    if (!source) return -1;
-    if (!filePath.empty()) {
-        source->load(filePath);
-        source->play();
-    }
-    int layerIdx = -1;
-    for (int i = 0; i < mixer->getLayerCount(); i++) {
-        if (!mixer->isLayerConnected(i)) {
-            layerIdx = i;
-            break;
-        }
-    }
-    if (layerIdx < 0) layerIdx = mixer->addLayer();
-    if (layerIdx >= 0) {
-        session.connect(source->nodeId, mixer->nodeId, 0, layerIdx);
-    }
-    return layerIdx;
-}
-
 void ofApp::update(){
     session.update(ofGetLastFrameTime());
     checkLiveReload();
@@ -172,19 +135,9 @@ void ofApp::windowResized(int w, int h){
 }
 
 void ofApp::dragEvent(ofDragInfo dragInfo){
-    bool added = false;
-    for (const auto& file : dragInfo.files) {
-        std::string ext = ofFilePath::getFileExt(file);
-        if (ext == "mov" || ext == "hap" || ext == "mp4" || ext == "avi") {
-            addVideoLayer(file);
-            added = true;
-        }
-    }
-    if (added) refreshUIPointers();
 }
 
 void ofApp::refreshUIPointers() {
-    mixer = session.findFirstNode<VideoMixer>();
     output = session.findFirstNode<ScreenOutput>();
 }
 
