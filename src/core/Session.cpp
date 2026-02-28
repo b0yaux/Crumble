@@ -57,6 +57,7 @@ void Session::touchNode(int nodeId) {
 // --- Lifecycle ---
 
 void Session::update(float dt) {
+    transport.update(dt);
     graph.update(dt);
 }
 

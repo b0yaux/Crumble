@@ -112,6 +112,46 @@ bool ScriptBridge::runScripts(const std::vector<std::string>& paths) {
     return allSuccess;
 }
 
+void ScriptBridge::update(const Transport& t) {
+    if (!session) return;
+    
+    // Set static session pointer so _set and _get bindings work during update()
+    s_currentSession = session;
+    
+    lua_State* L = lua; // Uses ofxLua conversion operator
+    
+    // Check if 'update' function exists in global scope
+    lua_getglobal(L, "update");
+    if (lua_isfunction(L, -1)) {
+        // Create the transport table
+        lua_newtable(L);
+        
+        lua_pushnumber(L, t.bpm);
+        lua_setfield(L, -2, "bpm");
+        
+        lua_pushnumber(L, t.absoluteTime);
+        lua_setfield(L, -2, "absoluteTime");
+        
+        lua_pushnumber(L, t.cycle);
+        lua_setfield(L, -2, "cycle");
+        
+        lua_pushboolean(L, t.isPlaying);
+        lua_setfield(L, -2, "isPlaying");
+        
+        // Call update(t)
+        if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+            std::string err = lua_tostring(L, -1);
+            ofLogError("ScriptBridge") << "Error in update loop: " << err;
+            lua_pop(L, 1);
+        }
+    } else {
+        lua_pop(L, 1); // Pop if not a function
+    }
+    
+    // Reset it
+    s_currentSession = nullptr;
+}
+
 void ScriptBridge::errorReceived(std::string& msg) {
     ofLogError("ScriptBridge") << "Lua Error: " << msg;
 }

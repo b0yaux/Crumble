@@ -37,6 +37,9 @@ public:
     // Execute multiple scripts in order
     bool runScripts(const std::vector<std::string>& paths);
     
+    // Call the global 'update(t)' function if it exists
+    void update(const Transport& t);
+    
     // ofxLuaListener callbacks
     void errorReceived(std::string& msg) override;
 

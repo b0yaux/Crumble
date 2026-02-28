@@ -74,6 +74,7 @@ void ofApp::checkLiveReload() {
 
 void ofApp::update(){
     session.update(ofGetLastFrameTime());
+    scriptBridge.update(session.getTransport());
     checkLiveReload();
 }
 

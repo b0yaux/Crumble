@@ -1,6 +1,7 @@
 #pragma once
 #include "Graph.h"
 #include "AssetPool.h"
+#include "Transport.h"
 #include <vector>
 
 // Global session pointer for nodes that need asset access
@@ -87,7 +88,12 @@ public:
     Graph&       getGraph();
     const Graph& getGraph() const;
 
+    // --- Transport ---
+    Transport& getTransport() { return transport; }
+    const Transport& getTransport() const { return transport; }
+
 private:
     Graph graph;
     AssetPool assetPool;
+    Transport transport;
 };
