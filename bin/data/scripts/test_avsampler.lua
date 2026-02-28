@@ -1,46 +1,50 @@
--- Test script for AVSampler node
--- Demonstrates unified audio/visual sampling driven by the Transport C++ loop
+-- AVSampler test
 
-local P = require("lib.patterns")
+require("lib.patterns")
 
--- Create AVSampler instance
-local sampler = addNode("AVSampler", "avsampler")
-
--- Load real media files from superstratum_video-data
-local mediaPath = "/Users/jaufre/works/superstratum_video-data"
-sampler.videoPath = mediaPath .. "/0-playing-around-with-a-CRT-projector_clip_00.mov"
-sampler.audioPath = mediaPath .. "/0-playing-around-with-a-CRT-projector_clip_00.wav"
-
--- Set initial static parameters
-sampler.loop = true
-sampler.playing = true
-
--- Create output nodes
-local screen = addNode("ScreenOutput", "screen")
-local speakers = addNode("SpeakersOutput", "speakers")
-
--- Connect sampler to outputs
-connect(sampler, speakers, 0, 0)  -- audio
-connect(sampler, screen, 0, 0)    -- video
-
-print("=== AVSampler Transport Test ===")
-print("Video path: " .. (sampler.videoPath or "nil"))
-print("Audio path: " .. (sampler.audioPath or "nil"))
-
--- Loop Phase: Called automatically by C++ at 60fps
-function update(t)
-    -- Manipulate the sampler playback speed dynamically using the mini-Tidal parser!
-    -- Cycle: 1 beat plays forward (1.0), reverse (-1.0), half speed (0.5), and double speed (2.0)
-    local nextSpeed = P.step(t.cycle, "6 -1 -0.5 0.8 1.2")
-    sampler.speed = nextSpeed
-    
-    -- Animate the volume between 0 and 0.5 using an LFO synchronized to the transport
-    local nextVolume = P.osc(t.cycle, 1.0) * 0.5
-    sampler.volume = 1.0
-    
-    -- Print current transport state VERY OFTEN to debug
-    if math.random() < 0.05 then
-        print(string.format("Time: %.2f | Cycle: %.2f | Speed: %.2f | Volume: %.2f", 
-              t.absoluteTime, t.cycle, nextSpeed or 0, nextVolume or 0))
+local path = "/Users/jaufre/works/superstratum_video-data"
+local files = _listDir(path)
+local videos = {}
+for _, f in ipairs(files) do
+    if type(f) == "string" and f:match("%.mov$") then 
+        table.insert(videos, f) 
     end
+end
+
+local function smp(i)
+    local v = videos[i]
+    if not v or type(v) ~= "string" then return end
+    local n = addNode("AVSampler", "s" .. i)  -- named for idempotency
+    n.videoPath = v
+    local wav = v:gsub("%.mov$", ".wav")
+    if fileExists(wav) then n.audioPath = wav end
+    n.loop = true
+    n.playing = true
+    return n
+end
+
+local s1, s2 = smp(7), smp(13)
+
+local amix = addNode("AudioMixer", "amix")
+local vmix = addNode("VideoMixer", "vmix")
+local speakers = addNode("SpeakersOutput", "speakers")
+local screen = addNode("ScreenOutput", "screen")
+
+connect(s1, amix, 0, 0)
+connect(s2, amix, 0, 1)
+connect(s1, vmix, 0, 0)
+connect(s2, vmix, 0, 1)
+connect(amix, speakers)
+connect(vmix, screen)
+
+amix.gain_0, amix.gain_1 = 1, 1
+vmix.opacity_0, vmix.opacity_1 = 1, 1
+vmix.blend_0, vmix.blend_1 = 0, 1
+
+print("s1:", s1 and s1.videoPath)
+print("s2:", s2 and s2.videoPath)
+
+function update()
+    if s1 then s1.speed = step("0.1 -1 1") end
+    if s2 then s2.speed = step("1 -2 0.2") end
 end

@@ -120,25 +120,34 @@ void ScriptBridge::update(const Transport& t) {
     
     lua_State* L = lua; // Uses ofxLua conversion operator
     
-    // Check if 'update' function exists in global scope
+    // 1. Update global 'Time' table (create if not exists)
+    lua_getglobal(L, "Time");
+    if (lua_isnil(L, -1)) {
+        lua_pop(L, 1);
+        lua_newtable(L);
+        lua_pushvalue(L, -1);
+        lua_setglobal(L, "Time");
+    }
+    
+    lua_pushnumber(L, t.bpm);
+    lua_setfield(L, -2, "bpm");
+    
+    lua_pushnumber(L, t.absoluteTime);
+    lua_setfield(L, -2, "absoluteTime");
+    
+    lua_pushnumber(L, t.cycle);
+    lua_setfield(L, -2, "cycle");
+    
+    lua_pushboolean(L, t.isPlaying);
+    lua_setfield(L, -2, "isPlaying");
+    
+    // 2. Check if 'update' function exists in global scope
     lua_getglobal(L, "update");
     if (lua_isfunction(L, -1)) {
-        // Create the transport table
-        lua_newtable(L);
+        // Push the 'Time' table again as an argument
+        lua_pushvalue(L, -2);
         
-        lua_pushnumber(L, t.bpm);
-        lua_setfield(L, -2, "bpm");
-        
-        lua_pushnumber(L, t.absoluteTime);
-        lua_setfield(L, -2, "absoluteTime");
-        
-        lua_pushnumber(L, t.cycle);
-        lua_setfield(L, -2, "cycle");
-        
-        lua_pushboolean(L, t.isPlaying);
-        lua_setfield(L, -2, "isPlaying");
-        
-        // Call update(t)
+        // Call update(Time)
         if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
             std::string err = lua_tostring(L, -1);
             ofLogError("ScriptBridge") << "Error in update loop: " << err;
@@ -147,6 +156,8 @@ void ScriptBridge::update(const Transport& t) {
     } else {
         lua_pop(L, 1); // Pop if not a function
     }
+    
+    lua_pop(L, 1); // Pop 'Time' table
     
     // Reset it
     s_currentSession = nullptr;
@@ -206,13 +217,17 @@ void ScriptBridge::bindSessionAPI() {
         end
 
         -- Global shortcuts and session methods
+        -- Track all nodes for glob pattern matching
+        _G._allNodes = {}
+        
         local function addNodeInternal(t, n)
             if type(t) ~= "string" then
                 error("addNode: first argument must be a string (type), got " .. type(t), 2)
             end
             local id = _addNode(t, n or "")
             if id then
-                local nodeObj = { id = id, type = t, name = n }
+                local nodeObj = { id = id, type = t, name = n or t .. "_" .. id }
+                table.insert(_G._allNodes, nodeObj)
                 setmetatable(nodeObj, NodeMeta)
                 return nodeObj
             end
@@ -226,9 +241,39 @@ void ScriptBridge::bindSessionAPI() {
         end
 
         local function connectInternal(f, t, fo, ti)
-            local fid = type(f) == "table" and f.id or f
             local tid = type(t) == "table" and t.id or t
-            _connect(fid, tid, fo or 0, ti or 0)
+            local toIdx = ti or 0
+            local fromIdx = fo or 0
+            
+            -- Handle array of sources: connect({smp1, smp2}, mixer)
+            -- Check it's a proper array (has numeric keys starting at 1 with table values)
+            if type(f) == "table" and f[1] and type(f[1]) == "table" and f[1].id then
+                for _, src in ipairs(f) do
+                    if src and src.id then  -- Skip nil entries
+                        _connect(src.id, tid, fromIdx, toIdx)
+                        toIdx = toIdx + 1
+                    end
+                end
+                return
+            end
+            
+            -- Handle glob pattern: connect("smp*", mixer)
+            if type(f) == "string" and f:match("%*") then
+                local pattern = f:gsub("%*", ".*")
+                local matched = false
+                for _, node in ipairs(_G._allNodes or {}) do
+                    if node.name:match(pattern) or node.type:match(pattern) then
+                        _connect(node.id, tid, fromIdx, toIdx)
+                        toIdx = toIdx + 1
+                        matched = true
+                    end
+                end
+                if matched then return end
+            end
+            
+            -- Single node connection
+            local fid = type(f) == "table" and f.id or f
+            _connect(fid, tid, fromIdx, toIdx)
         end
 
         _G.connect = connectInternal

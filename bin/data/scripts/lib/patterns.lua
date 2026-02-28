@@ -5,20 +5,36 @@ local P = {}
 
 -- Returns a sine wave oscillating between 0 and 1 over 'frequency' cycles per beat
 function P.osc(cycle, freq)
+    if type(cycle) ~= "number" then
+        -- Assume called as osc(freq)
+        freq = cycle
+        cycle = Time and Time.cycle or 0
+    end
     freq = freq or 1.0
     return (math.sin(cycle * freq * math.pi * 2) + 1.0) * 0.5
 end
 
 -- Returns a ramp from 0 to 1 over 'frequency' cycles per beat
 function P.ramp(cycle, freq)
+    if type(cycle) ~= "number" then
+        -- Assume called as ramp(freq)
+        freq = cycle
+        cycle = Time and Time.cycle or 0
+    end
     freq = freq or 1.0
     local phase = cycle * freq
     return phase - math.floor(phase)
 end
 
 -- Mini-Tidal string sequencer
--- Example: P.step(cycle, "1 0 0.5 0.2")
+-- Example: P.step("1 0 0.5 0.2") or P.step(cycle, "1 0 0.5 0.2")
 function P.step(cycle, patternStr)
+    if type(cycle) == "string" then
+        -- Assume called as step(patternStr)
+        patternStr = cycle
+        cycle = Time and Time.cycle or 0
+    end
+
     -- Simple cache to avoid parsing strings every frame
     P._cache = P._cache or {}
     
@@ -41,5 +57,10 @@ function P.step(cycle, patternStr)
     local stepIndex = math.floor(phase * #steps) + 1
     return steps[stepIndex]
 end
+
+-- Inject globals automatically so user scripts don't have to require
+_G.osc = P.osc
+_G.ramp = P.ramp
+_G.step = P.step
 
 return P
