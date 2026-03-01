@@ -1,4 +1,6 @@
 #include "VideoFileSource.h"
+#include "../core/Graph.h"
+#include "../core/Transport.h"
 
 VideoFileSource::VideoFileSource() {
     type = "VideoFileSource";
@@ -53,6 +55,10 @@ void VideoFileSource::load(const std::string& vidPath) {
 }
 
 void VideoFileSource::update(float dt) {
+    if (graph) {
+        Signal s = getSignal(speed);
+        player.setSpeed(s[0]);
+    }
     player.update();
     
     // Auto-play safety: ensure playing if it's supposed to be

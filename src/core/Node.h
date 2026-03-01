@@ -1,96 +1,130 @@
 #pragma once
 #include "ofMain.h"
 #include <atomic>
+#include <unordered_map>
+#include <memory>
+#include "Generator.h"
+
+/**
+ * Context represents a "pushed" timing packet for a block of samples.
+ */
+struct Context {
+    double cycle = 0;       // Musical cycle at the start of the block
+    double cycleStep = 0;   // Change in cycle per sample
+    int frames = 0;         // Number of samples in the block
+    float dt = 0;           // Delta time (for 60fps nodes)
+};
+
+/**
+ * Signal provides a vectorized view of a parameter's values for the current block.
+ */
+struct Signal {
+    const float* buffer = nullptr;
+    float constant = 0.0f;
+    bool modulated = false;
+    
+    inline float operator[](int i) const {
+        return modulated ? buffer[i] : constant;
+    }
+};
 
 // Minimal base class for all nodes in the graph
-// No Port objects, no ConnectionManager - just data flow
 class Node {
 public:
     Node();
     virtual ~Node() = default;
     
-    // Main processing - called once per frame
-    // dt: delta time in seconds
+    // 1. Preparation Phase: The engine pushes timing here.
+    // The base class uses this to pre-calculate modulated parameter buffers.
+    virtual void prepare(const Context& ctx);
+
+    // 2. Execution Phase
     virtual void update(float dt) {}
+    virtual void pullAudio(ofSoundBuffer& buffer, int index = 0) {}
+
+    // Helper for nodes to get a vectorized signal for any float parameter.
+    Signal getSignal(ofParameter<float>& param) const;
     
     // Optional Functional Hooks
-    // draw() is only called if canDraw is set to true.
     virtual void draw() {}
-    virtual void pullAudio(ofSoundBuffer& buffer, int index = 0) {}
     
     // Registration Hint
-    // Set to true in the constructor if the node needs its draw() method called.
     bool canDraw = false;
     ofParameter<int> drawLayer;
     
-    // Type-safe outputs - return nullptr if not supported
-    // Derived classes override these to provide data
-    // index: Which output to pull from (for nodes with multiple outputs)
     virtual ofTexture* getVideoOutput(int index = 0) { return nullptr; }
-    
-    // Human-readable name for UI display (override for richer info)
     virtual std::string getDisplayName() const { return name; }
     
-    // Parameter reflection for GUI/DSL
-    // ofParameterGroup enables automatic UI generation
     ofParameterGroup parameters;
     
-    // Node metadata
     std::string name = "unnamed";
     std::string type = "Node";
     
-    // Graph context (set by Graph when added)
-    // Used by nodes to access other nodes for pull-based evaluation
     class Graph* graph = nullptr;
-    int nodeId = -1;     // Stable ID that persists across add/remove operations
-    
-    // Static counter for generating unique nodeIds
+    int nodeId = -1;
     static std::atomic<int> nextNodeId;
+
+    // Modulators (Patterns/LFOs/Sequences)
+    void setModulator(const std::string& paramName, std::shared_ptr<Generator<float>> mod) {
+        std::lock_guard<std::recursive_mutex> lock(modMutex);
+        modulators[paramName] = mod;
+    }
+
+    void clearModulator(const std::string& paramName) {
+        std::lock_guard<std::recursive_mutex> lock(modMutex);
+        modulators.erase(paramName);
+    }
+
+    std::shared_ptr<Generator<float>> getModulator(const std::string& paramName) const {
+        std::lock_guard<std::recursive_mutex> lock(modMutex);
+        auto it = modulators.find(paramName);
+        if (it != modulators.end()) return it->second;
+        return nullptr;
+    }
     
 public:
-    // Internal state (public for Graph access, don't use directly)
-    bool touched = false;  // Set during script execution to track active nodes
+    bool touched = false;
     
-    // Serialization - each node controls its own format
     virtual ofJson serialize() const;
     virtual void deserialize(const ofJson& json);
     
-    // Event notifications from Graph
     virtual void onInputConnected(int& toInput) {}
     virtual void onInputDisconnected(int& toInput) {}
-    
-    // Called when a parameter value changes (via script or UI)
-    // Override in derived classes to react to parameter changes
     virtual void onParameterChanged(const std::string& paramName) {}
     
 protected:
+    std::unordered_map<std::string, std::shared_ptr<Generator<float>>> modulators;
+    mutable std::recursive_mutex modMutex;
 
-    // Helper to safely get a value from JSON with type-loose conversion
-    // Handles strings-as-numbers ("1" -> 1.0) and other common JSON type mismatches
-    template<typename T>
-    T getSafeJson(const ofJson& j, const std::string& key, T defaultValue) {
-        if (!j.contains(key)) return defaultValue;
-        const auto& v = j[key];
-        try {
-            if constexpr (std::is_same_v<T, std::string>) {
-                if (v.is_string()) return v.get<std::string>();
-                if (v.is_number()) return v.dump();
-                if (v.is_boolean()) return v.get<bool>() ? "true" : "false";
-            } else if constexpr (std::is_same_v<T, bool>) {
-                if (v.is_boolean()) return v.get<bool>();
-                if (v.is_number()) return v.get<float>() > 0.5f;
-                if (v.is_string()) {
-                    std::string s = v.get<std::string>();
-                    return (s == "true" || s == "1" || s == "TRUE" || s == "ON");
-                }
-            } else if constexpr (std::is_arithmetic_v<T>) {
-                if (v.is_number()) return v.get<T>();
-                if (v.is_string()) return (T)std::stod(v.get<std::string>());
-                if (v.is_boolean()) return v.get<bool>() ? (T)1 : (T)0;
-            }
-            return v.get<T>();
-        } catch (...) {
-            return defaultValue;
-        }
-    }
+    // Internal buffers for pre-calculated signals
+    mutable std::unordered_map<std::string, ofSoundBuffer> signalBuffers;
 };
+
+// Helper to safely get a value from JSON with type-loose conversion
+// Handles strings-as-numbers ("1" -> 1.0) and other common JSON type mismatches
+template<typename T>
+T getSafeJson(const ofJson& j, const std::string& key, T defaultValue) {
+    if (!j.contains(key)) return defaultValue;
+    const auto& v = j[key];
+    try {
+        if constexpr (std::is_same_v<T, std::string>) {
+            if (v.is_string()) return v.get<std::string>();
+            if (v.is_number()) return v.dump();
+            if (v.is_boolean()) return v.get<bool>() ? "true" : "false";
+        } else if constexpr (std::is_same_v<T, bool>) {
+            if (v.is_boolean()) return v.get<bool>();
+            if (v.is_number()) return v.get<float>() > 0.5f;
+            if (v.is_string()) {
+                std::string s = v.get<std::string>();
+                return (s == "true" || s == "1" || s == "TRUE" || s == "ON");
+            }
+        } else if constexpr (std::is_arithmetic_v<T>) {
+            if (v.is_number()) return v.get<T>();
+            if (v.is_string()) return (T)std::stod(v.get<std::string>());
+            if (v.is_boolean()) return v.get<bool>() ? (T)1 : (T)0;
+        }
+        return v.get<T>();
+    } catch (...) {
+        return defaultValue;
+    }
+}

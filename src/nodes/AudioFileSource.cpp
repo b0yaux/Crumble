@@ -23,36 +23,42 @@ void AudioFileSource::pullAudio(ofSoundBuffer& buffer, int index) {
     size_t totalSamples = sharedLoader->length();
     int channels = sharedLoader->channels();
 
+    // 1. Get pre-calculated signals (Pushed by the engine)
+    Signal speedSig = getSignal(speed);
+    Signal volSig = getSignal(volume);
+
     for (size_t i = 0; i < buffer.getNumFrames(); i++) {
-        size_t frameIndex = (size_t)playhead;
+        double currentPlayhead = playhead.load();
+        size_t frameIndex = (size_t)currentPlayhead;
 
         if (frameIndex < totalSamples) {
+            float currentVolume = volSig[i];
             for (int c = 0; c < buffer.getNumChannels(); c++) {
                 int sourceChannel = c % channels;
                 float sample = data[frameIndex * channels + sourceChannel];
-                buffer[i * buffer.getNumChannels() + c] += sample * (float)volume;
+                buffer[i * buffer.getNumChannels() + c] += sample * currentVolume;
             }
         }
 
-        playhead += (float)speed;
+        currentPlayhead += (double)speedSig[i];
 
-        if (playhead >= (float)totalSamples) {
+        if (currentPlayhead >= (double)totalSamples) {
             if (loop) {
-                playhead = fmod(playhead, (float)totalSamples);
+                currentPlayhead = fmod(currentPlayhead, (double)totalSamples);
             } else {
                 playing = false;
-                playhead = 0;
-                break;
+                currentPlayhead = 0;
             }
-        } else if (playhead < 0) {
+        } else if (currentPlayhead < 0) {
             if (loop) {
-                playhead = (float)totalSamples + fmod(playhead, (float)totalSamples);
+                currentPlayhead = (double)totalSamples + fmod(currentPlayhead, (double)totalSamples);
             } else {
                 playing = false;
-                playhead = 0;
-                break;
+                currentPlayhead = 0;
             }
         }
+        
+        playhead.store(currentPlayhead);
     }
 }
 
@@ -69,25 +75,15 @@ ofJson AudioFileSource::serialize() const {
 
 void AudioFileSource::deserialize(const ofJson& json) {
     ofJson j = json;
-    // Handle common nesting patterns in our JSON
-    if (j.contains("AudioSource")) {
-        j = j["AudioSource"];
-    } else if (j.contains("group")) {
-        j = j["group"];
-    } else if (j.contains("params")) {
-        j = j["params"];
-    }
+    if (j.contains("AudioSource")) j = j["AudioSource"];
+    else if (j.contains("group")) j = j["group"];
+    else if (j.contains("params")) j = j["params"];
 
-    // Migrate from old key names (capitalized or legacy) to new lowercase keys
     std::string pathValue;
-    if (j.contains("audioPath")) {
-        pathValue = getSafeJson<std::string>(j, "audioPath", "");
-    } else if (j.contains("path")) {
-        pathValue = getSafeJson<std::string>(j, "path", "");
-    }
+    if (j.contains("audioPath")) pathValue = getSafeJson<std::string>(j, "audioPath", "");
+    else if (j.contains("path")) pathValue = getSafeJson<std::string>(j, "path", "");
     if (!pathValue.empty()) path.set(pathValue);
 
-    // Handle both old capitalized and new lowercase parameter names
     if (j.contains("Volume")) volume = getSafeJson<float>(j, "Volume", volume.get());
     if (j.contains("volume")) volume = getSafeJson<float>(j, "volume", volume.get());
 
@@ -109,7 +105,7 @@ void AudioFileSource::onPathChanged(std::string& p) {
     if (g_session) {
         sharedLoader = g_session->getAssets().getAudio(p);
         if (sharedLoader) {
-            playhead = 0;
+            playhead.store(0.0);
             loadedPath = p;
             ofLogNotice("AudioFileSource") << "Got shared audio: " << p;
         } else {
@@ -119,15 +115,11 @@ void AudioFileSource::onPathChanged(std::string& p) {
 }
 
 double AudioFileSource::getRelativePosition() const {
-    if (!sharedLoader || !sharedLoader->loaded() || sharedLoader->length() == 0) {
-        return 0.0;
-    }
-    return playhead / (double)sharedLoader->length();
+    if (!sharedLoader || !sharedLoader->loaded() || sharedLoader->length() == 0) return 0.0;
+    return playhead.load() / (double)sharedLoader->length();
 }
 
 void AudioFileSource::setRelativePosition(double pct) {
-    if (!sharedLoader || !sharedLoader->loaded() || sharedLoader->length() == 0) {
-        return;
-    }
-    playhead = ofClamp(pct, 0.0, 1.0) * (double)sharedLoader->length();
+    if (!sharedLoader || !sharedLoader->loaded() || sharedLoader->length() == 0) return;
+    playhead.store(ofClamp(pct, 0.0, 1.0) * (double)sharedLoader->length());
 }

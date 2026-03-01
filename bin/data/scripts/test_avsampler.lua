@@ -1,6 +1,5 @@
 -- AVSampler test
-
-require("lib.patterns")
+clear()
 
 local path = "/Users/jaufre/works/superstratum_video-data"
 local files = _listDir(path)
@@ -23,19 +22,24 @@ local function smp(i)
     return n
 end
 
-local s1, s2 = smp(7), smp(13)
+local s1, s2 = smp(89), smp(13)
 
 local amix = addNode("AudioMixer", "amix")
 local vmix = addNode("VideoMixer", "vmix")
 local speakers = addNode("SpeakersOutput", "speakers")
 local screen = addNode("ScreenOutput", "screen")
 
-connect(s1, amix, 0, 0)
-connect(s2, amix, 0, 1)
-connect(s1, vmix, 0, 0)
-connect(s2, vmix, 0, 1)
+connect({s1, s2}, amix)
+connect({s1, s2}, vmix)
 connect(amix, speakers)
 connect(vmix, screen)
+
+
+-- Sample-accurate sequencing using the new C++ Generator engine
+s1.speed = seq("0.1 -1 1")
+s2.speed = seq("1 0.2 3.3")
+s1.volume = 0.01
+s2.volume = 0.01
 
 amix.gain_0, amix.gain_1 = 1, 1
 vmix.opacity_0, vmix.opacity_1 = 1, 1
@@ -45,6 +49,8 @@ print("s1:", s1 and s1.videoPath)
 print("s2:", s2 and s2.videoPath)
 
 function update()
-    if s1 then s1.speed = step("0.1 -1 1") end
-    if s2 then s2.speed = step("1 -2 0.2") end
+    -- Macroscopic UI/Video timing still works here if needed
+    if math.random() < 0.01 then
+        print(string.format("Clock: %.2f | Cycle: %.2f", Time.absoluteTime, Time.cycle))
+    end
 end

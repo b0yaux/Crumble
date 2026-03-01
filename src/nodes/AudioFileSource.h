@@ -1,6 +1,7 @@
 #pragma once
 #include "../core/Node.h"
 #include "ofxAudioFile.h"
+#include <atomic>
 
 /**
  * AudioFileSource node using ofxAudioFile via AssetPool.
@@ -23,7 +24,7 @@ public:
 
 protected:
     std::shared_ptr<ofxAudioFile> sharedLoader;
-    double playhead = 0;
+    std::atomic<double> playhead{0.0};
     std::string loadedPath;
 
     ofParameter<std::string> path;

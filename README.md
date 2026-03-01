@@ -51,6 +51,20 @@ mixer.opacity_0 = 0.5
 mixer.blend_0 = 1  -- ADD blend mode
 ```
 
+### Sample-Accurate Sequencing
+
+Crumble features a sample-accurate math expression engine for parameter modulation. Instead of static values, you can assign sequences or LFOs directly:
+
+```lua
+local smp = addNode("AVSampler", "mySampler")
+smp.videoPath = "clips/loop.mov"
+smp.audioPath = "clips/loop.wav"
+
+-- Modulate speed and volume at audio rate
+smp.speed = seq("1 0.5 2 -1")
+smp.volume = osc(2.0) * seq("1 0") 
+```
+
 ### Subgraph Composition
 
 Create a subgraph by adding a `Graph` node. Set its `script` parameter to load a nested topology.

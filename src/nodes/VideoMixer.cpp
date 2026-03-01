@@ -1,5 +1,6 @@
 #include "VideoMixer.h"
 #include "../core/Graph.h"
+#include "../core/Transport.h"
 
 VideoMixer::VideoMixer() {
     type = "VideoMixer";
@@ -289,7 +290,10 @@ void VideoMixer::update(float dt) {
                 break;
         }
         
-        ofSetColor(255, layer.opacity * masterOpacity * 255);
+        Signal masterSig = getSignal(masterOpacity);
+        float currentMasterOpacity = masterSig[0];
+        
+        ofSetColor(255, layer.opacity * currentMasterOpacity * 255);
         layer.tex->draw(0, 0, fboWidth, fboHeight);
     }
     

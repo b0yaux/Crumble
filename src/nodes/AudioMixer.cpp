@@ -1,5 +1,6 @@
 #include "AudioMixer.h"
 #include "../core/Graph.h"
+#include "../core/Transport.h"
 
 AudioMixer::AudioMixer() {
     type = "AudioMixer";
@@ -73,18 +74,29 @@ void AudioMixer::pullAudio(ofSoundBuffer& buffer, int index) {
             tempBuffer.set(0);
             source->pullAudio(tempBuffer, conn.fromOutput);
 
-            float gain = inputGains[idx]->get();
-            if (gain > 0) {
-                for (size_t i = 0; i < buffer.size(); i++) {
-                    buffer[i] += tempBuffer[i] * gain;
+            auto& p = *inputGains[idx];
+            Signal gainSig = getSignal(p);
+            
+            for (size_t i = 0; i < buffer.getNumFrames(); i++) {
+                float gain = gainSig[i];
+                if (gain > 0) {
+                    for (int c = 0; c < buffer.getNumChannels(); c++) {
+                        buffer[i * buffer.getNumChannels() + c] += tempBuffer[i * buffer.getNumChannels() + c] * gain;
+                    }
                 }
             }
         }
     }
 
     // Apply master gain
-    if (masterGain != 1.0f) {
-        buffer *= (float)masterGain;
+    Signal masterSig = getSignal(masterGain);
+    if (masterSig.modulated || masterGain != 1.0f) {
+        for (size_t i = 0; i < buffer.getNumFrames(); i++) {
+            float gain = masterSig[i];
+            for (int c = 0; c < buffer.getNumChannels(); c++) {
+                buffer[i * buffer.getNumChannels() + c] *= gain;
+            }
+        }
     }
 }
 

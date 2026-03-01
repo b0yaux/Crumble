@@ -14,6 +14,12 @@ AVSampler::AVSampler() {
     parameters.add(position.set("position", 0.0, 0.0, 1.0));
 }
 
+void AVSampler::prepare(const Context& ctx) {
+    Node::prepare(ctx);
+    audioSource.prepare(ctx);
+    videoSource.prepare(ctx);
+}
+
 void AVSampler::update(float dt) {
     // Update internal sources
     audioSource.update(dt);
@@ -82,10 +88,15 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
         // Propagate speed to both sources
         audioSource.parameters[std::string("speed")].cast<float>() = speed.get();
         videoSource.parameters[std::string("speed")].cast<float>() = speed.get();
+        
+        audioSource.setModulator("speed", getModulator("speed"));
+        videoSource.setModulator("speed", getModulator("speed"));
+        
         videoSource.onParameterChanged("speed");
     } else if (paramName == "volume") {
         // Propagate volume to audio source
         audioSource.parameters[std::string("volume")].cast<float>() = volume.get();
+        audioSource.setModulator("volume", getModulator("volume"));
     } else if (paramName == "loop") {
         // Propagate loop state to both sources
         audioSource.parameters[std::string("loop")].cast<bool>() = loop.get();

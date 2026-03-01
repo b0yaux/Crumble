@@ -1,4 +1,5 @@
 #pragma once
+#include "ofMain.h"
 #include "Graph.h"
 #include "AssetPool.h"
 #include "Transport.h"
@@ -16,8 +17,8 @@ extern class Session* g_session;
 
 class Session {
 public:
-    Session() { g_session = this; }
-    ~Session() { g_session = nullptr; }
+    Session();
+    ~Session();
 
     // --- Asset Management ---
     AssetPool& getAssets() { return assetPool; }
@@ -37,8 +38,16 @@ public:
     void touchNode(int nodeId);  // Mark node as active
 
     // --- Lifecycle ---
+    
+    // Initializes the master audio stream that drives the global clock
+    void setupAudio(int sampleRate = 44100, int bufferSize = 256);
+    
     void update(float dt);
     void draw();
+
+    // Callback for ofSoundStream (OpenFrameworks system callback)
+    // This is the heart of the Master Clock.
+    void audioOut(ofSoundBuffer& buffer);
 
     // --- Node access ---
 
@@ -96,4 +105,5 @@ private:
     Graph graph;
     AssetPool assetPool;
     Transport transport;
+    ofSoundStream soundStream;
 };

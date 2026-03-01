@@ -1,4 +1,6 @@
 #include "Graph.h"
+#include "Session.h"
+#include "Transport.h"
 #include "../nodes/subgraph/Outlet.h"
 
 // Static node type registry - shared by all Graph instances
@@ -6,6 +8,10 @@ std::map<std::string, Graph::NodeCreator> Graph::nodeTypes;
 
 // Static script executor callback
 Graph::ScriptExecutor Graph::s_scriptExecutor = nullptr;
+
+Transport& Graph::getTransport() {
+    return g_session->getTransport();
+}
 
 Graph::Graph() {
     type = "Graph";
@@ -79,37 +85,51 @@ void Graph::removeNode(int nodeId) {
     // Check if node exists
     if (nodes.find(nodeId) == nodes.end()) return;
     
-    // Protect against audio thread access during mutation
-    std::lock_guard<std::mutex> lock(audioMutex);
+    std::unique_ptr<Node> nodeToDestroy;
+    bool wasDrawable = false;
+
+    {
+        // Protect against audio thread access during mutation
+        // We keep the lock as SHORT as possible
+        std::lock_guard<std::recursive_mutex> lock(audioMutex);
+        
+        // Remove all connections to/from this node
+        connections.erase(
+            std::remove_if(connections.begin(), connections.end(),
+                [nodeId](const Connection& c) {
+                    return c.fromNode == nodeId || c.toNode == nodeId;
+                }),
+            connections.end()
+        );
+        
+        auto it = nodes.find(nodeId);
+        if (it != nodes.end()) {
+            nodeToDestroy = std::move(it->second);
+            wasDrawable = nodeToDestroy->canDraw;
+            nodes.erase(it);
+        }
+        
+        executionDirty = true;
+    }
     
-    // Remove all connections to/from this node
-    connections.erase(
-        std::remove_if(connections.begin(), connections.end(),
-            [nodeId](const Connection& c) {
-                return c.fromNode == nodeId || c.toNode == nodeId;
-            }),
-        connections.end()
-    );
-    
-    // Remove node - no index update needed since we use stable nodeId
-    Node* nodePtr = getNode(nodeId);
-    bool wasDrawable = nodePtr ? nodePtr->canDraw : false;
-    nodes.erase(nodeId);
-    
-    updateRenderList();
-    executionDirty = true;
+    // Destruction happens HERE, outside the lock!
+    // If the node has large buffers (AudioFileSource), they are freed on the UI thread
+    // without blocking the Audio Thread's pullAudio loop.
+    nodeToDestroy.reset(); 
+
     if (wasDrawable) updateRenderList();
 }
 
 void Graph::clear() {
     std::unordered_map<int, std::unique_ptr<Node>> nodesToDestroy;
     {
-        std::lock_guard<std::mutex> lock(audioMutex);
+        std::lock_guard<std::recursive_mutex> lock(audioMutex);
         nodesToDestroy = std::move(nodes);
         connections.clear();
         renderList.clear();
         executionDirty = true;
     }
+    // nodesToDestroy goes out of scope here, deleting all nodes OUTSIDE the lock.
 }
 std::vector<Connection> Graph::getInputConnections(int nodeId) const {
     std::vector<Connection> result;
@@ -136,12 +156,17 @@ void Graph::update(float dt) {
         validateTopology();
     }
     
-    // Iterative evaluation using pre-computed topological order
-    // This automatically handles recursion: if a node is a Graph,
-    // it will update its own internal nodes during its update() call.
+    // Push timing to all nodes for video/UI processing
+    Context ctx;
+    ctx.cycle = getTransport().cycle;
+    ctx.cycleStep = 0; // No sub-sample stepping for 60fps frame updates
+    ctx.frames = 1;    // One "frame" of logic
+    ctx.dt = dt;
+    
     for (int nodeId : traversalOrder) {
         auto it = nodes.find(nodeId);
         if (it != nodes.end() && it->second) {
+            it->second->prepare(ctx);
             it->second->update(dt);
         }
     }
@@ -185,7 +210,17 @@ ofTexture* Graph::getVideoOutput(int index) {
 }
 
 void Graph::pullAudio(ofSoundBuffer& buffer, int index) {
-    std::lock_guard<std::mutex> lock(audioMutex);
+    std::lock_guard<std::recursive_mutex> lock(audioMutex);
+    
+    // Push timing to all nodes before processing
+    Context ctx;
+    ctx.cycle = getTransport().cycle;
+    ctx.cycleStep = getTransport().getCyclesPerSample(buffer.getSampleRate());
+    ctx.frames = buffer.getNumFrames();
+    
+    for (auto& [id, node] : nodes) {
+        node->prepare(ctx);
+    }
     
     // Search internal nodes for an 'Outlet' with matching index
     for (const auto& pair : nodes) {
@@ -286,7 +321,13 @@ Node* Graph::createNode(const std::string& type, const std::string& name) {
     node->drawLayer.addListener(this, &Graph::onNodeLayerChanged);
     
     Node* ptr = node.get();
-    nodes[node->nodeId] = std::move(node);
+    
+    {
+        // Thread safety: Protect against audio thread access while modifying the nodes map
+        std::lock_guard<std::recursive_mutex> lock(audioMutex);
+        nodes[node->nodeId] = std::move(node);
+    }
+    
     executionDirty = true;
     if (ptr->canDraw) updateRenderList();
     return ptr;

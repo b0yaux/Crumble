@@ -22,6 +22,7 @@ public:
     AVSampler();
     
     // Node interface
+    void prepare(const Context& ctx) override;
     void update(float dt) override;
     void pullAudio(ofSoundBuffer& buffer, int index = 0) override;
     ofTexture* getVideoOutput(int index = 0) override;

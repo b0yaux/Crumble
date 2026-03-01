@@ -69,14 +69,14 @@ public:
     std::vector<Connection> getOutputConnections(int nodeId) const;
     
     // Thread safety for audio thread
-    std::mutex& getAudioMutex() { return audioMutex; }
+    std::recursive_mutex& getAudioMutex() { return audioMutex; }
     
     // Node interface implementation
     // Propagates update to all internal nodes in topological order
     void update(float dt) override;
     
     // Propagates draw to nodes with canDraw = true
-    void draw() override;
+    void draw();
     
     // Pull-based video routing: finds the 'Outlet' node with matching index
     ofTexture* getVideoOutput(int index = 0) override;
@@ -118,6 +118,9 @@ public:
     // Set the callback for executing scripts in nested graphs
     using ScriptExecutor = std::function<void(const std::string&, Graph*)>;
     static void setScriptExecutor(ScriptExecutor callback) { s_scriptExecutor = callback; }
+
+    // direct access to the global transport
+    class Transport& getTransport();
     
 private:
     static ScriptExecutor s_scriptExecutor;
@@ -134,7 +137,7 @@ private:
     // Topology validation flag
     bool executionDirty = true;
     
-    std::mutex audioMutex;
+    std::recursive_mutex audioMutex;
 
     // Node type registry - static global, shared by all Graph instances
     static std::map<std::string, NodeCreator> nodeTypes;

@@ -175,6 +175,7 @@ void ScriptBridge::bindSessionAPI() {
     lua_register(L, "_connect", lua_connect);
     lua_register(L, "_get", lua_getParam);
     lua_register(L, "_set", lua_setParam);
+    lua_register(L, "_setGen", lua_setGenerator);
     lua_register(L, "_clear", lua_clear);
     lua_register(L, "_listDir", lua_listDirectory);
     lua_register(L, "_exists", lua_fileExists);
@@ -189,6 +190,8 @@ void ScriptBridge::bindSessionAPI() {
         function NodeMeta:__newindex(key, value)
             if key == "id" or key == "type" or key == "name" then
                 rawset(self, key, value)
+            elseif type(value) == "table" and value._isGen then
+                _setGen(self.id, key, value)
             else
                 _set(self.id, key, value)
             end
@@ -197,7 +200,14 @@ void ScriptBridge::bindSessionAPI() {
         -- Support for value = node.parameter
         NodeMeta.__index = function(t, k)
             if k == "set" then 
-                return function(self, name, val) _set(self.id, name, val); return self end
+                return function(self, name, val) 
+                    if type(val) == "table" and val._isGen then
+                        _setGen(self.id, name, val)
+                    else
+                        _set(self.id, name, val)
+                    end
+                    return self 
+                end
             elseif k == "connect" then
                 return function(self, toNode, fromOut, toIn)
                     local toId = type(toNode) == "table" and toNode.id or toNode
@@ -295,7 +305,45 @@ void ScriptBridge::bindSessionAPI() {
         session.setParam = function(s, a, b, c)
             local id, name, value = _getArgs(s, a, b, c)
             local targetId = type(id) == "table" and id.id or id
-            _set(targetId, name, value)
+            if type(value) == "table" and value._isGen then
+                _setGen(targetId, name, value)
+            else
+                _set(targetId, name, value)
+            end
+        end
+
+        -- Musical Pattern DSL
+        GeneratorMeta = {}
+        GeneratorMeta.__index = GeneratorMeta
+
+        function GeneratorMeta.__mul(a, b)
+            local g = { _isGen = true, type = "mul", a = a, b = b }
+            setmetatable(g, GeneratorMeta)
+            return g
+        end
+
+        function GeneratorMeta.__add(a, b)
+            local g = { _isGen = true, type = "add", a = a, b = b }
+            setmetatable(g, GeneratorMeta)
+            return g
+        end
+
+        _G.seq = function(p)
+            local g = { _isGen = true, type = "seq", val = p }
+            setmetatable(g, GeneratorMeta)
+            return g
+        end
+        
+        _G.osc = function(f)
+            local g = { _isGen = true, type = "osc", val = f }
+            setmetatable(g, GeneratorMeta)
+            return g
+        end
+        
+        _G.ramp = function(f)
+            local g = { _isGen = true, type = "ramp", val = f }
+            setmetatable(g, GeneratorMeta)
+            return g
         end
 
 -- Directory Import Helper
@@ -345,7 +393,10 @@ void ScriptBridge::bindSessionAPI() {
         end
     )";
     
-    lua.doString(helper);
+    bool success = lua.doString(helper);
+    if (!success) {
+        ofLogError("ScriptBridge") << "Failed to evaluate Lua helper DSL!";
+    }
 }
 
 int ScriptBridge::lua_listDirectory(lua_State* L) {
@@ -429,6 +480,9 @@ int ScriptBridge::lua_setParam(lua_State* L) {
     Node* node = graph->getNode(nodeIdx);
     if (!node) return 0;
     
+    // Clear any existing modulator so static value takes precedence!
+    node->clearModulator(paramName);
+    
     // Try to find the parameter
     if (node->parameters.contains(paramName)) {
         auto& p = node->parameters.get(paramName);
@@ -455,6 +509,80 @@ int ScriptBridge::lua_setParam(lua_State* L) {
         node->onParameterChanged(paramName);
     }
     
+    return 0;
+}
+
+// Internal helper to recursively build C++ Generators from Lua tables
+std::shared_ptr<Generator<float>> parseGenerator(lua_State* L, int index) {
+    if (index < 0) index = lua_gettop(L) + index + 1;
+    
+    int type = lua_type(L, index);
+
+    if (type == LUA_TNUMBER) {
+        float val = (float)lua_tonumber(L, index);
+        return std::make_shared<ConstGenerator>(val);
+    }
+    
+    if (type == LUA_TTABLE) {
+        lua_getfield(L, index, "type");
+        const char* typeStr = lua_tostring(L, -1);
+        std::string genType = typeStr ? typeStr : "";
+        lua_pop(L, 1);
+        
+        if (genType == "seq") {
+            lua_getfield(L, index, "val");
+            const char* patStr = lua_tostring(L, -1);
+            std::string pattern = patStr ? patStr : "";
+            lua_pop(L, 1);
+            return std::make_shared<SeqGenerator>(pattern);
+        } else if (genType == "osc") {
+            lua_getfield(L, index, "val");
+            float freq = (float)lua_tonumber(L, -1);
+            lua_pop(L, 1);
+            return std::make_shared<OscGenerator>(freq);
+        } else if (genType == "ramp") {
+            lua_getfield(L, index, "val");
+            float freq = (float)lua_tonumber(L, -1);
+            lua_pop(L, 1);
+            return std::make_shared<RampGenerator>(freq);
+        } else if (genType == "mul") {
+            lua_getfield(L, index, "a");
+            auto genA = parseGenerator(L, lua_gettop(L));
+            lua_pop(L, 1);
+            lua_getfield(L, index, "b");
+            auto genB = parseGenerator(L, lua_gettop(L));
+            lua_pop(L, 1);
+            if (genA && genB) return std::make_shared<MulGenerator>(genA, genB);
+        } else if (genType == "add") {
+            lua_getfield(L, index, "a");
+            auto genA = parseGenerator(L, lua_gettop(L));
+            lua_pop(L, 1);
+            lua_getfield(L, index, "b");
+            auto genB = parseGenerator(L, lua_gettop(L));
+            lua_pop(L, 1);
+            if (genA && genB) return std::make_shared<AddGenerator>(genA, genB);
+        }
+    }
+    
+    return nullptr;
+}
+
+int ScriptBridge::lua_setGenerator(lua_State* L) {
+    if (!s_currentSession) return 0;
+    
+    int nodeIdx = (int)luaL_checkinteger(L, 1);
+    std::string paramName = luaL_checkstring(L, 2);
+    
+    Graph* graph = getCurrentGraph();
+    Node* node = graph->getNode(nodeIdx);
+    if (!node) return 0;
+
+    auto gen = parseGenerator(L, 3);
+    if (gen) {
+        node->setModulator(paramName, gen);
+    }
+
+    node->onParameterChanged(paramName);
     return 0;
 }
 
