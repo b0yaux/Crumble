@@ -313,37 +313,37 @@ void ScriptBridge::bindSessionAPI() {
         end
 
         -- Musical Pattern DSL
-        GeneratorMeta = {}
-        GeneratorMeta.__index = GeneratorMeta
+        PatternMeta = {}
+        PatternMeta.__index = PatternMeta
 
-        function GeneratorMeta.__mul(a, b)
-            local g = { _isGen = true, type = "mul", a = a, b = b }
-            setmetatable(g, GeneratorMeta)
-            return g
+        function PatternMeta.__mul(a, b)
+            local p = { _isGen = true, type = "mul", a = a, b = b }
+            setmetatable(p, PatternMeta)
+            return p
         end
 
-        function GeneratorMeta.__add(a, b)
-            local g = { _isGen = true, type = "add", a = a, b = b }
-            setmetatable(g, GeneratorMeta)
-            return g
+        function PatternMeta.__add(a, b)
+            local p = { _isGen = true, type = "add", a = a, b = b }
+            setmetatable(p, PatternMeta)
+            return p
         end
 
         _G.seq = function(p)
-            local g = { _isGen = true, type = "seq", val = p }
-            setmetatable(g, GeneratorMeta)
-            return g
+            local p_obj = { _isGen = true, type = "seq", val = p }
+            setmetatable(p_obj, PatternMeta)
+            return p_obj
         end
         
         _G.osc = function(f)
-            local g = { _isGen = true, type = "osc", val = f }
-            setmetatable(g, GeneratorMeta)
-            return g
+            local p_obj = { _isGen = true, type = "osc", val = f }
+            setmetatable(p_obj, PatternMeta)
+            return p_obj
         end
         
         _G.ramp = function(f)
-            local g = { _isGen = true, type = "ramp", val = f }
-            setmetatable(g, GeneratorMeta)
-            return g
+            local p_obj = { _isGen = true, type = "ramp", val = f }
+            setmetatable(p_obj, PatternMeta)
+            return p_obj
         end
 
 -- Directory Import Helper
@@ -480,8 +480,8 @@ int ScriptBridge::lua_setParam(lua_State* L) {
     Node* node = graph->getNode(nodeIdx);
     if (!node) return 0;
     
-    // Clear any existing modulator so static value takes precedence!
-    node->clearModulator(paramName);
+    // Clear any existing pattern so static value takes precedence!
+    node->clearPattern(paramName);
     
     // Try to find the parameter
     if (node->parameters.contains(paramName)) {
@@ -512,15 +512,15 @@ int ScriptBridge::lua_setParam(lua_State* L) {
     return 0;
 }
 
-// Internal helper to recursively build C++ Generators from Lua tables
-std::shared_ptr<Generator<float>> parseGenerator(lua_State* L, int index) {
+// Internal helper to recursively build C++ Patterns from Lua tables
+std::shared_ptr<Pattern<float>> parsePattern(lua_State* L, int index) {
     if (index < 0) index = lua_gettop(L) + index + 1;
     
     int type = lua_type(L, index);
 
     if (type == LUA_TNUMBER) {
         float val = (float)lua_tonumber(L, index);
-        return std::make_shared<ConstGenerator>(val);
+        return std::make_shared<patterns::Constant>(val);
     }
     
     if (type == LUA_TTABLE) {
@@ -534,33 +534,33 @@ std::shared_ptr<Generator<float>> parseGenerator(lua_State* L, int index) {
             const char* patStr = lua_tostring(L, -1);
             std::string pattern = patStr ? patStr : "";
             lua_pop(L, 1);
-            return std::make_shared<SeqGenerator>(pattern);
+            return std::make_shared<patterns::Seq>(pattern);
         } else if (genType == "osc") {
             lua_getfield(L, index, "val");
             float freq = (float)lua_tonumber(L, -1);
             lua_pop(L, 1);
-            return std::make_shared<OscGenerator>(freq);
+            return std::make_shared<patterns::Osc>(freq);
         } else if (genType == "ramp") {
             lua_getfield(L, index, "val");
             float freq = (float)lua_tonumber(L, -1);
             lua_pop(L, 1);
-            return std::make_shared<RampGenerator>(freq);
+            return std::make_shared<patterns::Ramp>(freq);
         } else if (genType == "mul") {
             lua_getfield(L, index, "a");
-            auto genA = parseGenerator(L, lua_gettop(L));
+            auto patA = parsePattern(L, lua_gettop(L));
             lua_pop(L, 1);
             lua_getfield(L, index, "b");
-            auto genB = parseGenerator(L, lua_gettop(L));
+            auto patB = parsePattern(L, lua_gettop(L));
             lua_pop(L, 1);
-            if (genA && genB) return std::make_shared<MulGenerator>(genA, genB);
+            if (patA && patB) return std::make_shared<patterns::Mul>(patA, patB);
         } else if (genType == "add") {
             lua_getfield(L, index, "a");
-            auto genA = parseGenerator(L, lua_gettop(L));
+            auto patA = parsePattern(L, lua_gettop(L));
             lua_pop(L, 1);
             lua_getfield(L, index, "b");
-            auto genB = parseGenerator(L, lua_gettop(L));
+            auto patB = parsePattern(L, lua_gettop(L));
             lua_pop(L, 1);
-            if (genA && genB) return std::make_shared<AddGenerator>(genA, genB);
+            if (patA && patB) return std::make_shared<patterns::Add>(patA, patB);
         }
     }
     
@@ -577,9 +577,9 @@ int ScriptBridge::lua_setGenerator(lua_State* L) {
     Node* node = graph->getNode(nodeIdx);
     if (!node) return 0;
 
-    auto gen = parseGenerator(L, 3);
-    if (gen) {
-        node->setModulator(paramName, gen);
+    auto pat = parsePattern(L, 3);
+    if (pat) {
+        node->setPattern(paramName, pat);
     }
 
     node->onParameterChanged(paramName);

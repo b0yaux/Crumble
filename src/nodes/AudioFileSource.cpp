@@ -23,16 +23,16 @@ void AudioFileSource::pullAudio(ofSoundBuffer& buffer, int index) {
     size_t totalSamples = sharedLoader->length();
     int channels = sharedLoader->channels();
 
-    // 1. Get pre-calculated signals (Pushed by the engine)
-    Signal speedSig = getSignal(speed);
-    Signal volSig = getSignal(volume);
+    // 1. Get pre-calculated control streams (Pushed by the engine)
+    Control speedCtrl = getControl(speed);
+    Control volCtrl = getControl(volume);
 
     for (size_t i = 0; i < buffer.getNumFrames(); i++) {
         double currentPlayhead = playhead.load();
         size_t frameIndex = (size_t)currentPlayhead;
 
         if (frameIndex < totalSamples) {
-            float currentVolume = volSig[i];
+            float currentVolume = volCtrl[i];
             for (int c = 0; c < buffer.getNumChannels(); c++) {
                 int sourceChannel = c % channels;
                 float sample = data[frameIndex * channels + sourceChannel];
@@ -40,7 +40,7 @@ void AudioFileSource::pullAudio(ofSoundBuffer& buffer, int index) {
             }
         }
 
-        currentPlayhead += (double)speedSig[i];
+        currentPlayhead += (double)speedCtrl[i];
 
         if (currentPlayhead >= (double)totalSamples) {
             if (loop) {

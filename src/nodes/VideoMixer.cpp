@@ -290,8 +290,8 @@ void VideoMixer::update(float dt) {
                 break;
         }
         
-        Signal masterSig = getSignal(masterOpacity);
-        float currentMasterOpacity = masterSig[0];
+        Control masterCtrl = getControl(masterOpacity);
+        float currentMasterOpacity = masterCtrl[0];
         
         ofSetColor(255, layer.opacity * currentMasterOpacity * 255);
         layer.tex->draw(0, 0, fboWidth, fboHeight);

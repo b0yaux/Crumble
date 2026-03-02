@@ -56,8 +56,8 @@ void VideoFileSource::load(const std::string& vidPath) {
 
 void VideoFileSource::update(float dt) {
     if (graph) {
-        Signal s = getSignal(speed);
-        player.setSpeed(s[0]);
+        Control c = getControl(speed);
+        player.setSpeed(c[0]);
     }
     player.update();
     

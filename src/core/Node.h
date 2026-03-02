@@ -3,7 +3,8 @@
 #include <atomic>
 #include <unordered_map>
 #include <memory>
-#include "Generator.h"
+#include <mutex>
+#include "Pattern.h"
 
 /**
  * Context represents a "pushed" timing packet for a block of samples.
@@ -16,9 +17,10 @@ struct Context {
 };
 
 /**
- * Signal provides a vectorized view of a parameter's values for the current block.
+ * Control provides a vectorized view of a parameter's values for the current block.
+ * This is the "Control Rate" (K-rate) counterpart to audio buffers.
  */
-struct Signal {
+struct Control {
     const float* buffer = nullptr;
     float constant = 0.0f;
     bool modulated = false;
@@ -42,8 +44,8 @@ public:
     virtual void update(float dt) {}
     virtual void pullAudio(ofSoundBuffer& buffer, int index = 0) {}
 
-    // Helper for nodes to get a vectorized signal for any float parameter.
-    Signal getSignal(ofParameter<float>& param) const;
+    // Helper for nodes to get a vectorized control stream for any float parameter.
+    Control getControl(ofParameter<float>& param) const;
     
     // Optional Functional Hooks
     virtual void draw() {}
@@ -64,21 +66,21 @@ public:
     int nodeId = -1;
     static std::atomic<int> nextNodeId;
 
-    // Modulators (Patterns/LFOs/Sequences)
-    void setModulator(const std::string& paramName, std::shared_ptr<Generator<float>> mod) {
-        std::lock_guard<std::recursive_mutex> lock(modMutex);
-        modulators[paramName] = mod;
+    // Patterns (The "Recipe" or mathematical shape assigned to a parameter)
+    void setPattern(const std::string& paramName, std::shared_ptr<Pattern<float>> pat) {
+        std::lock_guard<std::recursive_mutex> lock(patMutex);
+        patterns[paramName] = pat;
     }
 
-    void clearModulator(const std::string& paramName) {
-        std::lock_guard<std::recursive_mutex> lock(modMutex);
-        modulators.erase(paramName);
+    void clearPattern(const std::string& paramName) {
+        std::lock_guard<std::recursive_mutex> lock(patMutex);
+        patterns.erase(paramName);
     }
 
-    std::shared_ptr<Generator<float>> getModulator(const std::string& paramName) const {
-        std::lock_guard<std::recursive_mutex> lock(modMutex);
-        auto it = modulators.find(paramName);
-        if (it != modulators.end()) return it->second;
+    std::shared_ptr<Pattern<float>> getPattern(const std::string& paramName) const {
+        std::lock_guard<std::recursive_mutex> lock(patMutex);
+        auto it = patterns.find(paramName);
+        if (it != patterns.end()) return it->second;
         return nullptr;
     }
     
@@ -93,15 +95,14 @@ public:
     virtual void onParameterChanged(const std::string& paramName) {}
     
 protected:
-    std::unordered_map<std::string, std::shared_ptr<Generator<float>>> modulators;
-    mutable std::recursive_mutex modMutex;
+    std::unordered_map<std::string, std::shared_ptr<Pattern<float>>> patterns;
+    mutable std::recursive_mutex patMutex;
 
-    // Internal buffers for pre-calculated signals
-    mutable std::unordered_map<std::string, ofSoundBuffer> signalBuffers;
+    // Internal buffers for pre-calculated control streams
+    mutable std::unordered_map<std::string, ofSoundBuffer> controlBuffers;
 };
 
 // Helper to safely get a value from JSON with type-loose conversion
-// Handles strings-as-numbers ("1" -> 1.0) and other common JSON type mismatches
 template<typename T>
 T getSafeJson(const ofJson& j, const std::string& key, T defaultValue) {
     if (!j.contains(key)) return defaultValue;

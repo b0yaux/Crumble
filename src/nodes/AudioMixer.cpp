@@ -75,10 +75,10 @@ void AudioMixer::pullAudio(ofSoundBuffer& buffer, int index) {
             source->pullAudio(tempBuffer, conn.fromOutput);
 
             auto& p = *inputGains[idx];
-            Signal gainSig = getSignal(p);
+            Control gainCtrl = getControl(p);
             
             for (size_t i = 0; i < buffer.getNumFrames(); i++) {
-                float gain = gainSig[i];
+                float gain = gainCtrl[i];
                 if (gain > 0) {
                     for (int c = 0; c < buffer.getNumChannels(); c++) {
                         buffer[i * buffer.getNumChannels() + c] += tempBuffer[i * buffer.getNumChannels() + c] * gain;
@@ -89,10 +89,10 @@ void AudioMixer::pullAudio(ofSoundBuffer& buffer, int index) {
     }
 
     // Apply master gain
-    Signal masterSig = getSignal(masterGain);
-    if (masterSig.modulated || masterGain != 1.0f) {
+    Control masterCtrl = getControl(masterGain);
+    if (masterCtrl.modulated || masterGain != 1.0f) {
         for (size_t i = 0; i < buffer.getNumFrames(); i++) {
-            float gain = masterSig[i];
+            float gain = masterCtrl[i];
             for (int c = 0; c < buffer.getNumChannels(); c++) {
                 buffer[i * buffer.getNumChannels() + c] *= gain;
             }
