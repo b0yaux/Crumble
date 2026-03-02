@@ -36,15 +36,24 @@ public:
     Node();
     virtual ~Node() = default;
     
-    // Preparation: Pushes timing and pre-calculates modulated parameters.
-    // Ensures all patterns are sample-synced before audio processing.
+    /**
+     * 1. Preparation (Push Phase): 
+     * The engine pushes timing context to all nodes. The base class uses this 
+     * to pre-calculate vectorized 'Control' buffers for modulated parameters.
+     */
     virtual void prepare(const Context& ctx);
 
-    // Execution Phase
+    /**
+     * 2. Execution (Pull Phase):
+     * Sink nodes pull audio buffers from their sources recursively.
+     */
     virtual void update(float dt) {}
     virtual void pullAudio(ofSoundBuffer& buffer, int index = 0) {}
 
-    // Returns a Control view (vector or constant) for a parameter.
+    /**
+     * Returns a 'Control' view for a parameter. Handles both modulated (vectorized)
+     * and static (constant) values transparently to simplify node DSP logic.
+     */
     Control getControl(ofParameter<float>& param) const;
     
     // Optional Functional Hooks

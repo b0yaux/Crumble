@@ -6,8 +6,9 @@
 #include <memory>
 
 /**
- * Pattern: Stateless mapping of cycle -> value.
- * Ensures graph-wide phase alignment.
+ * Pattern: A stateless mathematical mapping of cycle (0.0-1.0) to value.
+ * Because Patterns don't store internal state, they can be sampled at any rate
+ * (e.g. audio rate or video rate) and remain perfectly phase-aligned.
  */
 template<typename T>
 class Pattern {
@@ -15,7 +16,8 @@ public:
     virtual ~Pattern() = default;
     
     /**
-     * @param cycle Current phase (0.0 to 1.0).
+     * Evaluates the pattern at a specific phase in the musical timeline.
+     * @param cycle The absolute phase (0.0 to 1.0 per bar/loop).
      */
     virtual T eval(double cycle) = 0;
 };
