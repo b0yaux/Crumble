@@ -10,14 +10,14 @@ Node::Node() {
 }
 
 void Node::prepare(const Context& ctx) {
-    std::lock_guard<std::recursive_mutex> lock(patMutex);
+    std::lock_guard<std::recursive_mutex> lock(modMutex);
     
     // Only pre-calculate buffers if this is an audio/control block (frames > 1)
     // Video updates (frames == 1) evaluate on the fly in getControl()
     if (ctx.frames <= 1) return;
     
-    // Iterate through all parameters that have patterns assigned
-    for (auto& [paramName, pattern] : patterns) {
+    // Iterate through all parameters that have patterns (modulators) assigned
+    for (auto& [paramName, pattern] : modulators) {
         if (!pattern) continue;
 
         // Ensure the control buffer is correctly sized
@@ -36,13 +36,13 @@ void Node::prepare(const Context& ctx) {
 }
 
 Control Node::getControl(ofParameter<float>& param) const {
-    std::lock_guard<std::recursive_mutex> lock(patMutex);
+    std::lock_guard<std::recursive_mutex> lock(modMutex);
     
     Control ctrl;
     ctrl.constant = param.get();
     
-    auto patIt = patterns.find(param.getName());
-    if (patIt != patterns.end() && patIt->second) {
+    auto modIt = modulators.find(param.getName());
+    if (modIt != modulators.end() && modIt->second) {
         ctrl.modulated = true;
         
         // If there's a pre-calculated buffer (from prepare), use it
@@ -52,7 +52,7 @@ Control Node::getControl(ofParameter<float>& param) const {
         } else {
             // No buffer (e.g. video update), evaluate the pattern right now
             if (graph) {
-                ctrl.constant = patIt->second->eval(graph->getTransport().cycle);
+                ctrl.constant = modIt->second->eval(graph->getTransport().cycle);
             }
             ctrl.modulated = false; // Baked into constant for this single-sample read
         }

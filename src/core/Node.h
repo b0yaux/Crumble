@@ -66,21 +66,21 @@ public:
     int nodeId = -1;
     static std::atomic<int> nextNodeId;
 
-    // Patterns (The "Recipe" or mathematical shape assigned to a parameter)
-    void setPattern(const std::string& paramName, std::shared_ptr<Pattern<float>> pat) {
-        std::lock_guard<std::recursive_mutex> lock(patMutex);
-        patterns[paramName] = pat;
+    // Modulators (The act of using a Pattern to change a parameter)
+    void modulate(const std::string& paramName, std::shared_ptr<Pattern<float>> pat) {
+        std::lock_guard<std::recursive_mutex> lock(modMutex);
+        modulators[paramName] = pat;
     }
 
-    void clearPattern(const std::string& paramName) {
-        std::lock_guard<std::recursive_mutex> lock(patMutex);
-        patterns.erase(paramName);
+    void clearModulator(const std::string& paramName) {
+        std::lock_guard<std::recursive_mutex> lock(modMutex);
+        modulators.erase(paramName);
     }
 
     std::shared_ptr<Pattern<float>> getPattern(const std::string& paramName) const {
-        std::lock_guard<std::recursive_mutex> lock(patMutex);
-        auto it = patterns.find(paramName);
-        if (it != patterns.end()) return it->second;
+        std::lock_guard<std::recursive_mutex> lock(modMutex);
+        auto it = modulators.find(paramName);
+        if (it != modulators.end()) return it->second;
         return nullptr;
     }
     
@@ -95,8 +95,8 @@ public:
     virtual void onParameterChanged(const std::string& paramName) {}
     
 protected:
-    std::unordered_map<std::string, std::shared_ptr<Pattern<float>>> patterns;
-    mutable std::recursive_mutex patMutex;
+    std::unordered_map<std::string, std::shared_ptr<Pattern<float>>> modulators;
+    mutable std::recursive_mutex modMutex;
 
     // Internal buffers for pre-calculated control streams
     mutable std::unordered_map<std::string, ofSoundBuffer> controlBuffers;

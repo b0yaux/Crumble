@@ -76,7 +76,7 @@ public:
     void update(float dt) override;
     
     // Propagates draw to nodes with canDraw = true
-    void draw();
+    void draw() override;
     
     // Pull-based video routing: finds the 'Outlet' node with matching index
     ofTexture* getVideoOutput(int index = 0) override;

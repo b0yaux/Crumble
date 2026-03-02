@@ -480,8 +480,8 @@ int ScriptBridge::lua_setParam(lua_State* L) {
     Node* node = graph->getNode(nodeIdx);
     if (!node) return 0;
     
-    // Clear any existing pattern so static value takes precedence!
-    node->clearPattern(paramName);
+    // Clear any existing modulator so static value takes precedence!
+    node->clearModulator(paramName);
     
     // Try to find the parameter
     if (node->parameters.contains(paramName)) {
@@ -579,7 +579,7 @@ int ScriptBridge::lua_setGenerator(lua_State* L) {
 
     auto pat = parsePattern(L, 3);
     if (pat) {
-        node->setPattern(paramName, pat);
+        node->modulate(paramName, pat);
     }
 
     node->onParameterChanged(paramName);

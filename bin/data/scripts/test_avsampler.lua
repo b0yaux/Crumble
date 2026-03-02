@@ -22,7 +22,7 @@ local function smp(i)
     return n
 end
 
-local s1, s2 = smp(89), smp(13)
+local s1, s2 = smp(89), smp(22)
 
 local amix = addNode("AudioMixer", "amix")
 local vmix = addNode("VideoMixer", "vmix")
@@ -36,8 +36,8 @@ connect(vmix, screen)
 
 
 -- Sample-accurate sequencing using the new C++ Generator engine
-s1.speed = seq("0.1 -1 1")
-s2.speed = seq("1 0.2 3.3")
+s1.speed = seq("0.1 -1 1 1 1")
+s2.speed = seq("1 0.2 3.3 1 0.5")
 s1.volume = 0.01
 s2.volume = 0.01
 
