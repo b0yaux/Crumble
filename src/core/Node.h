@@ -10,10 +10,10 @@
  * Context represents a "pushed" timing packet for a block of samples.
  */
 struct Context {
-    double cycle = 0;       // Musical cycle at the start of the block
-    double cycleStep = 0;   // Change in cycle per sample
-    int frames = 0;         // Number of samples in the block
-    float dt = 0;           // Delta time (for 60fps nodes)
+    double cycle = 0;       // Current cycle (0.0 to 1.0)
+    double cycleStep = 0;   // Step per sample
+    int frames = 0;         // Block size
+    float dt = 0;           // Delta time
 };
 
 /**
@@ -36,15 +36,15 @@ public:
     Node();
     virtual ~Node() = default;
     
-    // 1. Preparation Phase: The engine pushes timing here.
-    // The base class uses this to pre-calculate modulated parameter buffers.
+    // Preparation: Pushes timing and pre-calculates modulated parameters.
+    // Ensures all patterns are sample-synced before audio processing.
     virtual void prepare(const Context& ctx);
 
-    // 2. Execution Phase
+    // Execution Phase
     virtual void update(float dt) {}
     virtual void pullAudio(ofSoundBuffer& buffer, int index = 0) {}
 
-    // Helper for nodes to get a vectorized control stream for any float parameter.
+    // Returns a Control view (vector or constant) for a parameter.
     Control getControl(ofParameter<float>& param) const;
     
     // Optional Functional Hooks

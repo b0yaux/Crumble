@@ -9,25 +9,21 @@
 #include <string>
 #include <mutex>
 
-// Simple connection struct - no objects, just node IDs
-// This is the key simplification: connections are just data
-// Uses stable nodeId instead of volatile indices
+// Connection: Stable link between node IDs.
 struct Connection {
-    int fromNode = -1;      // Node ID (stable across add/remove)
-    int toNode = -1;        // Node ID (stable across add/remove)
-    int fromOutput = 0;     // Which output (nodes can have multiple)
-    int toInput = 0;        // Which input (nodes can have multiple)
+    int fromNode = -1;      // Source ID
+    int toNode = -1;        // Destination ID
+    int fromOutput = 0;     // Output slot
+    int toInput = 0;        // Input slot
 };
 
-// Graph IS a node - enables arbitrary nesting (TouchDesigner-style components)
-// Graphs can contain other graphs, creating hierarchical structures
+// Graph: A recursive container of nodes and connections.
 class Graph : public Node {
 public:
     Graph();
     ~Graph() override;
     
     // Node management
-    // Returns reference to created node for immediate configuration
     template<typename T, typename... Args>
     T& addNode(Args&&... args) {
         static_assert(std::is_base_of<Node, T>::value, "T must derive from Node");

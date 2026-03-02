@@ -6,13 +6,17 @@
 #include <memory>
 
 /**
- * Pattern is the base class for any mathematical shape over time.
- * It is a stateless function: cycle -> value.
+ * Pattern: Stateless mapping of cycle -> value.
+ * Ensures graph-wide phase alignment.
  */
 template<typename T>
 class Pattern {
 public:
     virtual ~Pattern() = default;
+    
+    /**
+     * @param cycle Current phase (0.0 to 1.0).
+     */
     virtual T eval(double cycle) = 0;
 };
 

@@ -12,21 +12,18 @@ Node::Node() {
 void Node::prepare(const Context& ctx) {
     std::lock_guard<std::recursive_mutex> lock(modMutex);
     
-    // Only pre-calculate buffers if this is an audio/control block (frames > 1)
-    // Video updates (frames == 1) evaluate on the fly in getControl()
+    // Vectorized pre-calculation for audio/control blocks
     if (ctx.frames <= 1) return;
     
-    // Iterate through all parameters that have patterns (modulators) assigned
     for (auto& [paramName, pattern] : modulators) {
         if (!pattern) continue;
 
-        // Ensure the control buffer is correctly sized
         ofSoundBuffer& buffer = controlBuffers[paramName];
         if ((int)buffer.getNumFrames() != ctx.frames) {
             buffer.allocate(ctx.frames, 1);
         }
 
-        // Fill the buffer with values from the pattern
+        // Sample pattern at hardware-aligned steps for graph-wide sync
         float* samples = buffer.getBuffer().data();
         for (int i = 0; i < ctx.frames; i++) {
             double currentCycle = ctx.cycle + (i * ctx.cycleStep);
