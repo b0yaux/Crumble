@@ -22,13 +22,17 @@ The app loads `bin/data/config.json` which specifies the entry script. By defaul
 
 ## Architecture
 
-Crumble's architecture separates the musical timeline, the mathematical logic that drives change, and the modular network where processing happens.
-
 ```text
 Session (Root Container)
 ├── Transport (Musical Clock & Phase)
 ├── Patterns (Stateless logic: cycle -> value shapes)
+│   ├── Seq (Rhythmic step shapes)
+│   ├── Osc (Continuous wave shapes)
+│   └── Ramp (Linear phase shapes)
 ├── Graph (Recursive topology: the modular network)
+│   └── Node (Atomic processing units)
+│       ├── Parameters (Stateful control)
+│       └── Modulators (Pattern assignments)
 ├── Interpreter (Execution: Lua DSL runtime)
 └── AssetCache (Efficiency: Deduplicated media & RAM storage)
 ```
