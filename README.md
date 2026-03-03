@@ -22,14 +22,31 @@ The app loads `bin/data/config.json` which specifies the entry script. By defaul
 
 ## Architecture
 
-| Component | Role |
-|-----------|------|
-| `Node` | Base class with `getVideoOutput(index)` and `pullAudio(buffer, index)` |
-| `Graph` | A node that contains a topology; routes I/O to internal `Inlet`/`Outlet` nodes |
-| `Session` | Script lifecycle, asset management, and the root graph |
-| `ScriptBridge` | Lua DSL with an RAII context stack for safe recursive execution |
-| `AssetPool` | Global deduplication for heavy assets (Video/Audio) |
-| `FileWatcher` | Live script reload on file change |
+Crumble's architecture separates the musical timeline, the mathematical logic that drives change, and the modular network where processing happens.
+
+```text
+Session (Root Container)
+├── Transport (Musical Clock & Phase)
+├── Patterns (Stateless logic: cycle -> value shapes)
+├── Graph (Recursive topology: the modular network)
+├── Interpreter (Execution: Lua DSL runtime)
+└── AssetCache (Efficiency: Deduplicated media & RAM storage)
+```
+
+### Key Components
+
+- **Node**: The base unit. Exposes parameters that can be driven by constant values or mathematical patterns.
+- **Pattern**: A stateless recipe (`cycle -> value`) used for sample-accurate modulation.
+- **Graph**: A recursive container. Because a Graph is also a Node, Crumble supports infinite nesting.
+- **Session**: The owner of the hardware audio callback and the root graph.
+- **Interpreter**: The Lua runtime that parses and executes live-coding scripts.
+- **AssetCache**: A global registry that deduplicates media files and caches RAM buffers.
+- **Control**: The vectorized data stream produced by Modulators to drive Node parameters.
+
+### Data Flow (Push-Pull)
+
+1. **Push (Timing)**: The Session pushes the current `cycle` and `step` to all nodes. Nodes pre-calculate their `Modulators` into `Control` buffers.
+2. **Pull (Data)**: The hardware output pulls audio from the graph. Nodes recursively request buffers from their inputs, applying modulated parameters at the sample level.
 
 ## Lua API
 
@@ -114,7 +131,7 @@ connect(mixer, outlet)
 ### Audio
 | Type | Description |
 |------|-------------|
-| `AudioFileSource` | RAM-cached sample player via AssetPool |
+| `AudioFileSource` | RAM-cached sample player via AssetCache |
 | `AudioMixer` | Multi-channel summation with per-input gains |
 | `SpeakersOutput` | Hardware sink (SoundStream entry point) |
 

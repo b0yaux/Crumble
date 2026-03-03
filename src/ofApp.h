@@ -1,7 +1,7 @@
 #pragma once
 #include "ofMain.h"
 #include "core/Session.h"
-#include "core/ScriptBridge.h"
+#include "core/Interpreter.h"
 #include "ui/GraphUI.h"
 #include "core/FileWatcher.h"
 
@@ -24,7 +24,7 @@ class ofApp : public ofBaseApp{
     void checkLiveReload();
 
     Session session;
-    ScriptBridge scriptBridge;
+    Interpreter interpreter;
     FileWatcher fileWatcher;
 
     // UI state

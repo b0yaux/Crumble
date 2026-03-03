@@ -13,11 +13,11 @@ void ofApp::setup(){
     
     // 1. Register node capabilities
     crumble::registerNodes(session);
-    scriptBridge.setup(&session);
+    interpreter.setup(&session);
     
     // 2. Initial load from entry script
     if (!config.entryScript.empty() && ofFile::doesFileExist(config.entryScript)) {
-        scriptBridge.runScript(config.entryScript);
+        interpreter.runScript(config.entryScript);
     } else {
         ofLogWarning("ofApp") << "No entry script configured. Set entryScript in config.json.";
     }
@@ -61,11 +61,11 @@ void ofApp::checkLiveReload() {
         // If entryScript changed, reload it
         if (newConfig.entryScript != oldEntryScript && !newConfig.entryScript.empty()) {
             ofLogNotice("ofApp") << "Entry script changed, loading: " << newConfig.entryScript;
-            scriptBridge.runScript(newConfig.entryScript);
+            interpreter.runScript(newConfig.entryScript);
         }
     } else if (scriptsChanged) {
         ofLogNotice("ofApp") << "Live-reloading: " << config.entryScript;
-        scriptBridge.runScript(config.entryScript);
+        interpreter.runScript(config.entryScript);
     } else if (jsonChanged) {
         ofLogNotice("ofApp") << "Live-reloading JSON: scripts/main.json";
         session.load("scripts/main.json");
@@ -74,7 +74,7 @@ void ofApp::checkLiveReload() {
 
 void ofApp::update(){
     session.update(ofGetLastFrameTime());
-    scriptBridge.update(session.getTransport());
+    interpreter.update(session.getTransport());
     checkLiveReload();
 }
 
@@ -101,7 +101,7 @@ void ofApp::keyPressed(int key){
         const auto& config = ConfigManager::get().getConfig();
         if (config.entryScript != oldEntryScript && !config.entryScript.empty()) {
             ofLogNotice("ofApp") << "Loading new entry script: " << config.entryScript;
-            scriptBridge.runScript(config.entryScript);
+            interpreter.runScript(config.entryScript);
         }
     }
 }

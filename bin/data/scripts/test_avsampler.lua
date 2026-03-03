@@ -36,7 +36,7 @@ connect(vmix, screen)
 
 
 -- Sample-accurate sequencing using the new C++ Generator engine
-s1.speed = seq("0.1 -1 1 1 1")
+s1.speed = seq("0.1 -1 -1 1 1")
 s2.speed = seq("1 0.2 3.3 1 0.5")
 s1.volume = 0.01
 s2.volume = 0.01

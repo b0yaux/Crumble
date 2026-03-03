@@ -103,7 +103,7 @@ void AudioFileSource::onPathChanged(std::string& p) {
     if (p.empty() || p == loadedPath) return;
 
     if (g_session) {
-        sharedLoader = g_session->getAssets().getAudio(p);
+        sharedLoader = g_session->getCache().getAudio(p);
         if (sharedLoader) {
             playhead.store(0.0);
             loadedPath = p;

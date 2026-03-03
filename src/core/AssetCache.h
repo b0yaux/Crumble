@@ -6,16 +6,16 @@
 #include <mutex>
 
 /**
- * AssetPool decouples media data from the Graph Nodes.
+ * AssetCache decouples media data from the Graph Nodes.
  * It ensures that multiple reloads of the same file path do not 
  * trigger new disk I/O or redundant memory allocations.
  */
-class AssetPool {
+class AssetCache {
 public:
-    AssetPool() = default;
+    AssetCache() = default;
 
     // Get a shared audio file reference. 
-    // If not in pool, it loads it.
+    // If not in cache, it loads it.
     std::shared_ptr<ofxAudioFile> getAudio(const std::string& path) {
         std::lock_guard<std::mutex> lock(mutex);
         
@@ -29,7 +29,7 @@ public:
         }
 
         // 2. Load new
-        ofLogNotice("AssetPool") << "Loading new audio asset: " << path;
+        ofLogNotice("AssetCache") << "Loading new audio asset: " << path;
         auto sharedFile = std::make_shared<ofxAudioFile>();
         sharedFile->load(fullPath);
         
@@ -41,7 +41,7 @@ public:
             return sharedFile;
         }
 
-        ofLogError("AssetPool") << "Failed to load audio: " << path;
+        ofLogError("AssetCache") << "Failed to load audio: " << path;
         return nullptr;
     }
 
@@ -51,10 +51,10 @@ public:
         float now = ofGetElapsedTimef();
         
         for (auto it = audioAssets.begin(); it != audioAssets.end(); ) {
-            // If the only reference is the pool itself (use_count == 1)
+            // If the only reference is the cache itself (use_count == 1)
             // and it's old, remove it.
             if (it->second.sharedFile.use_count() <= 1 && (now - it->second.lastUsedTime) > maxAgeSeconds) {
-                ofLogNotice("AssetPool") << "Pruning unused asset: " << it->first;
+                ofLogNotice("AssetCache") << "Pruning unused asset: " << it->first;
                 it = audioAssets.erase(it);
             } else {
                 ++it;

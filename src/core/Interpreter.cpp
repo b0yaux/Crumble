@@ -1,20 +1,20 @@
-#include "ScriptBridge.h"
+#include "Interpreter.h"
 #include "Session.h"
 
-ScriptBridge* g_scriptBridge = nullptr;
+Interpreter* g_interpreter = nullptr;
 
-Session* ScriptBridge::s_currentSession = nullptr;
-thread_local std::vector<Graph*> ScriptBridge::s_graphStack;
+Session* Interpreter::s_currentSession = nullptr;
+thread_local std::vector<Graph*> Interpreter::s_graphStack;
 
-ScriptBridge::ScriptBridge() {
-    g_scriptBridge = this;
+Interpreter::Interpreter() {
+    g_interpreter = this;
 }
 
-ScriptBridge::~ScriptBridge() {
+Interpreter::~Interpreter() {
     lua.removeListener(this);
 }
 
-void ScriptBridge::setup(Session* s) {
+void Interpreter::setup(Session* s) {
     session = s;
     
     // Register the nested script executor in Graph
@@ -27,29 +27,29 @@ void ScriptBridge::setup(Session* s) {
     
     // Add scripts directory to Lua's package.path for require()
     std::string scriptsPath = ofToDataPath("scripts", true);
-    ofLogNotice("ScriptBridge") << "Scripts path: " << scriptsPath;
+    ofLogNotice("Interpreter") << "Scripts path: " << scriptsPath;
     std::string pathSetup = "package.path = '" + scriptsPath + "/?.lua;" + scriptsPath + "/?.lua;' .. package.path";
-    ofLogNotice("ScriptBridge") << "Path setup: " << pathSetup;
+    ofLogNotice("Interpreter") << "Path setup: " << pathSetup;
     lua.doString(pathSetup);
     
     bindSessionAPI();
 }
 
-Graph* ScriptBridge::getCurrentGraph() {
+Graph* Interpreter::getCurrentGraph() {
     if (!s_graphStack.empty()) {
         return s_graphStack.back();
     }
     return &s_currentSession->getGraph();
 }
 
-bool ScriptBridge::runScript(const std::string& path) {
+bool Interpreter::runScript(const std::string& path) {
     if (!session) return false;
     
     s_currentSession = session;
     
     ofFile script(path);
     if (!script.exists()) {
-        ofLogError("ScriptBridge") << "Script not found: " << path;
+        ofLogError("Interpreter") << "Script not found: " << path;
         return false;
     }
     
@@ -69,14 +69,14 @@ bool ScriptBridge::runScript(const std::string& path) {
     return true;
 }
 
-bool ScriptBridge::runScriptInGraph(const std::string& path, Graph* nestedGraph) {
+bool Interpreter::runScriptInGraph(const std::string& path, Graph* nestedGraph) {
     if (!session || !nestedGraph) return false;
     
     s_currentSession = session;
     
     ofFile script(path);
     if (!script.exists()) {
-        ofLogError("ScriptBridge") << "Script not found: " << path;
+        ofLogError("Interpreter") << "Script not found: " << path;
         return false;
     }
     
@@ -86,33 +86,33 @@ bool ScriptBridge::runScriptInGraph(const std::string& path, Graph* nestedGraph)
     return true;
 }
 
-void ScriptBridge::executeInNestedGraph(const std::string& path, Graph* nestedGraph) {
-    if (!nestedGraph || !g_scriptBridge) return;
+void Interpreter::executeInNestedGraph(const std::string& path, Graph* nestedGraph) {
+    if (!nestedGraph || !g_interpreter) return;
     
     ofFile script(path);
     if (!script.exists()) {
-        ofLogError("ScriptBridge") << "Nested script not found: " << path;
+        ofLogError("Interpreter") << "Nested script not found: " << path;
         return;
     }
     
-    g_scriptBridge->runScriptInGraph(path, nestedGraph);
+    g_interpreter->runScriptInGraph(path, nestedGraph);
 }
 
-bool ScriptBridge::runScripts(const std::vector<std::string>& paths) {
+bool Interpreter::runScripts(const std::vector<std::string>& paths) {
     if (!session) return false;
     
     bool allSuccess = true;
     for (const auto& path : paths) {
-        ofLogNotice("ScriptBridge") << "Loading script: " << path;
+        ofLogNotice("Interpreter") << "Loading script: " << path;
         if (!runScript(path)) {
-            ofLogError("ScriptBridge") << "Failed to load script: " << path;
+            ofLogError("Interpreter") << "Failed to load script: " << path;
             allSuccess = false;
         }
     }
     return allSuccess;
 }
 
-void ScriptBridge::update(const Transport& t) {
+void Interpreter::update(const Transport& t) {
     if (!session) return;
     
     // Set static session pointer so _set and _get bindings work during update()
@@ -150,7 +150,7 @@ void ScriptBridge::update(const Transport& t) {
         // Call update(Time)
         if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
             std::string err = lua_tostring(L, -1);
-            ofLogError("ScriptBridge") << "Error in update loop: " << err;
+            ofLogError("Interpreter") << "Error in update loop: " << err;
             lua_pop(L, 1);
         }
     } else {
@@ -163,11 +163,11 @@ void ScriptBridge::update(const Transport& t) {
     s_currentSession = nullptr;
 }
 
-void ScriptBridge::errorReceived(std::string& msg) {
-    ofLogError("ScriptBridge") << "Lua Error: " << msg;
+void Interpreter::errorReceived(std::string& msg) {
+    ofLogError("Interpreter") << "Lua Error: " << msg;
 }
 
-void ScriptBridge::bindSessionAPI() {
+void Interpreter::bindSessionAPI() {
     lua_State* L = lua; // Uses the operator lua_State*() from ofxLua
     
     // Register global C functions
@@ -395,11 +395,11 @@ void ScriptBridge::bindSessionAPI() {
     
     bool success = lua.doString(helper);
     if (!success) {
-        ofLogError("ScriptBridge") << "Failed to evaluate Lua helper DSL!";
+        ofLogError("Interpreter") << "Failed to evaluate Lua helper DSL!";
     }
 }
 
-int ScriptBridge::lua_listDirectory(lua_State* L) {
+int Interpreter::lua_listDirectory(lua_State* L) {
     std::string path = luaL_checkstring(L, 1);
     ofDirectory dir(path);
     
@@ -417,14 +417,14 @@ int ScriptBridge::lua_listDirectory(lua_State* L) {
     return 1;
 }
 
-int ScriptBridge::lua_fileExists(lua_State* L) {
+int Interpreter::lua_fileExists(lua_State* L) {
     std::string path = luaL_checkstring(L, 1);
     ofFile file(path);
     lua_pushboolean(L, file.exists());
     return 1;
 }
 
-int ScriptBridge::lua_addNode(lua_State* L) {
+int Interpreter::lua_addNode(lua_State* L) {
     if (!s_currentSession) return 0;
     
     std::string type = luaL_checkstring(L, 1);
@@ -454,7 +454,7 @@ int ScriptBridge::lua_addNode(lua_State* L) {
     return 0;
 }
 
-int ScriptBridge::lua_connect(lua_State* L) {
+int Interpreter::lua_connect(lua_State* L) {
     if (!s_currentSession) return 0;
     
     int fromNode = luaL_checkinteger(L, 1);
@@ -470,7 +470,7 @@ int ScriptBridge::lua_connect(lua_State* L) {
     return 0;
 }
 
-int ScriptBridge::lua_setParam(lua_State* L) {
+int Interpreter::lua_setParam(lua_State* L) {
     if (!s_currentSession) return 0;
     
     int nodeIdx = luaL_checkinteger(L, 1);
@@ -567,7 +567,7 @@ std::shared_ptr<Pattern<float>> parsePattern(lua_State* L, int index) {
     return nullptr;
 }
 
-int ScriptBridge::lua_setGenerator(lua_State* L) {
+int Interpreter::lua_setGenerator(lua_State* L) {
     if (!s_currentSession) return 0;
     
     int nodeIdx = (int)luaL_checkinteger(L, 1);
@@ -586,7 +586,7 @@ int ScriptBridge::lua_setGenerator(lua_State* L) {
     return 0;
 }
 
-int ScriptBridge::lua_getParam(lua_State* L) {
+int Interpreter::lua_getParam(lua_State* L) {
     if (!s_currentSession) return 0;
     
     int nodeIdx = luaL_checkinteger(L, 1);
@@ -623,7 +623,7 @@ int ScriptBridge::lua_getParam(lua_State* L) {
     return 0;
 }
 
-int ScriptBridge::lua_clear(lua_State* L) {
+int Interpreter::lua_clear(lua_State* L) {
     if (!s_currentSession) return 0;
     Graph* graph = getCurrentGraph();
     graph->clear();

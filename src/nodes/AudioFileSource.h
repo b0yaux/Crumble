@@ -4,7 +4,7 @@
 #include <atomic>
 
 /**
- * AudioFileSource node using ofxAudioFile via AssetPool.
+ * AudioFileSource node using ofxAudioFile via AssetCache.
  * Decouples RAM buffers from the node lifecycle.
  */
 class AudioFileSource : public Node {

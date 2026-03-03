@@ -4,7 +4,7 @@
 #include <unordered_map>
 #include <memory>
 #include <mutex>
-#include "Pattern.h"
+#include "Patterns.h"
 
 /**
  * Context represents a "pushed" timing packet for a block of samples.

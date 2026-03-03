@@ -4,12 +4,11 @@
 #include "Session.h"
 #include "Graph.h"
 
-// Global ScriptBridge pointer for callback access
-extern class ScriptBridge* g_scriptBridge;
+// Global Interpreter pointer for callback access
+extern class Interpreter* g_interpreter;
 
 /**
- * ScriptBridge facilitates communication between the Lua scripting environment 
- * and the Crumble C++ engine.
+ * Interpreter executes the Lua live-coding DSL and maps it to C++ engine actions.
  * 
  * Design:
  * 1. Handle-based: Lua refers to nodes by their stable integer IDs (nodeId).
@@ -18,10 +17,10 @@ extern class ScriptBridge* g_scriptBridge;
  * 3. Reactive Binding: Maps the high-level Lua DSL to C++ Session/Node actions.
  * 4. Nested Execution: Supports recursive graph building via childGraph context.
  */
-class ScriptBridge : public ofxLuaListener {
+class Interpreter : public ofxLuaListener {
 public:
-    ScriptBridge();
-    ~ScriptBridge();
+    Interpreter();
+    ~Interpreter();
 
     void setup(Session* session);
     

@@ -1,7 +1,7 @@
 #pragma once
 #include "ofMain.h"
 #include "Graph.h"
-#include "AssetPool.h"
+#include "AssetCache.h"
 #include "Transport.h"
 #include <vector>
 
@@ -21,7 +21,7 @@ public:
     ~Session();
 
     // --- Asset Management ---
-    AssetPool& getAssets() { return assetPool; }
+    AssetCache& getCache() { return assetCache; }
 
     // --- Graph primitives (the primary API) ---
 
@@ -103,7 +103,7 @@ public:
 
 private:
     Graph graph;
-    AssetPool assetPool;
+    AssetCache assetCache;
     Transport transport;
     ofSoundStream soundStream;
 };
