@@ -40,18 +40,18 @@ Session (Root Container: Hardware & Threading)
 
 ## Data Types & Flows
 
-Crumble uses a two-phase **Push-Pull** model to ensure perfect synchronization between mathematical patterns, high-fidelity audio, and GPU-accelerated video.
+Crumble uses a two-phase **Push-Pull** model to ensure sample-accurate sync between mathematical patterns, high-fidelity audio, and GPU-accelerated video.
 
 ### 1. The Push Phase (Sync & Control)
 The Session pushes a **Timing Context** to all nodes at the start of every hardware block.
-- **Type (`Control`)**: A vectorized stream of `float` values.
-- **The Flow**: Nodes pre-calculate their mathematical `Patterns` (Sequences, LFOs) into high-speed buffers.
-- **The Potential**: This enables **Sample-Accurate Modulation**, where a parameter (like `speed` or `filter`) can change its value for every single audio sample, creating smooth, complex textures.
+- **Type (`Control`)**: A vectorized block of `float` values (**K-rate**).
+- **The Flow**: Nodes pre-calculate their mathematical `Patterns` into high-speed buffers.
+- **The Potential**: This **bridges the gap** between slow Lua logic and fast C++ DSP. It enables **Sample-Accurate Modulation**, where a parameter (like `speed` or `filter`) can change its value for every single audio sample.
 
 ### 2. The Pull Phase (Signal Processing)
 Data is pulled through the graph only when an output device (Speakers/Screen) demands it.
-- **Audio (`ofSoundBuffer`)**: The hardware pulls audio from the graph. Each node recursively requests its source to fill the buffer (**Active Fill**), performing real-time signal summation.
-- **Video (`ofTexture*`)**: The screen output pulls GPU textures from the graph. Nodes pass pointers to textures or FBOs (**Passive Pull**), enabling high-performance video mixing with zero CPU-GPU copies.
+- **Audio (`ofSoundBuffer`)**: Multi-channel raw **PCM data**. The hardware thread recursively requests nodes to fill the buffer (**Active Fill**), performing high-fidelity signal summation in real-time.
+- **Video (`ofTexture*`)**: A pointer to a **GPU-resident texture**. Sinks pass memory addresses of textures or FBOs (**Passive Pull**). This "Zero-Copy" flow enables high-performance mixing by moving pointers rather than pixels.
 
 ## Media Management
 
