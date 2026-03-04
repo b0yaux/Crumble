@@ -51,7 +51,7 @@ The Session pushes a **Timing Context** to all nodes at the start of every hardw
 ### 2. The Pull Phase (Signal Processing)
 Data is pulled through the graph only when an output device (Speakers/Screen) demands it.
 - **Audio (`ofSoundBuffer`)**: Multi-channel raw **PCM data**. The hardware thread recursively requests nodes to fill the buffer (**Active Fill**), performing high-fidelity signal summation in real-time.
-- **Video (`ofTexture*`)**: A pointer to a **GPU-resident texture**. Sinks pass memory addresses of textures or FBOs (**Passive Pull**). This "Zero-Copy" flow enables high-performance mixing by moving pointers rather than pixels.
+- **Video (`ofTexture*`)**: Pointers to **GPU-resident textures**. Sinks pull data from their sources on-demand (**Passive Pull**). This "Zero-Copy" flow enables high-performance mixing by passing memory references rather than copying pixel data.
 
 ## Media Management
 
