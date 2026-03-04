@@ -7,16 +7,14 @@ Simple audio+video live-scriptable node-graph system built with openFrameworks a
 ```bash
 cd Crumble
 make
-make RunRelease     # Loads bin/data/config.json
+make RunRelease     # loads bin/data/config.json
 ```
 
-## How It Works
+## Core Concepts
 
-**Core concepts:**
 - **Node**: A single processing unit (video player, mixer, output).
 - **Graph**: A recursive container. **Graphs are Nodes**, enabling infinite recursion.
-- **Session**: Manages the root graph lifecycle and script reloading.
-- **Pull-Based Data Flow**: Sinks (Outputs) pull data from sources. Video uses GPU pointer passing (passive pull); Audio uses buffer filling (active fill).
+- **Session**: Manages the root graph lifecycle and hardware audio/video streams.
 
 ## Architecture
 
@@ -33,14 +31,26 @@ Session (Root Container)
 └── AssetCache (Efficiency: Deduplicated media & RAM storage)
 ```
 
+### Key Components
+
+- **Patterns**: Stateless recipes (`cycle -> value`) used for sample-accurate modulation.
+- **Interpreter**: The Lua runtime that parses and executes live-coding scripts.
+- **AssetRegistry**: A logical mapping layer that handles media discovery, banks, and automatic A/V pairing.
+- **AssetCache**: A global registry that deduplicates media files and caches RAM buffers for efficiency.
+
+### Data Flow (Push-Pull)
+
+1. **Push (Timing)**: The Session pushes the current `cycle` and `step` to all nodes. Nodes pre-calculate their `Modulators` into vectorized `Control` buffers.
+2. **Pull (Data)**: The hardware output pulls data from the graph. Video uses GPU pointer passing (passive pull); Audio uses buffer filling (active fill).
+
 ## Media Management
 
-Crumble features a **Logical Media Engine** that decouples your scripts from physical file locations. Configure your libraries in `config.json` via `searchPaths`.
+Crumble features a **Logical Media Engine** that decouples scripts from physical file locations. Configure libraries in `config.json` via `searchPaths`.
 
 ### Unified Asset Loading
 Load media into nodes using logical strings:
 - **Bank Index**: `node.path = "drums:5"` (6th asset in the 'drums' folder).
-- **Logical Name**: `node.path = "kick_01"` (Finds associated media files named 'kick_01').
+- **Logical Name**: `node.path = "birds"` (Finds associated media files named 'birds').
 - **Direct Path**: `node.path = "clips/loop.mov"` (Standard file path resolution).
 
 ## Lua API
@@ -58,8 +68,8 @@ video.path = "superstratum:40"
 mixer.opacity_0 = 0.5
 ```
 
-### Sequencing & Modulation
-Crumble features a sample-accurate math expression engine for parameter modulation:
+### Sample-Accurate Sequencing
+Crumble features a sample-accurate math engine for parameter modulation:
 ```lua
 local smp = addNode("AVSampler")
 smp.path = "birds" -- Automatically pairs birds.mov and birds.wav
@@ -68,14 +78,21 @@ smp.speed = seq("1 0.5 2 -1")
 smp.volume = osc(0.5) * seq("1 0") 
 ```
 
-## Node Types
+### Subgraph Composition
+Create a subgraph by adding a `Graph` node and setting its `script` parameter:
+```lua
+local sub = addNode("Graph", "mySubgraph")
+sub.script = "scripts/inner.lua" -- Populates the sub-graph reactively
+```
+
+## Node Reference
 
 | Category | Type | Description |
 |----------|------|-------------|
 | **Core** | `Graph` | Nested scriptable sub-graph |
 | **Video** | `VideoFileSource` | High-performance HAP video player |
 | | `VideoMixer` | Multi-layer GPU compositor |
-| | `ScreenOutput` | GL Texture sink |
+| | `ScreenOutput` | Renders a texture to the display |
 | **Audio** | `AudioFileSource` | RAM-cached sample player |
 | | `AudioMixer` | Multi-channel summation |
 | | `SpeakersOutput` | Hardware audio sink |
