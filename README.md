@@ -50,8 +50,8 @@ The Session pushes a **Timing Context** to all nodes at the start of every hardw
 
 ### 2. The Pull Phase (Signal Processing)
 Data is pulled through the graph only when an output device (Speakers/Screen) demands it.
-- **Audio (`ofSoundBuffer`)**: Multi-channel raw **PCM data**. The hardware thread recursively requests nodes to fill the buffer (**Active Fill**), performing high-fidelity signal summation in real-time.
-- **Video (`ofTexture*`)**: Pointers to **GPU-resident textures**. Sinks pull data from their sources on-demand (**Passive Pull**). This "Zero-Copy" flow enables high-performance mixing by passing memory references rather than copying pixel data.
+- **Audio (`ofSoundBuffer`)**: Multi-channel **floating-point PCM**. The hardware thread recursively requests nodes to fill the buffer (**Active Fill**), performing high-fidelity signal summation in real-time.
+- **Video (`ofTexture*`)**: Pointers to **GPU-resident textures**. Sinks pull data from their sources on-demand (**Passive Pull**). This "Zero-Copy" flow enables high-performance mixing by referencing GPU memory rather than copying pixel data.
 
 ## Media Management
 
@@ -113,4 +113,3 @@ sub.script = "scripts/inner.lua" -- Populates the sub-graph reactively
 |-----|--------|
 | `G` | Toggle Graph UI |
 | `Cmd+S` | Save current graph state to `main.json` |
-| `Drag & Drop` | Add media files directly to the session |
