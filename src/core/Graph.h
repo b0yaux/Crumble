@@ -1,154 +1,116 @@
 #pragma once
 #include "Node.h"
+#include "ofMain.h"
 #include <vector>
-#include <memory>
-#include <algorithm>
 #include <map>
-#include <unordered_map>
-#include <functional>
 #include <string>
+#include <functional>
 #include <mutex>
 
-// Connection: Stable link between node IDs.
+/**
+ * A connection represents a link from one node's output to another node's input.
+ */
 struct Connection {
-    int fromNode = -1;      // Source ID
-    int toNode = -1;        // Destination ID
-    int fromOutput = 0;     // Output slot
-    int toInput = 0;        // Input slot
+    int fromNode;
+    int toNode;
+    int fromOutput;
+    int toInput;
 };
 
-// Graph: A recursive container of nodes and connections.
+/**
+ * Graph is a container for Nodes and their connections. 
+ * Since Graph inherits from Node, it can be nested within other Graphs.
+ */
 class Graph : public Node {
 public:
+    using NodeCreator = std::function<std::unique_ptr<Node>()>;
+    using ScriptExecutor = std::function<void(const std::string&, Graph*)>;
+
     Graph();
-    ~Graph() override;
-    
-    // Node management
-    template<typename T, typename... Args>
-    T& addNode(Args&&... args) {
-        static_assert(std::is_base_of<Node, T>::value, "T must derive from Node");
-        auto node = std::make_unique<T>(std::forward<Args>(args)...);
-        node->nodeId = Node::nextNodeId.fetch_add(1);
-        node->name = node->type + "_" + std::to_string(node->nodeId);
-        node->graph = this;
-        T& ref = *node;
-        nodes[node->nodeId] = std::move(node);
-        executionDirty = true;
-        if (ref.canDraw) updateRenderList();
-        return ref;
-    }
-    
-    // Connection management - just modifies the connections array
-    // Returns true if connection was successful and didn't create a cycle
-    bool connect(int fromNode, int toNode, int fromOutput = 0, int toInput = 0);
-    void disconnect(int toNode, int toInput = 0);
-    
-    // Shift all input indices above 'removedInput' down by 1 for a given node.
-    // Pure topology utility — does NOT disconnect. Caller is responsible for
-    // disconnecting first (e.g. VideoMixer::removeLayer, AudioMixer::removeInput).
-    void compactInputIndices(int toNode, int removedInput);
-    
+    virtual ~Graph();
+
+    // --- Lifecycle ---
+    void update(float dt) override;
+    void draw() override;
+    void pullAudio(ofSoundBuffer& buffer, int index = 0) override;
+
+    // --- Node Management ---
+    Node* createNode(const std::string& type, const std::string& name = "");
     void removeNode(int nodeId);
     void clear();
-    
-    // Get node by nodeId
+
     Node* getNode(int nodeId) {
         auto it = nodes.find(nodeId);
-        if (it != nodes.end()) {
-            return it->second.get();
-        }
+        if (it != nodes.end()) return it->second.get();
         return nullptr;
     }
-    
-    // Get connections for a specific node (by nodeId)
+
+    const std::unordered_map<int, std::unique_ptr<Node>>& getNodes() const { return nodes; }
+    size_t getNodeCount() const { return nodes.size(); }
+
+    // --- Topology & Connections ---
+    bool connect(int fromNode, int toNode, int fromOutput = 0, int toInput = 0);
+    void disconnect(int toNode, int toInput);
+    void compactInputIndices(int toNode, int removedInput);
+
     std::vector<Connection> getInputConnections(int nodeId) const;
     std::vector<Connection> getOutputConnections(int nodeId) const;
-    
-    // Thread safety for audio thread
-    std::recursive_mutex& getAudioMutex() { return audioMutex; }
-    
-    // Node interface implementation
-    // Propagates update to all internal nodes in topological order
-    void update(float dt) override;
-    
-    // Propagates draw to nodes with canDraw = true
-    void draw() override;
-    
-    // Pull-based video routing: finds the 'Outlet' node with matching index
-    ofTexture* getVideoOutput(int index = 0) override;
-    
-    // Pull-based audio routing: finds the 'Outlet' node with matching index and pulls from it
-    void pullAudio(ofSoundBuffer& buffer, int index = 0) override;
-    
-    // Access for serialization/debugging
-    const std::unordered_map<int, std::unique_ptr<Node>>& getNodes() const { return nodes; }
     const std::vector<Connection>& getConnections() const { return connections; }
-    
-    // Graph state
-    size_t getNodeCount() const { return nodes.size(); }
-    size_t getConnectionCount() const { return connections.size(); }
-    
-    // Factory for creating nodes by type name (for deserialization)
-    using NodeCreator = std::function<std::unique_ptr<Node>()>;
-    void registerNodeType(const std::string& type, NodeCreator creator);
-    Node* createNode(const std::string& type, const std::string& name = "");
+
+    // --- Navigation (for recursive lookup) ---
+    Graph* getParentGraph() const;
+    Node* getContainingNode() const;
+
+    // --- Factory Support ---
+    static void registerNodeType(const std::string& type, NodeCreator creator);
+    static void setScriptExecutor(ScriptExecutor executor) { s_scriptExecutor = executor; }
     std::vector<std::string> getRegisteredTypes() const;
-    
-    // Serialization
-    ofJson toJson() const;
-    bool fromJson(const ofJson& json);
-    
-    // Override Node serialization for recursive nesting
+
+    // --- Video Engine ---
+    ofTexture* getVideoOutput(int index = 0) override;
+
+    // --- Serialization ---
     ofJson serialize() const override;
     void deserialize(const ofJson& json) override;
     
+    // Internal JSON helpers
+    ofJson toJson() const;
+    bool fromJson(const ofJson& json);
+    
+    // File I/O
     bool saveToFile(const std::string& path) const;
     bool loadFromFile(const std::string& path);
     
     // Utilities
     std::string resolvePath(const std::string& path, const std::string& hint = "") const override;
     
-    // Parent graph navigation (for nested subgraphs)
-    // Returns the containing graph if this is a nested subgraph
-    Graph* getParentGraph() const;
-    // Returns the Graph node that owns this subgraph (if nested)
-    Node* getContainingNode() const;
+    // Audio Mutex
+    std::recursive_mutex& getAudioMutex() { return audioMutex; }
     
-    // Set the callback for executing scripts in nested graphs
-    using ScriptExecutor = std::function<void(const std::string&, Graph*)>;
-    static void setScriptExecutor(ScriptExecutor callback) { s_scriptExecutor = callback; }
-
-    // direct access to the global transport
+    // Helper to get global transport from Session
     class Transport& getTransport();
-    
-private:
-    static ScriptExecutor s_scriptExecutor;
-    
-    // Parameter listener: triggers script execution when 'script' path is set
-    ofParameter<std::string> scriptParam;
-    void onScriptChanged(std::string& path);
-    void onNodeLayerChanged(int& layer) { updateRenderList(); }
-    
+
 private:
     std::unordered_map<int, std::unique_ptr<Node>> nodes;
     std::vector<Connection> connections;
     
-    // Topology validation flag
-    bool executionDirty = true;
-    
-    std::recursive_mutex audioMutex;
-
-    // Node type registry - static global, shared by all Graph instances
-    static std::map<std::string, NodeCreator> nodeTypes;
-
-    // Validate topology (cycle detection and sort) when graph changes
-    // Returns true if graph is a valid DAG
-    bool validateTopology();
-
-    // The order in which nodes should be updated (Topological Sort)
-    std::vector<int> traversalOrder;
-
-    // Nodes that have canDraw = true, kept for efficient rendering
+    // Node drawing order (sorted by layer)
     std::vector<Node*> renderList;
     void updateRenderList();
+    void onNodeLayerChanged(int& layer) { updateRenderList(); }
+    
+    // Static registry for node instantiation
+    static std::map<std::string, NodeCreator> nodeTypes;
+    static ScriptExecutor s_scriptExecutor;
+
+    // Execution state
+    std::vector<int> traversalOrder; // Topological sort
+    bool validateTopology();         // Re-sort and check for cycles
+    bool executionDirty = true;
+    
+    void onScriptChanged(std::string& path);
+    ofParameter<std::string> scriptParam;
+    
+    // Thread safety for audio thread vs main thread mutation
+    mutable std::recursive_mutex audioMutex;
 };
