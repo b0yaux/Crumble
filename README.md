@@ -10,7 +10,7 @@ make
 make RunRelease     # loads bin/data/config.json
 ```
 
-## Core Concepts
+## How It Works
 
 - **Node**: A single processing unit (video player, mixer, output).
 - **Graph**: A recursive container. **Graphs are Nodes**, enabling infinite recursion.
@@ -19,16 +19,16 @@ make RunRelease     # loads bin/data/config.json
 ## Architecture
 
 ```text
-Session (Root Container)
+Session (Root Container: Hardware & Threading)
 ├── Transport (Musical Clock & Phase)
 ├── Patterns (Stateless logic: cycle -> value shapes)
-├── Graph (Recursive topology: the modular network)
+├── Graph (Recursive topology & Node lifecycle)
 │   └── Node (Atomic processing units)
 │       ├── Parameters (Stateful control)
 │       └── Modulators (Pattern assignments)
-├── Interpreter (Execution: Lua DSL runtime)
-├── AssetRegistry (Logical VFS: Banks & Asset Pairing)
-└── AssetCache (Efficiency: Deduplicated media & RAM storage)
+├── Interpreter (Lua DSL & Bindings)
+├── AssetRegistry (Logical VFS: Banks & Asset discovery)
+└── AssetCache (Deduplicated RAM storage)
 ```
 
 ### Key Components
@@ -68,14 +68,14 @@ video.path = "superstratum:40"
 mixer.opacity_0 = 0.5
 ```
 
-### Sample-Accurate Sequencing
-Crumble features a sample-accurate math engine for parameter modulation:
+### Sequencing & Modulation
+Crumble features a sample-accurate math engine. You can assign sequences, LFOs, or combine them using math operators:
 ```lua
 local smp = addNode("AVSampler")
-smp.path = "birds" -- Automatically pairs birds.mov and birds.wav
+smp.path = "birds" -- Auto-pairs related files
 
-smp.speed = seq("1 0.5 2 -1")
-smp.volume = osc(0.5) * seq("1 0") 
+smp.speed = seq("1 0.5 2") * 0.5     -- Scale a sequence
+smp.volume = osc(0.5) + seq("0 0.5") -- Add an LFO offset
 ```
 
 ### Subgraph Composition
