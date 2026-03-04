@@ -38,10 +38,20 @@ Session (Root Container: Hardware & Threading)
 - **AssetRegistry**: A logical mapping layer that handles media discovery, banks, and automatic A/V pairing.
 - **AssetCache**: A global registry that deduplicates media files and caches RAM buffers for efficiency.
 
-### Data Flow (Push-Pull)
+## Data Types & Flows
 
-1. **Push (Timing)**: The Session pushes the current `cycle` and `step` to all nodes. Nodes pre-calculate their `Modulators` into vectorized `Control` buffers.
-2. **Pull (Data)**: The hardware output pulls data from the graph. Video uses GPU pointer passing (passive pull); Audio uses buffer filling (active fill).
+Crumble uses a two-phase **Push-Pull** model to ensure perfect synchronization between mathematical patterns, high-fidelity audio, and GPU-accelerated video.
+
+### 1. The Push Phase (Sync & Control)
+The Session pushes a **Timing Context** to all nodes at the start of every hardware block.
+- **Type (`Control`)**: A vectorized stream of `float` values.
+- **The Flow**: Nodes pre-calculate their mathematical `Patterns` (Sequences, LFOs) into high-speed buffers.
+- **The Potential**: This enables **Sample-Accurate Modulation**, where a parameter (like `speed` or `filter`) can change its value for every single audio sample, creating smooth, complex textures.
+
+### 2. The Pull Phase (Signal Processing)
+Data is pulled through the graph only when an output device (Speakers/Screen) demands it.
+- **Audio (`ofSoundBuffer`)**: The hardware pulls audio from the graph. Each node recursively requests its source to fill the buffer (**Active Fill**), performing real-time signal summation.
+- **Video (`ofTexture*`)**: The screen output pulls GPU textures from the graph. Nodes pass pointers to textures or FBOs (**Passive Pull**), enabling high-performance video mixing with zero CPU-GPU copies.
 
 ## Media Management
 
