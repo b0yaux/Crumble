@@ -20,6 +20,7 @@ struct Config {
     PhysicsConfig physics;
     LayoutConfig layout;
     std::string entryScript;
+    std::vector<std::string> searchPaths;
     std::string configPath = "config.json";
 };
 
@@ -31,6 +32,7 @@ public:
     }
 
     bool load(const std::string& path = "config.json");
+    std::string resolvePath(const std::string& path) const;
     const Config& getConfig() const { return config; }
 
 private:

@@ -1,10 +1,14 @@
 #pragma once
 #include "ofMain.h"
 #include "ofxAudioFile.h"
+#include "AssetRegistry.h"
+#include "Config.h"
 #include <map>
 #include <memory>
 #include <mutex>
 #include <typeindex>
+#include <string>
+#include <vector>
 
 /**
  * AssetCache provides a centralized, thread-safe deduplication layer for heavy assets.
@@ -17,50 +21,64 @@ public:
 
     /**
      * Retrieves a shared asset of type T. 
-     * If the asset is already loaded, it returns the existing reference.
-     * Otherwise, it creates a new instance, loads it, and caches it.
+     * If the path is a logical alias (e.g. "birds" or "drums:5"), it is resolved
+     * via the AssetRegistry first.
      */
     template<typename T>
     std::shared_ptr<T> get(const std::string& path) {
         std::lock_guard<std::mutex> lock(mutex);
         
-        std::string fullPath = ofToDataPath(path);
+        // 1. Unified Path Resolution
+        std::string absolutePath = path;
+        
+        // Try to resolve as a logical asset first
+        std::string hint = "";
+        if constexpr (std::is_same_v<T, ofxAudioFile>) hint = "audio";
+        
+        std::string resolved = AssetRegistry::get().resolve(path, hint);
+        if (!resolved.empty()) {
+            absolutePath = resolved;
+        } else {
+            // Fallback to standard path resolution
+            absolutePath = ConfigManager::get().resolvePath(path);
+        }
+        
+        if (absolutePath.empty()) return nullptr;
+
         auto typeIdx = std::type_index(typeid(T));
         
-        // 1. Check if we have a cache for this type
+        // 2. Standard Caching Logic (using resolved path)
         auto& typeCache = caches[typeIdx];
-        
-        // 2. Check if this specific path is already in the cache
-        auto it = typeCache.find(fullPath);
+        auto it = typeCache.find(absolutePath);
         if (it != typeCache.end()) {
             it->second.lastUsedTime = ofGetElapsedTimef();
             return std::static_pointer_cast<T>(it->second.asset);
         }
 
         // 3. Not found: Load and cache
-        ofLogNotice("AssetCache") << "Loading new asset [" << typeid(T).name() << "]: " << path;
+        ofLogNotice("AssetCache") << "Loading [" << typeid(T).name() << "]: " << absolutePath;
         
         auto asset = std::make_shared<T>();
         
         // Politeness check: call load() if the type supports it
         if constexpr (std::is_same_v<T, ofxAudioFile>) {
-            asset->load(fullPath);
+            asset->load(absolutePath);
             if (!asset->loaded()) {
-                ofLogError("AssetCache") << "Failed to load audio: " << path;
+                ofLogError("AssetCache") << "Failed to load audio: " << absolutePath;
                 return nullptr;
             }
-        } else if constexpr (std::is_same_v<T, ofImage>) {
-            if (!asset->load(fullPath)) {
-                ofLogError("AssetCache") << "Failed to load image: " << path;
+        } else {
+            // Generic load attempt (e.g. for ofImage)
+            if (!asset->load(absolutePath)) {
+                ofLogError("AssetCache") << "Failed to load asset: " << absolutePath;
                 return nullptr;
             }
         }
-        // Add more specializations (e.g. ofShader) here as needed.
 
         AssetEntry entry;
         entry.asset = asset;
         entry.lastUsedTime = ofGetElapsedTimef();
-        typeCache[fullPath] = entry;
+        typeCache[absolutePath] = entry;
         
         return asset;
     }

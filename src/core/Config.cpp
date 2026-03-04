@@ -1,4 +1,5 @@
 #include "Config.h"
+#include "AssetRegistry.h"
 
 bool ConfigManager::load(const std::string& path) {
     std::string absPath = ofToDataPath(path);
@@ -33,6 +34,15 @@ bool ConfigManager::load(const std::string& path) {
             config.entryScript = j["entryScript"].get<std::string>();
         }
         
+        if (j.contains("searchPaths")) {
+            config.searchPaths.clear();
+            for (auto& p : j["searchPaths"]) {
+                config.searchPaths.push_back(p.get<std::string>());
+            }
+            // Trigger the AssetRegistry scan
+            AssetRegistry::get().scan(config.searchPaths);
+        }
+        
         ofLogNotice("Config") << "Loaded config from: " << absPath;
         return true;
         
@@ -40,4 +50,41 @@ bool ConfigManager::load(const std::string& path) {
         ofLogError("Config") << "Error loading config: " << e.what();
         return false;
     }
+}
+
+std::string ConfigManager::resolvePath(const std::string& path) const {
+    // 1. If absolute, use as-is
+    if (!path.empty() && ofFilePath::isAbsolute(path)) {
+        if (ofFile::doesFileExist(path)) return path;
+    }
+
+    // 2. Try relative to the current script directory (Implicit project)
+    if (!path.empty() && !config.entryScript.empty()) {
+        std::string scriptDir = ofFilePath::getEnclosingDirectory(ofToDataPath(config.entryScript));
+        std::string projectPath = ofFilePath::join(scriptDir, path);
+        if (ofFile::doesFileExist(projectPath)) return projectPath;
+    }
+
+    // 3. Try each configured search path
+    for (const auto& searchPath : config.searchPaths) {
+        // Simple tilde expansion for macOS/Linux
+        std::string expanded = searchPath;
+        if (!expanded.empty() && expanded[0] == '~') {
+            const char* home = getenv("HOME");
+            if (home) expanded = std::string(home) + expanded.substr(1);
+        }
+        
+        std::string fullPath = ofFilePath::join(expanded, path);
+        // Use doesFileExist which also handles directories in OF
+        if (ofFile::doesFileExist(fullPath)) return fullPath;
+    }
+
+    // 4. Fallback: standard openFrameworks data path
+    if (!path.empty()) {
+        std::string dataPath = ofToDataPath(path);
+        if (ofFile::doesFileExist(dataPath)) return dataPath;
+    }
+
+    // Return original if nothing found (honest failure)
+    return path;
 }
