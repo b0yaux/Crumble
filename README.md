@@ -7,49 +7,60 @@ Simple audio+video live-scriptable node-graph system built with openFrameworks a
 ```bash
 cd Crumble
 make
-make RunRelease     # Loads bin/data/scripts/main.lua by default
+make RunRelease     # loads bin/data/config.json
 ```
 
-## Core Concepts
+## How It Works
 
-- **Nodes**: Atomic processing units (Players, Mixers, Outputs).
-- **Graphs**: Recursive containers. A Graph is itself a Node, allowing infinite nesting.
+- **Node**: A single processing unit (video player, mixer, output).
+- **Graph**: A recursive container. **Graphs are Nodes**, enabling infinite recursion.
 - **Data Flow**: Timing is **pushed** (frame-accurate sync), while data is **pulled** (efficient GPU/Audio demand).
-- **Asset Engine**: A logical VFS that handles discovery, banks, and automatic A/V pairing.
 
-## Media Library
+## Architecture
 
-Configure your libraries in `bin/data/config.json` via `searchPaths`. Crumble indexes these folders into logical **Banks** at startup.
+```text
+Session (Root Container)
+├── Transport (Musical Clock & Phase)
+├── Patterns (Stateless logic: cycle -> value shapes)
+├── Graph (Recursive topology: the modular network)
+│   └── Node (Atomic processing units)
+├── Interpreter (Execution: Lua DSL runtime)
+├── AssetRegistry (Logical VFS: Banks & Asset Pairing)
+└── AssetCache (Efficiency: Deduplicated media & RAM storage)
+```
 
-### Loading Assets
-Load media into nodes like `AVSampler` or `VideoFileSource` using unified strings:
-- **Bank Index**: `node.path = "superstratum:40"` (Load the 41st asset in the 'superstratum' folder).
-- **Logical Name**: `node.path = "kick_01"` (Finds associated video and audio files named 'kick_01' in any search path).
-- **Direct Path**: `node.path = "clips/loop.mov"` (Standard relative or absolute file path).
+## Media Management
+
+Crumble features a **Logical Media Engine** that decouples scripts from physical file locations. Configure libraries in `config.json` via `searchPaths`.
+
+### Unified Asset Loading
+Load media into nodes using logical strings:
+- **Bank Index**: `node.path = "drums:5"` (6th asset in the 'drums' folder)
+- **Logical Name**: `node.path = "birds"` (Finds associated video and audio files named 'birds')
+- **Direct Path**: `node.path = "clips/loop.mov"` (Standard file path resolution)
 
 ## Lua API
 
-### Graph Construction & Routing
+### Graph Construction
 ```lua
--- Create and connect
-local s1 = addNode("AVSampler", "sampler1")
+local video = addNode("VideoFileSource", "movie1")
 local mixer = addNode("VideoMixer")
-local out = addNode("ScreenOutput")
+local output = addNode("ScreenOutput")
 
-connect(s1, mixer)
-connect(mixer, out)
+connect(video, mixer)
+connect(mixer, output)
 
--- Set logical assets
-s1.path = "drums:5" -- Automatically pairs .mov and .wav
-mixer.opacity_0 = 0.8
+video.path = "superstratum:40" 
+mixer.opacity_0 = 0.5
 ```
 
 ### Sequencing & Modulation
-Crumble features a sample-accurate math engine for parameters:
 ```lua
--- Patterns: seq(), osc(), ramp()
-s1.speed = seq("1 0.5 2 -1")
-s1.volume = osc(0.5) * seq("1 0")
+local smp = addNode("AVSampler")
+smp.path = "birds" -- Automatically pairs birds.mov and birds.wav
+
+smp.speed = seq("1 0.5 2 -1")
+smp.volume = osc(0.5) * seq("1 0") 
 ```
 
 ## Node Reference
@@ -57,9 +68,9 @@ s1.volume = osc(0.5) * seq("1 0")
 | Category | Type | Description |
 |----------|------|-------------|
 | **Core** | `Graph` | Nested scriptable sub-graph |
-| **Video** | `VideoFileSource` | HAP video player |
+| **Video** | `VideoFileSource` | High-performance HAP video player |
 | | `VideoMixer` | Multi-layer GPU compositor |
-| | `ScreenOutput` | GL Texture sink |
+| | `ScreenOutput` | Renders a texture to the display |
 | **Audio** | `AudioFileSource` | RAM-cached sample player |
 | | `AudioMixer` | Multi-channel summation |
 | | `SpeakersOutput` | Hardware audio sink |
