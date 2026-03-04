@@ -65,6 +65,7 @@ public:
     
     virtual ofTexture* getVideoOutput(int index = 0) { return nullptr; }
     virtual std::string getDisplayName() const { return name; }
+    virtual std::string resolvePath(const std::string& path, const std::string& typeHint = "") const;
     
     ofParameterGroup parameters;
     

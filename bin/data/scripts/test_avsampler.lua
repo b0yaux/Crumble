@@ -1,29 +1,16 @@
--- AVSampler test
+-- AVSampler test (Unified Assets)
 clear()
 
-local path = "/Users/jaufre/works/superstratum_video-data"
-local files = _listDir(path)
-local videos = {}
-for _, f in ipairs(files) do
-    if type(f) == "string" and f:match("%.mov$") then 
-        table.insert(videos, f) 
-    end
-end
+-- 1. Create nodes and assign logical assets directly
+-- Syntax: "bankName:index" or "bankName:fileName"
+-- The .path setter handles both Video and Audio pairing automatically via C++ VFS.
+local s1 = addNode("AVSampler", "s1")
+s1.path = "superstratum_video-data:92"
 
-local function smp(i)
-    local v = videos[i]
-    if not v or type(v) ~= "string" then return end
-    local n = addNode("AVSampler", "s" .. i)  -- named for idempotency
-    n.videoPath = v
-    local wav = v:gsub("%.mov$", ".wav")
-    if fileExists(wav) then n.audioPath = wav end
-    n.loop = true
-    n.playing = true
-    return n
-end
+local s2 = addNode("AVSampler", "s2")
+s2.path = "superstratum_video-data:29"
 
-local s1, s2 = smp(89), smp(22)
-
+-- 2. Setup Routing
 local amix = addNode("AudioMixer", "amix")
 local vmix = addNode("VideoMixer", "vmix")
 local speakers = addNode("SpeakersOutput", "speakers")
@@ -34,23 +21,22 @@ connect({s1, s2}, vmix)
 connect(amix, speakers)
 connect(vmix, screen)
 
-
--- Sample-accurate sequencing using the new C++ Generator engine
+-- 3. Sample-accurate sequencing
 s1.speed = seq("0.1 -1 -1 1 1")
 s2.speed = seq("1 0.2 3.3 1 0.5")
-s1.volume = 0.01
-s2.volume = 0.01
+s1.volume, s2.volume = 0.01, 0.01
 
+-- 4. Mixer state
 amix.gain_0, amix.gain_1 = 1, 1
 vmix.opacity_0, vmix.opacity_1 = 1, 1
 vmix.blend_0, vmix.blend_1 = 0, 1
 
-print("s1:", s1 and s1.videoPath)
-print("s2:", s2 and s2.videoPath)
+-- Custom logic & data persistence check
+print("s1 path:", s1.path)
+print("s2 path:", s2.path)
 
 function update()
-    -- Macroscopic UI/Video timing still works here if needed
     if math.random() < 0.01 then
         print(string.format("Clock: %.2f | Cycle: %.2f", Time.absoluteTime, Time.cycle))
     end
-end
+end 

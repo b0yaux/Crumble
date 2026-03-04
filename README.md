@@ -1,6 +1,6 @@
 # Crumble
 
-A minimal modular video + audio graph system built with openFrameworks and Lua. Crumble follows a "No-Port" design philosophy, using stable integer indices for high-performance routing and arbitrary recursive nesting.
+Simple audio+video live-scriptable node-graph system built with openFrameworks and Lua.
 
 ## Quick Start
 
@@ -16,7 +16,7 @@ The app loads `bin/data/config.json` which specifies the entry script. By defaul
 
 **Core concepts:**
 - **Node**: A single processing unit (video player, mixer, output).
-- **Graph**: A container holding nodes and their connections. **Graphs are Nodes**, enabling infinite recursion (TouchDesigner style).
+- **Graph**: A container holding nodes and their connections. **Graphs are Nodes**, enabling infinite recursion.
 - **Session**: Manages the root graph lifecycle and script reloading.
 - **Pull-Based Data Flow**: Sinks (Outputs) pull data from sources. Video uses GPU pointer passing (passive pull); Audio uses buffer filling (active fill).
 
@@ -40,12 +40,12 @@ Session (Root Container)
 ### Key Components
 
 - **Node**: The base unit. Exposes parameters that can be driven by constant values or mathematical patterns.
-- **Pattern**: A stateless recipe (`cycle -> value`) used for sample-accurate modulation.
 - **Graph**: A recursive container. Because a Graph is also a Node, Crumble supports infinite nesting.
+- **Pattern**: A stateless recipe (`cycle -> value`) used for sample-accurate modulation.
 - **Session**: The owner of the hardware audio callback and the root graph.
 - **Interpreter**: The Lua runtime that parses and executes live-coding scripts.
 - **AssetCache**: A global registry that deduplicates media files and caches RAM buffers.
-- **Control**: The vectorized data stream produced by Modulators to drive Node parameters.
+
 
 ### Data Flow (Push-Pull)
 
@@ -58,7 +58,7 @@ Session (Root Container)
 
 ```lua
 -- Create nodes: addNode(type, name?)
-local video = addNode("VideoFileSource", "myVideo")
+local video = addNode("VideoFileSource", "movie1")
 local mixer = addNode("VideoMixer")
 local output = addNode("ScreenOutput")
 

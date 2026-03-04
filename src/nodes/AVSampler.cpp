@@ -1,10 +1,10 @@
 #include "AVSampler.h"
-#include "../core/Session.h"
 
 AVSampler::AVSampler() {
     type = "AVSampler";
     
     // Add parameters
+    parameters.add(path.set("path", ""));
     parameters.add(audioPath.set("audioPath", ""));
     parameters.add(videoPath.set("videoPath", ""));
     parameters.add(speed.set("speed", 1.0, -4.0, 4.0));
@@ -15,113 +15,103 @@ AVSampler::AVSampler() {
 }
 
 void AVSampler::prepare(const Context& ctx) {
+    // Crucial: Propagate graph context to internal sub-nodes for path resolution
+    if (graph) {
+        audioSource.graph = graph;
+        videoSource.graph = graph;
+    }
+    
     Node::prepare(ctx);
     audioSource.prepare(ctx);
     videoSource.prepare(ctx);
 }
 
 void AVSampler::update(float dt) {
-    // Update internal sources
     audioSource.update(dt);
     
     // Hard-Sync Video to Audio playhead
-    // We do this even when not playing to allow scrubbing while paused
     if (!audioPath.get().empty() && !videoPath.get().empty()) {
         double audioPos = audioSource.getRelativePosition();
         videoSource.setPosition((float)audioPos);
-        
-        // Update the position parameter for script feedback
-        // We use set() which avoids triggering listeners if value hasn't changed much
         position.set((float)audioPos);
     }
     
     videoSource.update(dt);
-    
-    // Update master playhead for external reference
     masterPlayhead = audioSource.getRelativePosition();
 }
 
 void AVSampler::pullAudio(ofSoundBuffer& buffer, int index) {
-    if (index != 0) return;
-    
-    // Pull audio from internal source
-    audioSource.pullAudio(buffer, index);
+    if (index == 0) audioSource.pullAudio(buffer, index);
 }
 
 ofTexture* AVSampler::getVideoOutput(int index) {
-    if (index != 0) return nullptr;
-    return videoSource.getVideoOutput(index);
+    if (index == 0) return videoSource.getVideoOutput(index);
+    return nullptr;
 }
 
 std::string AVSampler::getDisplayName() const {
     std::string display = "AVSampler";
-    if (!audioPath.get().empty() || !videoPath.get().empty()) {
-        if (!videoPath.get().empty()) {
-            display += " [" + ofFilePath::getFileName(videoPath.get());
-            if (!audioPath.get().empty()) {
-                display += " + " + ofFilePath::getFileName(audioPath.get());
-            }
-            display += "]";
-        } else if (!audioPath.get().empty()) {
-            display += " [" + ofFilePath::getFileName(audioPath.get()) + "]";
-        }
-    }
+    if (!path.get().empty()) display += " [" + path.get() + "]";
+    else if (!videoPath.get().empty()) display += " [" + ofFilePath::getFileName(videoPath.get()) + "]";
     return display;
 }
 
 void AVSampler::onParameterChanged(const std::string& paramName) {
-    if (paramName == "audioPath") {
-        if (audioPath.get() != loadedAudioPath) {
-            audioSource.parameters[std::string("path")].cast<std::string>() = audioPath.get();
+    // 1. Handle Unified Path (Macro)
+    if (paramName == "path") {
+        std::string pathVal = path.get();
+        if (pathVal.empty()) return;
+
+        // Resolve logical components via base class utility
+        std::string vid = resolvePath(pathVal, "video");
+        std::string aud = resolvePath(pathVal, "audio");
+        
+        // Propagate to internal parameters
+        // Setting these will trigger the logic in the 'else if' blocks below
+        // because we call onParameterChanged manually for them.
+        audioPath.set(aud);
+        videoPath.set(vid);
+        
+        onParameterChanged("audioPath");
+        onParameterChanged("videoPath");
+        
+    } 
+    // 2. Handle Individual Streams (The actual loading logic)
+    else if (paramName == "audioPath") {
+        if (!audioPath.get().empty() && audioPath.get() != loadedAudioPath) {
+            audioSource.load(audioPath.get());
             loadedAudioPath = audioPath.get();
-            // Reset playhead on new audio
             masterPlayhead = 0.0;
         }
     } else if (paramName == "videoPath") {
-        if (videoPath.get() != loadedVideoPath) {
-            videoSource.parameters[std::string("path")].cast<std::string>() = videoPath.get();
+        if (!videoPath.get().empty() && videoPath.get() != loadedVideoPath) {
+            videoSource.load(videoPath.get());
             loadedVideoPath = videoPath.get();
-            // Reset playhead on new video
             masterPlayhead = 0.0;
         }
-    } else if (paramName == "speed") {
-        // Propagate speed to both sources
+    } 
+    // 3. Propagate Modulators and State
+    else if (paramName == "speed") {
         audioSource.parameters[std::string("speed")].cast<float>() = speed.get();
         videoSource.parameters[std::string("speed")].cast<float>() = speed.get();
-        
         audioSource.modulate("speed", getPattern("speed"));
         videoSource.modulate("speed", getPattern("speed"));
-        
-        videoSource.onParameterChanged("speed");
     } else if (paramName == "volume") {
-        // Propagate volume to audio source
         audioSource.parameters[std::string("volume")].cast<float>() = volume.get();
         audioSource.modulate("volume", getPattern("volume"));
     } else if (paramName == "loop") {
-        // Propagate loop state to both sources
         audioSource.parameters[std::string("loop")].cast<bool>() = loop.get();
         videoSource.parameters[std::string("loop")].cast<bool>() = loop.get();
-        videoSource.onParameterChanged("loop");
     } else if (paramName == "playing") {
-        // Propagate playing state
         audioSource.parameters[std::string("playing")].cast<bool>() = playing.get();
         videoSource.parameters[std::string("playing")].cast<bool>() = playing.get();
-        videoSource.onParameterChanged("playing");
     } else if (paramName == "position") {
-        // Seek both sources to the new position
         audioSource.setRelativePosition(position.get());
         videoSource.setPosition(position.get());
-        // Force immediate update of master playhead
-        masterPlayhead = position.get();
     }
 }
 
-void AVSampler::setMasterPlayhead(double position) {
-    masterPlayhead = position;
-    
-    // For now, this is a placeholder for future position/seek functionality
-    // When we implement position parameter, this will sync both sources to the same playhead
-}
+void AVSampler::setMasterPlayhead(double pos) { masterPlayhead = pos; }
 
 ofJson AVSampler::serialize() const {
     ofJson j;
@@ -131,33 +121,13 @@ ofJson AVSampler::serialize() const {
 
 void AVSampler::deserialize(const ofJson& json) {
     ofJson j = json;
+    if (j.contains("AVSampler")) j = j["AVSampler"];
+    else if (j.contains("group")) j = j["group"];
     
-    // Handle common nesting patterns
-    if (j.contains("AVSampler")) {
-        j = j["AVSampler"];
-    } else if (j.contains("group")) {
-        j = j["group"];
-    }
-    
-    // Load parameters
-    if (j.contains("audioPath")) {
-        audioPath.set(getSafeJson<std::string>(j, "audioPath", ""));
-    }
-    if (j.contains("videoPath")) {
-        videoPath.set(getSafeJson<std::string>(j, "videoPath", ""));
-    }
-    if (j.contains("speed")) {
-        speed.set(getSafeJson<float>(j, "speed", 1.0f));
-    }
-    if (j.contains("volume")) {
-        volume.set(getSafeJson<float>(j, "volume", 1.0f));
-    }
-    if (j.contains("loop")) {
-        loop.set(getSafeJson<bool>(j, "loop", true));
-    }
-    if (j.contains("playing")) {
-        playing.set(getSafeJson<bool>(j, "playing", true));
-    }
+    // Set parameters (setter logic handles the rest)
+    if (j.contains("path")) path.set(getSafeJson<std::string>(j, "path", ""));
+    if (j.contains("audioPath")) audioPath.set(getSafeJson<std::string>(j, "audioPath", ""));
+    if (j.contains("videoPath")) videoPath.set(getSafeJson<std::string>(j, "videoPath", ""));
     
     ofDeserialize(j, parameters);
 }

@@ -12,6 +12,7 @@ public:
     AudioFileSource();
 
     void pullAudio(ofSoundBuffer& buffer, int index = 0) override;
+    void load(const std::string& path);
     std::string getDisplayName() const override;
 
     // Serialization

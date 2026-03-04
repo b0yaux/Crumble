@@ -71,3 +71,10 @@ void Node::deserialize(const ofJson& json) {
     if (!json.is_object()) return;
     ofDeserialize(json, parameters);
 }
+
+std::string Node::resolvePath(const std::string& path, const std::string& typeHint) const {
+    if (graph) {
+        return graph->resolvePath(path, typeHint);
+    }
+    return ofToDataPath(path);
+}

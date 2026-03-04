@@ -1,6 +1,5 @@
 #include "VideoMixer.h"
 #include "../core/Graph.h"
-#include "../core/Transport.h"
 
 VideoMixer::VideoMixer() {
     type = "VideoMixer";

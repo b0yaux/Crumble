@@ -100,8 +100,14 @@ void AudioFileSource::deserialize(const ofJson& json) {
 }
 
 void AudioFileSource::onPathChanged(std::string& p) {
-    if (p.empty() || p == loadedPath) return;
+    if (!p.empty() && p != loadedPath) {
+        load(p);
+    }
+}
 
+void AudioFileSource::load(const std::string& p) {
+    path = p;
+    
     if (g_session) {
         sharedLoader = g_session->getCache().getAudio(p);
         if (sharedLoader) {

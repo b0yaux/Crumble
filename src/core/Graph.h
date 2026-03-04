@@ -105,6 +105,9 @@ public:
     bool saveToFile(const std::string& path) const;
     bool loadFromFile(const std::string& path);
     
+    // Utilities
+    std::string resolvePath(const std::string& path, const std::string& hint = "") const override;
+    
     // Parent graph navigation (for nested subgraphs)
     // Returns the containing graph if this is a nested subgraph
     Graph* getParentGraph() const;

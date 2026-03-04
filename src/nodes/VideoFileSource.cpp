@@ -1,6 +1,4 @@
 #include "VideoFileSource.h"
-#include "../core/Graph.h"
-#include "../core/Transport.h"
 
 VideoFileSource::VideoFileSource() {
     type = "VideoFileSource";
@@ -13,32 +11,20 @@ VideoFileSource::VideoFileSource() {
     path.addListener(this, &VideoFileSource::onPathChanged);
 }
 
-void VideoFileSource::onPathChanged(std::string& path) {
-    if (!path.empty() && path != loadedPath) {
-        load(path);
+void VideoFileSource::onPathChanged(std::string& p) {
+    if (!p.empty() && p != loadedPath) {
+        load(p);
     }
 }
 
 
 void VideoFileSource::load(const std::string& vidPath) {
-    path = vidPath;
+    // 1. Resolve via base class utility (proxies to Graph -> Registry)
+    std::string resolvedPath = resolvePath(vidPath, "video");
     
-    // Check if the path is absolute or relative to data path
-    string fullPath = ofToDataPath(vidPath);
-    if (!ofFile::doesFileExist(fullPath)) {
-        // Try as-is in case it's an absolute path outside data
-        fullPath = vidPath;
-    }
+    ofLogNotice("VideoFileSource") << "Loading video: " << resolvedPath << " (from: " << vidPath << ")";
     
-    ofLogNotice("VideoFileSource") << "Attempting to load: " << fullPath;
-    
-    bool loaded = player.load(fullPath);
-    if (!loaded && ofFilePath::isAbsolute(fullPath)) {
-        // One last try: check if it's a relative path that was mistaken for absolute
-        string relPath = ofToDataPath(vidPath, false);
-        ofLogNotice("VideoFileSource") << "Retrying as relative: " << relPath;
-        loaded = player.load(relPath);
-    }
+    bool loaded = player.load(resolvedPath);
 
     if (loaded) {
         player.setLoopState(loop ? OF_LOOP_NORMAL : OF_LOOP_NONE);
@@ -48,9 +34,8 @@ void VideoFileSource::load(const std::string& vidPath) {
             player.play();
         }
         loadedPath = vidPath;
-        ofLogNotice("VideoFileSource") << "Successfully loaded and playing: " << fullPath;
     } else {
-        ofLogError("VideoFileSource") << "Failed to load: " << fullPath;
+        ofLogError("VideoFileSource") << "Failed to load: " << resolvedPath;
     }
 }
 

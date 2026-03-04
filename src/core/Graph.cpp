@@ -1,6 +1,8 @@
 #include "Graph.h"
 #include "Session.h"
 #include "Transport.h"
+#include "AssetRegistry.h"
+#include "Config.h"
 #include "../nodes/subgraph/Outlet.h"
 
 // Static node type registry - shared by all Graph instances
@@ -510,6 +512,17 @@ bool Graph::loadFromFile(const std::string& path) {
         return false;
     }
     return fromJson(json);
+}
+
+std::string Graph::resolvePath(const std::string& path, const std::string& hint) const {
+    if (path.empty()) return "";
+
+    // 1. Try Logical Asset Registry
+    std::string resolved = AssetRegistry::get().resolve(path, hint);
+    if (!resolved.empty()) return resolved;
+
+    // 2. Fallback to Search Paths / Data Path
+    return ConfigManager::get().resolvePath(path);
 }
 
 void Graph::onScriptChanged(std::string& path) {

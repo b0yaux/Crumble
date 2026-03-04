@@ -52,6 +52,7 @@ private:
     double masterPlayhead = 0.0;
     
     // Unified parameters
+    ofParameter<std::string> path; // Unified Path (Logical or Direct)
     ofParameter<std::string> audioPath;
     ofParameter<std::string> videoPath;
     ofParameter<float> speed;      // Shared speed parameter

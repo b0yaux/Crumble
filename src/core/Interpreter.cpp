@@ -1,5 +1,6 @@
 #include "Interpreter.h"
 #include "Session.h"
+#include "Config.h"
 
 Interpreter* g_interpreter = nullptr;
 
@@ -179,6 +180,7 @@ void Interpreter::bindSessionAPI() {
     lua_register(L, "_clear", lua_clear);
     lua_register(L, "_listDir", lua_listDirectory);
     lua_register(L, "_exists", lua_fileExists);
+    lua_register(L, "_resolve", lua_resolvePath);
     
     // Create the 'session' table and 'Node' metatable in Lua
     std::string helper = R"(
@@ -251,23 +253,38 @@ void Interpreter::bindSessionAPI() {
         end
 
         local function connectInternal(f, t, fo, ti)
-            local tid = type(t) == "table" and t.id or t
+            -- Helper to resolve a node object or name to an ID
+            local function toId(obj)
+                if type(obj) == "table" then return obj.id end
+                if type(obj) == "number" then return obj end
+                if type(obj) == "string" then
+                    -- Search by name in _allNodes
+                    for _, node in ipairs(_G._allNodes or {}) do
+                        if node.name == obj then return node.id end
+                    end
+                end
+                return nil
+            end
+
+            local tid = toId(t)
+            if not tid then return end
+
             local toIdx = ti or 0
             local fromIdx = fo or 0
             
-            -- Handle array of sources: connect({smp1, smp2}, mixer)
-            -- Check it's a proper array (has numeric keys starting at 1 with table values)
-            if type(f) == "table" and f[1] and type(f[1]) == "table" and f[1].id then
+            -- 1. Handle array of sources: connect({s1, s2}, mixer)
+            if type(f) == "table" and not f.id then
                 for _, src in ipairs(f) do
-                    if src and src.id then  -- Skip nil entries
-                        _connect(src.id, tid, fromIdx, toIdx)
+                    local fid = toId(src)
+                    if fid then
+                        _connect(fid, tid, fromIdx, toIdx)
                         toIdx = toIdx + 1
                     end
                 end
                 return
             end
             
-            -- Handle glob pattern: connect("smp*", mixer)
+            -- 2. Handle glob pattern: connect("smp*", mixer)
             if type(f) == "string" and f:match("%*") then
                 local pattern = f:gsub("%*", ".*")
                 local matched = false
@@ -281,9 +298,11 @@ void Interpreter::bindSessionAPI() {
                 if matched then return end
             end
             
-            -- Single node connection
-            local fid = type(f) == "table" and f.id or f
-            _connect(fid, tid, fromIdx, toIdx)
+            -- 3. Single node connection
+            local fid = toId(f)
+            if fid then
+                _connect(fid, tid, fromIdx, toIdx)
+            end
         end
 
         _G.connect = connectInternal
@@ -346,25 +365,21 @@ void Interpreter::bindSessionAPI() {
             return p_obj
         end
 
--- Directory Import Helper
-        function importFolder(path, extension)
-            if _exists(path) == false then
-                return {}
-            end
-
-            local files = _listDir(path)
-            local imported = {}
+        -- Pure Path Discovery Helper
+        function getFiles(dir, extension)
+            local files = _listDir(dir or "")
+            local results = {}
             
-            -- Default supported extensions if none provided
             local filter = extension
             if not filter then
-                filter = {".mov", ".hap", ".mp4", ".avi", ".wav", ".mp3", ".aif"}
+                filter = {".mov", ".hap", ".mp4", ".wav", ".mp3", ".aif"}
             elseif type(filter) == "string" then
                 filter = {filter}
             end
 
-            for i, f in ipairs(files) do
+            for _, f in ipairs(files) do
                 local ext = f:match("^.+(%..+)$")
+                local name = f:match("([^/]+)%..-$") or f
                 local match = false
                 
                 if ext then
@@ -377,19 +392,11 @@ void Interpreter::bindSessionAPI() {
                 end
 
                 if match then
-                    local name = f:match("([^/]+)%..+$") or f
-                    -- Determine node type based on extension (simple heuristic)
-                    local nodeType = "VideoFileSource"
-                    if ext:match("%.wav") or ext:match("%.mp3") or ext:match("%.aif") then
-                        nodeType = "AudioFileSource"
-                    end
-
-                    local node = addNode(nodeType, name)
-                    node.path = f
-                    table.insert(imported, node)
+                    table.insert(results, f)
+                    results[name] = f -- Named access: results.kick
                 end
             end
-            return imported
+            return results
         end
     )";
     
@@ -401,10 +408,12 @@ void Interpreter::bindSessionAPI() {
 
 int Interpreter::lua_listDirectory(lua_State* L) {
     std::string path = luaL_checkstring(L, 1);
-    ofDirectory dir(path);
     
-    // No hardcoded allowExt() here. Return all files 
-    // and let Lua handle the filtering logic.
+    // Resolve the directory path using search paths
+    std::string resolvedPath = ConfigManager::get().resolvePath(path);
+    ofDirectory dir(resolvedPath);
+    
+    // Return all files and let Lua handle the filtering logic.
     dir.listDir();
     
     lua_newtable(L);
@@ -421,6 +430,13 @@ int Interpreter::lua_fileExists(lua_State* L) {
     std::string path = luaL_checkstring(L, 1);
     ofFile file(path);
     lua_pushboolean(L, file.exists());
+    return 1;
+}
+
+int Interpreter::lua_resolvePath(lua_State* L) {
+    std::string path = luaL_checkstring(L, 1);
+    std::string resolved = ConfigManager::get().resolvePath(path);
+    lua_pushstring(L, resolved.c_str());
     return 1;
 }
 
