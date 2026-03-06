@@ -1,18 +1,13 @@
 #pragma once
 #include "../core/Node.h"
+#include "../core/NodeProcessor.h"
 
-/**
- * SpeakersOutput acts as the final audio sink.
- * It does not own the audio thread anymore (Session does).
- * It simply acts as a marker/router node that Session pulls from.
- */
 class SpeakersOutput : public Node {
 public:
     SpeakersOutput();
-    virtual ~SpeakersOutput();
-
-    // Crumble Graph API override
-    void processAudio(ofSoundBuffer& buffer, int index = 0) override;
+    
+    crumble::NodeProcessor* createProcessor() override;
+    void onParameterChanged(const std::string& paramName) override;
 
 protected:
     ofParameter<float> masterVolume;

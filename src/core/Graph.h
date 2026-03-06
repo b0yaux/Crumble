@@ -7,6 +7,10 @@
 #include <functional>
 #include <mutex>
 
+namespace crumble {
+    struct AudioCommand;
+}
+
 /**
  * A connection represents a link from one node's output to another node's input.
  */

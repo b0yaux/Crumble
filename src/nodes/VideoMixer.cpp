@@ -5,8 +5,8 @@ VideoMixer::VideoMixer() {
     type = "VideoMixer";
     
     // Add parameters
-    parameters.add(numActiveLayers.set("numLayers", 2, 1, 128));
-    parameters.add(masterOpacity.set("masterOpacity", 1.0, 0.0, 1.0));
+    parameters->add(numActiveLayers.set("numLayers", 2, 1, 128));
+    parameters->add(masterOpacity.set("masterOpacity", 1.0, 0.0, 1.0));
     
     // Add listener to react immediately to layer count changes
     numActiveLayers.addListener(this, &VideoMixer::onNumLayersChanged);
@@ -64,16 +64,16 @@ void VideoMixer::resizeLayerArrays(int newSize) {
             layerBlendModes.push_back(ofParameter<int>("blend_" + ofToString(i), 0, 0, (int)BlendMode::COUNT - 1));
             layerActive.push_back(ofParameter<bool>("active_" + ofToString(i), true));
             
-            parameters.add(layerOpacities[i]);
-            parameters.add(layerBlendModes[i]);
-            parameters.add(layerActive[i]);
+            parameters->add(layerOpacities[i]);
+            parameters->add(layerBlendModes[i]);
+            parameters->add(layerActive[i]);
         }
     } else if (newSize < currentSize) {
         // Remove excess layers
         for (int i = currentSize - 1; i >= newSize; i--) {
-            parameters.remove(layerOpacities[i]);
-            parameters.remove(layerBlendModes[i]);
-            parameters.remove(layerActive[i]);
+            parameters->remove(layerOpacities[i]);
+            parameters->remove(layerBlendModes[i]);
+            parameters->remove(layerActive[i]);
             
             layerOpacities.pop_back();
             layerBlendModes.pop_back();
@@ -152,7 +152,7 @@ int VideoMixer::addLayer() {
     return newLayerIndex;
 }
 
-void VideoMixer::onInputConnected(int& toInput) {
+void VideoMixer::onInputConnected(int toInput) {
     if (toInput >= numActiveLayers) {
         setLayerCount(toInput + 1);
     }
@@ -260,7 +260,7 @@ void VideoMixer::update(float dt) {
         if (sourceNode) {
             ofTexture* tex = sourceNode->getVideoOutput();
             if (tex && tex->isAllocated()) {
-                Control sourceOpCtrl = sourceNode->getControl(sourceNode->opacity);
+                Control sourceOpCtrl = sourceNode->getControl(*sourceNode->opacity);
                 float sourceOpacity = sourceOpCtrl[0];
                 layersToDraw.push_back({tex, layerOpacities[i] * sourceOpacity, layerBlendModes[i]});
             }
@@ -311,7 +311,7 @@ ofTexture* VideoMixer::processVideo(int index) {
 ofJson VideoMixer::serialize() const {
     ofJson j;
     // Serialize ofParameters
-    ofSerialize(j, parameters);
+    ofSerialize(j, *parameters);
     // Serialize layer runtime values (not in ofParameters)
     j["layerOpacities"] = ofJson::array();
     j["layerBlendModes"] = ofJson::array();
@@ -346,7 +346,7 @@ void VideoMixer::deserialize(const ofJson& json) {
     
     // 3. Deserialize ofParameters (covers numLayers, and any named opacity_n if they match)
     // We still call this for general parameters, but manual sync below handles "loose" types
-    ofDeserialize(j, parameters);
+    ofDeserialize(j, *parameters);
     
     // 4. Fallback for custom array format (legacy support)
     if (json.contains("layerOpacities")) {

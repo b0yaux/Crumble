@@ -545,8 +545,8 @@ int Interpreter::lua_setParam(lua_State* L) {
     node->clearModulator(paramName);
     
     // Try to find the parameter
-    if (node->parameters.contains(paramName)) {
-        auto& p = node->parameters.get(paramName);
+    if (node->parameters->contains(paramName)) {
+        auto& p = node->parameters->get(paramName);
         
         if (lua_isboolean(L, 3)) {
             p.cast<bool>().set(lua_toboolean(L, 3));
@@ -708,8 +708,8 @@ int Interpreter::lua_getParam(lua_State* L) {
     if (!node) return 0;
     
     // Try to find the parameter
-    if (node->parameters.contains(paramName)) {
-        auto& p = node->parameters.get(paramName);
+    if (node->parameters->contains(paramName)) {
+        auto& p = node->parameters->get(paramName);
         
         // Push the parameter value to Lua stack
         if (p.type() == typeid(ofParameter<bool>).name()) {

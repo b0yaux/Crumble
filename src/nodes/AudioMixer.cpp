@@ -1,161 +1,139 @@
+#include "ofMain.h"
 #include "AudioMixer.h"
-#include "../core/Graph.h"
+#include "../core/AudioCommand.h"
+#include "../core/NodeProcessor.h"
 
-AudioMixer::AudioMixer() {
-    type = "AudioMixer";
-    parameters.add(masterGain.set("masterGain", 1.0, 0.0, 1.0));
-    numActiveInputs = 0;
-}
+namespace crumble {
 
-void AudioMixer::onInputConnected(int& toInput) {
-    // Expand capacity if needed to accommodate the connection
-    if (toInput >= numActiveInputs) {
-        int newCount = toInput + 1;
-
-        // Add new gain parameters for each new slot
-        for (int i = numActiveInputs; i < newCount; i++) {
-            std::string name = "gain_" + std::to_string(i);
-            auto p = std::make_shared<ofParameter<float>>();
-            p->set(name, 0.8f, 0.0f, 1.0f);
-            parameters.add(*p);
-            inputGains.push_back(p);
-        }
-        numActiveInputs = newCount;
-        ofLogVerbose("AudioMixer") << "Expanded to " << numActiveInputs << " inputs";
-    }
-}
-
-void AudioMixer::removeInput(int inputIndex) {
-    if (inputIndex < 0 || inputIndex >= numActiveInputs) {
-        return;
+class AudioMixerProcessor : public NodeProcessor {
+public:
+    AudioMixerProcessor() {
+        // Pre-initialize gain slot cache to -1 (not yet registered)
+        for (int i = 0; i < 16; i++) gainSlots[i] = -1;
     }
 
-    // 1. Disconnect the graph connection for this input
-    if (graph) {
-        graph->disconnect(nodeId, inputIndex);
-        graph->compactInputIndices(nodeId, inputIndex);
-    }
+    void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
+                 double cycle, double cycleStep) override {
+        // Use name-based slot lookup — never hardcoded integers.
+        float masterGain = getParam("masterGain");
+        
+        for (int i = 0; i < 16; i++) {
+            auto& input = inputs[i];
+            if (input.processor) {
+                if (sumBuf.size() != buffer.size()) {
+                    sumBuf.allocate(buffer.getNumFrames(), buffer.getNumChannels());
+                }
+                sumBuf.set(0);
+                
+                // Pass cycle/cycleStep down the graph
+                input.processor->pull(sumBuf, input.fromOutput, frameCounter, cycle, cycleStep);
+                
+                // Lazy-cache the gain slot index
+                if (gainSlots[i] < 0) {
+                    gainSlots[i] = getSlot("gain_" + std::to_string(i));
+                }
 
-    // 2. Shift gain parameters down
-    for (int i = inputIndex; i < numActiveInputs - 1; i++) {
-        inputGains[i]->set(inputGains[i + 1]->get());
-    }
-
-    // 3. Remove the last gain parameter and shrink
-    if (!inputGains.empty()) {
-        parameters.remove(*inputGains.back());
-        inputGains.pop_back();
-    }
-    numActiveInputs--;
-
-    ofLogVerbose("AudioMixer") << "Removed input " << inputIndex << " (total: " << numActiveInputs << ")";
-}
-
-void AudioMixer::processAudio(ofSoundBuffer& buffer, int index) {
-    if (!graph) return;
-
-    // Get optimized reference to connections (No heap allocation)
-    const auto& inputs = graph->getInputConnectionsRef(nodeId);
-    if (inputs.empty()) return;
-
-    // Ensure tempBuffer matches output buffer size
-    if (tempBuffer.getNumFrames() != buffer.getNumFrames() || tempBuffer.getNumChannels() != buffer.getNumChannels()) {
-        tempBuffer.allocate(buffer.getNumFrames(), buffer.getNumChannels());
-        tempBuffer.setSampleRate(buffer.getSampleRate());
-    }
-
-    for (const auto& conn : inputs) {
-        int idx = conn.toInput;
-        if (idx < 0 || idx >= (int)inputGains.size()) continue;
-
-        Node* source = getInputNode(idx);
-        if (source) {
-            tempBuffer.set(0);
-            source->pullAudio(tempBuffer, conn.fromOutput);
-
-            auto& p = *inputGains[idx];
-            Control gainCtrl = getControl(p);
-            
-            // Get source volume (including modulation)
-            Control sourceVolCtrl = source->getControl(source->volume);
-            
-            for (size_t i = 0; i < buffer.getNumFrames(); i++) {
-                float gain = gainCtrl[i] * sourceVolCtrl[i];
-                if (gain > 0.0001f) {
-                    for (int c = 0; c < buffer.getNumChannels(); c++) {
-                        buffer[i * buffer.getNumChannels() + c] += tempBuffer[i * buffer.getNumChannels() + c] * gain;
-                    }
+                float* pSum = sumBuf.getBuffer().data();
+                float* pOut = buffer.getBuffer().data();
+                float gain = gainSlots[i] >= 0 ? getParam(gainSlots[i]) : 0.0f;
+                
+                for (size_t k = 0; k < buffer.size(); k++) {
+                    pOut[k] += pSum[k] * gain;
                 }
             }
         }
+        
+        if (masterGain != 1.0f) {
+            float* pOut = buffer.getBuffer().data();
+            for (size_t k = 0; k < buffer.size(); k++) {
+                pOut[k] *= masterGain;
+            }
+        }
     }
+    
+private:
+    ofSoundBuffer sumBuf; // Instance-private summation buffer
+    int gainSlots[16];    // Cached slot indices for gain_0..gain_15
+};
 
-    // Apply master gain
-    Control masterCtrl = getControl(masterGain);
-    if (masterCtrl.modulated || masterGain != 1.0f) {
-        for (size_t i = 0; i < buffer.getNumFrames(); i++) {
-            float gain = masterCtrl[i];
-            for (int c = 0; c < buffer.getNumChannels(); c++) {
-                buffer[i * buffer.getNumChannels() + c] *= gain;
+} // namespace crumble
+
+AudioMixer::AudioMixer() {
+    type = "AudioMixer";
+    parameters->add(masterGain.set("masterGain", 1.0, 0.0, 4.0));
+    numActiveInputs = 0;
+    setupProcessor();
+}
+
+crumble::NodeProcessor* AudioMixer::createProcessor() {
+    return new crumble::AudioMixerProcessor();
+}
+
+void AudioMixer::processAudio(ofSoundBuffer& buffer, int index) {}
+
+std::string AudioMixer::getDisplayName() const {
+    return "Audio Mixer";
+}
+
+void AudioMixer::onParameterChanged(const std::string& paramName) {
+    // Node::onParameterChanged handles all params generically via slotMap.
+    Node::onParameterChanged(paramName);
+}
+
+void AudioMixer::onInputConnected(int index) {
+    if (index >= (int)inputGains.size()) {
+        int currentSize = inputGains.size();
+        for (int i = currentSize; i <= index; i++) {
+            std::string name = "gain_" + std::to_string(i);
+            auto p = std::make_shared<ofParameter<float>>();
+            p->set(name, 0.8f, 0.0f, 1.0f);
+            parameters->add(*p);
+            inputGains.push_back(p);
+            
+            // Calculate the slot index for this dynamically-added parameter.
+            // It will be at position (current parameters->size() - 1).
+            int slotIdx = (int)parameters->size() - 1;
+
+            // Register the slot in the processor's slotMap and sync the value.
+            if (processor) {
+                // Register name->index mapping on audio thread
+                registerSlot(name, slotIdx);
+
+                // Sync initial value
+                crumble::AudioCommand cmd;
+                cmd.type = crumble::AudioCommand::SET_PARAM;
+                cmd.slotIndex = slotIdx;
+                cmd.value = 0.8f;
+                pushCommand(cmd);
             }
         }
     }
 }
 
-std::string AudioMixer::getDisplayName() const {
-    return "Audio Mixer (" + std::to_string(numActiveInputs) + ")";
+void AudioMixer::onInputDisconnected(int index) {}
+
+void AudioMixer::addInput() {
+    numActiveInputs++;
+    onInputConnected(numActiveInputs - 1);
+}
+
+void AudioMixer::removeInput() {
+    if (numActiveInputs > 0) {
+        numActiveInputs--;
+        if (!inputGains.empty()) {
+            parameters->remove(*inputGains.back());
+            inputGains.pop_back();
+        }
+    }
 }
 
 ofJson AudioMixer::serialize() const {
     ofJson j;
-    ofSerialize(j, parameters);
+    ofSerialize(j, *parameters);
     j["numActiveInputs"] = numActiveInputs;
     return j;
 }
 
 void AudioMixer::deserialize(const ofJson& json) {
-    ofJson j = json;
-    if (j.contains("AudioMixer")) {
-        j = j["AudioMixer"];
-    } else if (j.contains("group")) {
-        j = j["group"];
-    } else if (j.contains("params")) {
-        j = j["params"];
-    }
-
-    // 1. Expand to match saved input count
-    int savedCount = getSafeJson<int>(j, "numActiveInputs", 0);
-
-    // Also check if there are any gain_N params even if numActiveInputs is missing
-    int maxGainIdx = -1;
-    for (auto it = j.begin(); it != j.end(); ++it) {
-        std::string key = it.key();
-        if (key.find("gain_") == 0) {
-            try {
-                int idx = std::stoi(key.substr(5));
-                if (idx > maxGainIdx) maxGainIdx = idx;
-            } catch (...) {}
-        }
-    }
-
-    int finalCount = std::max(savedCount, maxGainIdx + 1);
-    if (finalCount > numActiveInputs) {
-        for (int i = numActiveInputs; i < finalCount; i++) {
-            int idx = i;
-            onInputConnected(idx);
-        }
-    }
-
-    // 2. Deserialize parameters - handle both old capitalized and new lowercase names
-    if (j.contains("MasterGain")) masterGain = getSafeJson<float>(j, "MasterGain", masterGain.get());
-    if (j.contains("masterGain")) masterGain = getSafeJson<float>(j, "masterGain", masterGain.get());
-
-    for (int i = 0; i < numActiveInputs; i++) {
-        std::string key = "gain_" + std::to_string(i);
-        if (j.contains(key)) {
-            inputGains[i]->set(getSafeJson<float>(j, key, inputGains[i]->get()));
-        }
-    }
-
-    ofDeserialize(j, parameters);
+    ofDeserialize(json, *parameters);
 }

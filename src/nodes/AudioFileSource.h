@@ -1,7 +1,13 @@
 #pragma once
 #include "../core/Node.h"
+#include "../core/NodeProcessor.h"
 #include "ofxAudioFile.h"
 #include <atomic>
+#include <string>
+
+namespace crumble {
+    class NodeProcessor;
+}
 
 /**
  * AudioFileSource node using ofxAudioFile via AssetCache.
@@ -29,9 +35,11 @@ public:
     double getRelativePosition() const;
     void setRelativePosition(double pct);
 
+    crumble::NodeProcessor* createProcessor() override;
+    void onParameterChanged(const std::string& paramName) override;
+
 private:
     void onPathChanged(std::string& p);
     std::string loadedPath;
     std::shared_ptr<ofxAudioFile> sharedLoader;
-    std::atomic<double> playhead{0.0};
 };

@@ -1,4 +1,5 @@
 #pragma once
+#include "ofMain.h"
 #include "../core/Node.h"
 
 // Blend modes for video compositing
@@ -22,7 +23,7 @@ public:
     ofTexture* processVideo(int index = 0) override;
     
     // React to graph connections
-    void onInputConnected(int& toInput) override;
+    void onInputConnected(int toInput) override;
     
     // Dynamic layer management
 

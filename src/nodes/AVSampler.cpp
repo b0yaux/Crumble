@@ -1,21 +1,27 @@
 #include "AVSampler.h"
+#include "ofMain.h"
 
 AVSampler::AVSampler() {
     type = "AVSampler";
     
     // Add parameters
-    parameters.add(path.set("path", ""));
-    parameters.add(audioPath.set("audioPath", ""));
-    parameters.add(videoPath.set("videoPath", ""));
-    parameters.add(speed.set("speed", 1.0, -4.0, 4.0));
-    parameters.add(loop.set("loop", true));
-    parameters.add(playing.set("playing", true));
-    parameters.add(position.set("position", 0.0, 0.0, 1.0));
+    parameters->add(path.set("path", ""));
+    parameters->add(audioPath.set("audioPath", ""));
+    parameters->add(videoPath.set("videoPath", ""));
+    parameters->add(speed.set("speed", 1.0, -4.0, 4.0));
+    parameters->add(loop.set("loop", true));
+    parameters->add(playing.set("playing", true));
+    parameters->add(position.set("position", 0.0, 0.0, 1.0));
+    
+    // Initialize the video source processor separately (it's not part of the audio graph).
+    // The audioSource processor is NOT set up here — AVSampler::createProcessor() creates it
+    // so it gets registered in the audio graph exactly once via Node::setupProcessor().
+    videoSource.setupProcessor();
     
     // Performance: Cache direct pointers to child parameters to avoid map lookups
     cachedAudioSpeed = &audioSource.speed;
     cachedVideoSpeed = &videoSource.speed;
-    cachedAudioVolume = &audioSource.volume;
+    cachedAudioVolume = audioSource.volume.get();
     cachedAudioLoop = &audioSource.loop;
     cachedVideoLoop = &videoSource.loop;
     cachedAudioPlaying = &audioSource.playing;
@@ -24,16 +30,25 @@ AVSampler::AVSampler() {
     lastSyncPos = -1.0;
 }
 
+AVSampler::~AVSampler() {
+    // AVSampler::processor and audioSource.processor are the SAME pointer —
+    // both set in createProcessor(). If we let audioSource's Node::~Node() fire
+    // normally it would send a second REMOVE_NODE for the same processor, causing
+    // a double-free on the audio thread. Null it out here, before the member
+    // destructors run, so audioSource's ~Node() skips the command.
+    audioSource.processor = nullptr;
+}
+
 void AVSampler::prepare(const Context& ctx) {
     // 1. Skip if node is inactive
-    if (!active) return;
+    if (!active->get()) return;
 
     // 2. Optimization: Sync graph and clockMode only when the graph changes.
     if (graph && (audioSource.graph != graph || videoSource.graph != graph)) {
         audioSource.graph = graph;
         videoSource.graph = graph;
-        if (videoSource.parameters.contains("clockMode")) {
-            videoSource.parameters.get("clockMode").cast<int>().set(VideoFileSource::EXTERNAL);
+        if (videoSource.parameters->contains("clockMode")) {
+            videoSource.parameters->get("clockMode").cast<int>().set(VideoFileSource::EXTERNAL);
         }
     }
     
@@ -49,7 +64,7 @@ void AVSampler::prepare(const Context& ctx) {
 
 void AVSampler::update(float dt) {
     // FIX: If the node is inactive, skip the update entirely to prevent seek storms.
-    if (!active) return;
+    if (!active->get()) return;
 
     // NOTE: audioSource.update is strictly handled by the audio thread.
     
@@ -73,7 +88,7 @@ void AVSampler::update(float dt) {
 }
 
 void AVSampler::processAudio(ofSoundBuffer& buffer, int index) {
-    if (index == 0) audioSource.pullAudio(buffer, index);
+    // DSP is handled by the internal audioSource's processor
 }
 
 ofTexture* AVSampler::processVideo(int index) {
@@ -119,11 +134,27 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
     else if (paramName == "speed") {
         if (cachedAudioSpeed) cachedAudioSpeed->set(speed.get());
         if (cachedVideoSpeed) cachedVideoSpeed->set(speed.get());
-        audioSource.modulate("speed", getPattern("speed"));
-        videoSource.modulate("speed", getPattern("speed"));
+        // Route the pattern only through audioSource (correct slot indices).
+        // AVSampler::processor == audioSource.processor, but AVSampler's "speed"
+        // slot index differs from audioSource's — sending from AVSampler context
+        // would corrupt a wrong slot. So we delegate entirely to audioSource.
+        auto pat = getPattern("speed");
+        audioSource.modulate("speed", pat);
+        videoSource.modulate("speed", pat);
+        // Remove from our own modulators so prepare() doesn't re-evaluate it here
+        {
+            std::lock_guard<std::recursive_mutex> lk(modMutex);
+            modulators.erase("speed");
+        }
     } else if (paramName == "volume") {
-        if (cachedAudioVolume) cachedAudioVolume->set(volume.get());
-        audioSource.modulate("volume", getPattern("volume"));
+        if (cachedAudioVolume) cachedAudioVolume->set(volume->get());
+        auto pat = getPattern("volume");
+        audioSource.modulate("volume", pat);
+        // Same guard: erase from own modulators
+        {
+            std::lock_guard<std::recursive_mutex> lk(modMutex);
+            modulators.erase("volume");
+        }
     } else if (paramName == "loop") {
         if (cachedAudioLoop) cachedAudioLoop->set(loop.get());
         if (cachedVideoLoop) cachedVideoLoop->set(loop.get());
@@ -136,16 +167,66 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
             videoSource.setPosition(position.get());
         }
     } else if (paramName == "active") {
-        audioSource.active.set(active.get());
-        videoSource.active.set(active.get());
+        bool isActive = active->get();
+        audioSource.active->set(isActive);
+        videoSource.active->set(isActive);
+        // Also mirror to 'playing' on the audioSource so the AudioFileProcessor
+        // (which only checks getParam("playing") in the audio thread) goes silent.
+        // We only force-stop; we don't auto-start — the user's 'playing' param wins on resume.
+        if (!isActive) {
+            audioSource.playing.set(false);
+        } else {
+            // Restore the AVSampler's own playing state
+            audioSource.playing.set(playing.get());
+        }
+        audioSource.onParameterChanged("playing");
     }
 }
 
 void AVSampler::setMasterPlayhead(double pos) { masterPlayhead = pos; }
 
+crumble::NodeProcessor* AVSampler::createProcessor() {
+    // Create the AudioFileProcessor via the audioSource factory.
+    // We must also store it as audioSource.processor so that audioSource's
+    // helper methods (getRelativePosition, setRelativePosition, load) work correctly.
+    // We do NOT call audioSource.setupProcessor() here to avoid a double ADD_NODE.
+    crumble::NodeProcessor* proc = audioSource.createProcessor();
+    if (!proc) return nullptr;
+
+    // Store in audioSource so its methods can access it
+    audioSource.processor = proc;
+    proc->nodeId = audioSource.nodeId;
+
+    // Populate the slotMap from audioSource's parameter group.
+    // This mirrors what Node::setupProcessor() does.
+    for (int i = 0; i < (int)audioSource.parameters->size(); i++) {
+        auto& p = audioSource.parameters->get(i);
+        float val = 0;
+        bool supported = false;
+
+        if (p.type() == typeid(ofParameter<float>).name()) {
+            val = p.cast<float>().get();
+            supported = true;
+        } else if (p.type() == typeid(ofParameter<bool>).name()) {
+            val = p.cast<bool>().get() ? 1.0f : 0.0f;
+            supported = true;
+        } else if (p.type() == typeid(ofParameter<int>).name()) {
+            val = (float)p.cast<int>().get();
+            supported = true;
+        }
+
+        if (supported) {
+            proc->values[i].store(val);
+            proc->slotMap[p.getName()] = i;
+        }
+    }
+
+    return proc;
+}
+
 ofJson AVSampler::serialize() const {
     ofJson j;
-    ofSerialize(j, parameters);
+    ofSerialize(j, *parameters);
     return j;
 }
 
@@ -156,5 +237,5 @@ void AVSampler::deserialize(const ofJson& json) {
     if (j.contains("path")) path.set(getSafeJson<std::string>(j, "path", ""));
     if (j.contains("audioPath")) audioPath.set(getSafeJson<std::string>(j, "audioPath", ""));
     if (j.contains("videoPath")) videoPath.set(getSafeJson<std::string>(j, "videoPath", ""));
-    ofDeserialize(j, parameters);
+    ofDeserialize(j, *parameters);
 }

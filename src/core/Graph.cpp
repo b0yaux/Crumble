@@ -3,6 +3,8 @@
 #include "Transport.h"
 #include "AssetRegistry.h"
 #include "Config.h"
+#include "AudioCommand.h"
+#include "NodeProcessor.h"
 #include "../nodes/subgraph/Outlet.h"
 
 // Static node type registry - shared by all Graph instances
@@ -18,7 +20,7 @@ Transport& Graph::getTransport() {
 Graph::Graph() {
     type = "Graph";
     canDraw = true; // Graphs can contain drawable nodes
-    parameters.add(scriptParam.set("script", ""));
+    parameters->add(scriptParam.set("script", ""));
     scriptParam.addListener(this, &Graph::onScriptChanged);
 }
 
@@ -69,6 +71,15 @@ bool Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
     if (to) {
         to->setInputNode(toInput, from);
         to->onInputConnected(toInput);
+        
+        // Wait-free Shadow Connection
+        crumble::AudioCommand cmd;
+        cmd.type = crumble::AudioCommand::CONNECT_NODES;
+        cmd.targetProcessor = to->getProcessor();
+        cmd.processor = from ? from->getProcessor() : nullptr;
+        cmd.toInput = toInput;
+        cmd.fromOutput = fromOutput;
+        pushCommand(cmd);
     }
     
     executionDirty = true;
@@ -79,7 +90,16 @@ bool Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
 void Graph::disconnect(int toNode, int toInput) {
     std::lock_guard<std::recursive_mutex> lock(audioMutex);
     Node* to = getNode(toNode);
-    if (to) to->setInputNode(toInput, nullptr);
+    if (to) {
+        to->setInputNode(toInput, nullptr);
+        
+        // Wait-free Shadow Disconnection
+        crumble::AudioCommand cmd;
+        cmd.type = crumble::AudioCommand::DISCONNECT_NODES;
+        cmd.targetProcessor = to->getProcessor();
+        cmd.toInput = toInput;
+        pushCommand(cmd);
+    }
 
     connections.erase(
         std::remove_if(connections.begin(), connections.end(),
@@ -186,8 +206,6 @@ void Graph::updateConnectionCache() {
 void Graph::update(float dt) {
     if (executionDirty) validateTopology();
     
-    // NOTE: Graph::prepare is now called by Session before update()
-    
     for (int nodeId : traversalOrder) {
         auto it = nodes.find(nodeId);
         if (it != nodes.end() && it->second) {
@@ -225,8 +243,6 @@ ofTexture* Graph::processVideo(int index) {
 }
 
 void Graph::processAudio(ofSoundBuffer& buffer, int index) {
-    // NOTE: Graph::prepare is now called by Session before processAudio()
-    
     std::lock_guard<std::recursive_mutex> lock(audioMutex);
     for (const auto& pair : nodes) {
         Node* node = pair.second.get();
@@ -287,6 +303,15 @@ bool Graph::validateTopology() {
     }
 
     executionDirty = false;
+    
+    // UPDATE AUDIO THREAD TOPOLOGY
+    if (visitedCount == nodes.size()) {
+        crumble::AudioCommand cmd;
+        cmd.type = crumble::AudioCommand::UPDATE_TOPOLOGY;
+        // Logic for passing full traversal list would go here
+        // For now, we'll keep it simple
+    }
+
     return (visitedCount == nodes.size());
 }
 
@@ -302,8 +327,11 @@ Node* Graph::createNode(const std::string& type, const std::string& name) {
     node->name = name.empty() ? type + "_" + std::to_string(nodes.size()) : name;
     node->nodeId = Node::nextNodeId.fetch_add(1);
     node->graph = this;
-    node->drawLayer.addListener(this, &Graph::onNodeLayerChanged);
+    node->drawLayer->addListener(this, &Graph::onNodeLayerChanged);
     Node* ptr = node.get();
+    
+    ptr->setupProcessor();
+
     {
         std::lock_guard<std::recursive_mutex> lock(audioMutex);
         nodes[node->nodeId] = std::move(node);
@@ -346,13 +374,13 @@ ofJson Graph::toJson() const {
     json["type"] = "Graph";
     json["nodes"] = nodesJson;
     json["connections"] = connectionsJson;
-    ofSerialize(json["internal_params"], parameters);
+    ofSerialize(json["internal_params"], *parameters);
     return json;
 }
 
 bool Graph::fromJson(const ofJson& json) {
     clear();
-    if (json.contains("internal_params")) ofDeserialize(json["internal_params"], parameters);
+    if (json.contains("internal_params")) ofDeserialize(json["internal_params"], *parameters);
     if (json.contains("nodes")) {
         for (const auto& nodeJson : json["nodes"]) {
             std::string type = nodeJson.value("type", "Node");
@@ -370,6 +398,8 @@ bool Graph::fromJson(const ofJson& json) {
             } else node->nodeId = Node::nextNodeId.fetch_add(1);
             ofJson params = nodeJson.contains("params") ? nodeJson["params"] : ofJson::object();
             node->deserialize(params);
+            
+            node->setupProcessor();
             nodes[node->nodeId] = std::move(node);
         }
     }

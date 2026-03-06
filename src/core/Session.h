@@ -3,18 +3,20 @@
 #include "Graph.h"
 #include "AssetCache.h"
 #include "Transport.h"
+#include "AudioCommand.h"
+#include "moodycamel/readerwriterqueue.h"
 #include <vector>
+
+namespace crumble {
+    // Wrap moodycamel for easier use in Crumble
+    template<typename T>
+    using SPSCQueue = moodycamel::ReaderWriterQueue<T>;
+}
 
 // Global session pointer for nodes that need asset access
 extern class Session* g_session;
 
 // Session — the live working context for a Crumble session.
-// Owns the node graph and provides the primary API surface for any
-// interaction layer (keyboard, scripting, OSC, GUI).
-//
-// Graph primitives (addNode, connect, etc.) are exposed directly.
-// Script-driven workflow: state changes via Lua/JSON, no undo stack.
-
 class Session {
 public:
     Session();
@@ -23,87 +25,58 @@ public:
     // --- Asset Management ---
     AssetCache& getCache() { return assetCache; }
 
-    // --- Graph primitives (the primary API) ---
-
+    // --- Graph primitives ---
     Node* addNode(const std::string& type, const std::string& name = "");
     void  removeNode(int nodeId);
     void  connect(int fromNode, int toNode, int fromOutput = 0, int toInput = 0);
     void  disconnect(int toNode, int toInput = 0);
     void  clear();
     
-    // --- Script lifecycle (for idempotent reloading) ---
-    
-    void beginScript();   // Clear touched flags on all nodes
-    void endScript();     // Remove nodes not touched during script
-    void touchNode(int nodeId);  // Mark node as active
+    // --- Script lifecycle ---
+    void beginScript();
+    void endScript();
+    void touchNode(int nodeId);
 
     // --- Lifecycle ---
-    
-    // Initializes the master audio stream that drives the global clock
     void setupAudio(int sampleRate = 44100, int bufferSize = 256);
-    
     void update(float dt);
     void draw();
-
-    // Callback for ofSoundStream (OpenFrameworks system callback)
-    // This is the heart of the Master Clock.
     void audioOut(ofSoundBuffer& buffer);
 
     // --- Node access ---
-
     Node* getNode(int nodeId);
     int   getNodeCount() const;
-
-    // --- Search & Inspection ---
-
     Node* findNodeByName(const std::string& name);
     
-    template<typename T>
-    T* findFirstNode() {
-        for (const auto& node : graph.getNodes()) {
-            T* ptr = dynamic_cast<T*>(node.second.get());
-            if (ptr) return ptr;
-        }
-        return nullptr;
-    }
-
-    template<typename T>
-    std::vector<T*> findAllNodes() {
-        std::vector<T*> result;
-        for (const auto& node : graph.getNodes()) {
-            T* ptr = dynamic_cast<T*>(node.second.get());
-            if (ptr) result.push_back(ptr);
-        }
-        return result;
-    }
-
-    template<typename T>
-    T* getNodeAs(int nodeId) {
-        return dynamic_cast<T*>(getNode(nodeId));
-    }
-
     // --- Persistence ---
-
     bool save(const std::string& path);
     bool load(const std::string& path);
 
     // --- Factory ---
-
     void registerNodeType(const std::string& type, Graph::NodeCreator creator);
     std::vector<std::string> getRegisteredTypes() const;
 
-    // --- Direct graph access (for nodes that need graph context) ---
-
-    Graph&       getGraph();
-    const Graph& getGraph() const;
+    Graph&       getGraph() { return graph; }
+    const Graph& getGraph() const { return graph; }
 
     // --- Transport ---
     Transport& getTransport() { return transport; }
     const Transport& getTransport() const { return transport; }
 
+    // --- Wait-Free Messaging ---
+    void sendCommand(const crumble::AudioCommand& cmd);
+
 private:
     Graph graph;
     AssetCache assetCache;
     Transport transport;
+    uint64_t frameCounter = 0;
     ofSoundStream soundStream;
+
+    // The "Air-Gap" Queues
+    crumble::SPSCQueue<crumble::AudioCommand> commandQueue{1024};
+    crumble::SPSCQueue<crumble::NodeProcessor*> releaseQueue{1024};
+
+    // Current execution list for the audio thread
+    std::vector<crumble::NodeProcessor*> activeProcessors;
 };

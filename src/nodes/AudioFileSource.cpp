@@ -1,67 +1,90 @@
+#include "ofMain.h"
 #include "AudioFileSource.h"
+#include "../core/AudioCommand.h"
+#include "../core/NodeProcessor.h"
 #include "../core/Session.h"
 
-AudioFileSource::AudioFileSource() {
-    type = "AudioFileSource";
+namespace crumble {
 
-    parameters.add(path.set("path", ""));
-    parameters.add(speed.set("speed", 1.0, -4.0, 4.0));
-    parameters.add(loop.set("loop", true));
-    parameters.add(playing.set("playing", true));
+class AudioFileProcessor : public NodeProcessor {
+public:
+    void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
+                 double cycle, double cycleStep) override {
+        // Use name-based slot lookup — never hardcoded integers
+        if (!data || totalSamples == 0 || getParam("playing") < 0.5f) return;
 
-    path.addListener(this, &AudioFileSource::onPathChanged);
-}
+        // Resolve slots once per block (cheap map lookup, not per-sample)
+        int speedSlot  = getSlot("speed");
+        int volSlot    = getSlot("volume");
+        bool loop      = getParam("loop") > 0.5f;
 
-void AudioFileSource::processAudio(ofSoundBuffer& buffer, int index) {
-    if (index != 0) return;
-    if (!playing || !sharedLoader || !sharedLoader->loaded() || sharedLoader->length() == 0) {
-        return;
-    }
+        double currentPlayhead = playhead.load();
 
-    float* data = sharedLoader->data();
-    size_t totalSamples = sharedLoader->length();
-    int channels = sharedLoader->channels();
+        for (size_t i = 0; i < buffer.getNumFrames(); i++) {
+            double sampleCycle = cycle + i * cycleStep;
 
-    // 1. Get pre-calculated control streams (Pushed by the engine)
-    Control speedCtrl = getControl(speed);
+            // Evaluate speed and volume — falls back to scalar if no pattern installed
+            float speed = evalPattern(speedSlot, sampleCycle);
+            float gain  = evalPattern(volSlot,   sampleCycle);
 
-    // Performance Optimization: Load playhead once per block
-    double currentPlayhead = playhead.load();
+            size_t frameIndex = (size_t)currentPlayhead;
+            if (frameIndex < totalSamples) {
+                for (int c = 0; c < buffer.getNumChannels(); c++) {
+                    int sourceChannel = c % channels;
+                    float sample = data[frameIndex * channels + sourceChannel];
+                    buffer[i * buffer.getNumChannels() + c] += sample * gain;
+                }
+            }
 
-    for (size_t i = 0; i < buffer.getNumFrames(); i++) {
-        size_t frameIndex = (size_t)currentPlayhead;
+            currentPlayhead += speed;
 
-        if (frameIndex < totalSamples) {
-            for (int c = 0; c < buffer.getNumChannels(); c++) {
-                int sourceChannel = c % channels;
-                float sample = data[frameIndex * channels + sourceChannel];
-                buffer[i * buffer.getNumChannels() + c] += sample;
+            if (loop) {
+                while (currentPlayhead >= (double)totalSamples) currentPlayhead -= totalSamples;
+                while (currentPlayhead < 0)                     currentPlayhead += totalSamples;
+            } else if (currentPlayhead >= (double)totalSamples || currentPlayhead < 0) {
+                currentPlayhead = ofClamp(currentPlayhead, 0.0, (double)totalSamples);
             }
         }
 
-        currentPlayhead += (double)speedCtrl[i];
-
-        if (currentPlayhead >= (double)totalSamples) {
-            if (loop) {
-                currentPlayhead = fmod(currentPlayhead, (double)totalSamples);
-            } else {
-                playing = false;
-                currentPlayhead = 0;
-                break; // Exit loop early
-            }
-        } else if (currentPlayhead < 0) {
-            if (loop) {
-                currentPlayhead = (double)totalSamples + fmod(currentPlayhead, (double)totalSamples);
-            } else {
-                playing = false;
-                currentPlayhead = 0;
-                break; // Exit loop early
-            }
+        playhead.store(currentPlayhead);
+    }
+    
+    void handleCommand(const AudioCommand& cmd) override {
+        if (cmd.type == AudioCommand::LOAD_BUFFER) {
+            data = cmd.audioData;
+            totalSamples = cmd.totalSamples;
+            channels = cmd.channels;
+            playhead.store(0.0);
         }
     }
     
-    // Performance Optimization: Store playhead once per block
-    playhead.store(currentPlayhead);
+    std::atomic<double> playhead{0.0};
+    const float* data = nullptr;
+    size_t totalSamples = 0;
+    int channels = 0;
+};
+
+} // namespace crumble
+
+AudioFileSource::AudioFileSource() {
+    type = "AudioFileSource";
+    parameters->add(path.set("path", ""));
+    parameters->add(speed.set("speed", 1.0, -4.0, 4.0));
+    parameters->add(loop.set("loop", true));
+    parameters->add(playing.set("playing", true));
+    path.addListener(this, &AudioFileSource::onPathChanged);
+    // NOTE: setupProcessor() is NOT called here.
+    // When used standalone, Graph::createNode() -> ptr->setupProcessor() handles it.
+    // When used as AVSampler::audioSource, AVSampler::createProcessor() sets the
+    // processor directly to avoid a double ADD_NODE / ghost processor leak.
+}
+
+crumble::NodeProcessor* AudioFileSource::createProcessor() {
+    return new crumble::AudioFileProcessor();
+}
+
+void AudioFileSource::processAudio(ofSoundBuffer& buffer, int index) {
+    // DSP is handled by AudioFileProcessor
 }
 
 std::string AudioFileSource::getDisplayName() const {
@@ -71,34 +94,12 @@ std::string AudioFileSource::getDisplayName() const {
 
 ofJson AudioFileSource::serialize() const {
     ofJson j;
-    ofSerialize(j, parameters);
+    ofSerialize(j, *parameters);
     return j;
 }
 
 void AudioFileSource::deserialize(const ofJson& json) {
-    ofJson j = json;
-    if (j.contains("AudioSource")) j = j["AudioSource"];
-    else if (j.contains("group")) j = j["group"];
-    else if (j.contains("params")) j = j["params"];
-
-    std::string pathValue;
-    if (j.contains("audioPath")) pathValue = getSafeJson<std::string>(j, "audioPath", "");
-    else if (j.contains("path")) pathValue = getSafeJson<std::string>(j, "path", "");
-    if (!pathValue.empty()) path.set(pathValue);
-
-    if (j.contains("Volume")) volume = getSafeJson<float>(j, "Volume", volume.get());
-    if (j.contains("volume")) volume = getSafeJson<float>(j, "volume", volume.get());
-
-    if (j.contains("Speed")) speed = getSafeJson<float>(j, "Speed", speed.get());
-    if (j.contains("speed")) speed = getSafeJson<float>(j, "speed", speed.get());
-
-    if (j.contains("Loop")) loop = getSafeJson<bool>(j, "Loop", loop.get());
-    if (j.contains("loop")) loop = getSafeJson<bool>(j, "loop", loop.get());
-
-    if (j.contains("Playing")) playing = getSafeJson<bool>(j, "Playing", playing.get());
-    if (j.contains("playing")) playing = getSafeJson<bool>(j, "playing", playing.get());
-
-    ofDeserialize(j, parameters);
+    ofDeserialize(json, *parameters);
 }
 
 void AudioFileSource::onPathChanged(std::string& p) {
@@ -108,26 +109,42 @@ void AudioFileSource::onPathChanged(std::string& p) {
 }
 
 void AudioFileSource::load(const std::string& p) {
-    path = p;
+    if (!sharedLoader) sharedLoader = std::make_shared<ofxAudioFile>();
     
-    if (g_session) {
-        sharedLoader = g_session->getCache().getAudio(p);
-        if (sharedLoader) {
-            playhead.store(0.0);
-            loadedPath = p;
-            ofLogNotice("AudioFileSource") << "Got shared audio: " << p;
-        } else {
-            ofLogError("AudioFileSource") << "FAILED to load: " << p;
-        }
+    sharedLoader->load(p);
+    
+    if (sharedLoader->loaded()) {
+        loadedPath = p;
+        
+        crumble::AudioCommand cmd;
+        cmd.type = crumble::AudioCommand::LOAD_BUFFER;
+        cmd.nodeId = nodeId;
+        cmd.processor = processor;
+        cmd.audioData = sharedLoader->data();
+        cmd.totalSamples = sharedLoader->length();
+        cmd.channels = sharedLoader->channels();
+        pushCommand(cmd);
+        
+        ofLogNotice("AudioFileSource") << "Loaded: " << p << " (" << sharedLoader->length() << " samples)";
+    } else {
+        ofLogError("AudioFileSource") << "Failed to load: " << p;
     }
 }
 
+void AudioFileSource::onParameterChanged(const std::string& paramName) {
+    // Node::onParameterChanged handles the generic SET_PARAM command
+    // via the slotMap — no need for hardcoded slot indices here.
+    Node::onParameterChanged(paramName);
+}
+
 double AudioFileSource::getRelativePosition() const {
-    if (!sharedLoader || !sharedLoader->loaded() || sharedLoader->length() == 0) return 0.0;
-    return playhead.load() / (double)sharedLoader->length();
+    auto pProc = static_cast<crumble::AudioFileProcessor*>(processor);
+    if (!pProc || !sharedLoader || sharedLoader->length() == 0) return 0.0;
+    return pProc->playhead.load() / (double)sharedLoader->length();
 }
 
 void AudioFileSource::setRelativePosition(double pct) {
-    if (!sharedLoader || !sharedLoader->loaded() || sharedLoader->length() == 0) return;
-    playhead.store(ofClamp(pct, 0.0, 1.0) * (double)sharedLoader->length());
+    auto pProc = static_cast<crumble::AudioFileProcessor*>(processor);
+    if (!pProc || !sharedLoader || sharedLoader->length() == 0) return;
+    pProc->playhead.store(ofClamp(pct, 0.0, 1.0) * (double)sharedLoader->length());
 }

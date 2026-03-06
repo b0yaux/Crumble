@@ -3,7 +3,7 @@
 Inlet::Inlet() {
     type = "Inlet";
     name = "Inlet";
-    parameters.add(inletIndex.set("inletIndex", 0, 0, 16));
+    parameters->add(inletIndex.set("inletIndex", 0, 0, 16));
 }
 
 ofTexture* Inlet::processVideo(int idx) {

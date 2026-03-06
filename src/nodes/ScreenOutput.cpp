@@ -5,17 +5,17 @@ ScreenOutput::ScreenOutput() {
     type = "ScreenOutput";
     canDraw = true;
     
-    parameters.add(enabled.set("enabled", true));
-    parameters.add(autoFullscreen.set("autoFullscreen", true));
+    parameters->add(enabled.set("enabled", true));
+    parameters->add(autoFullscreen.set("autoFullscreen", true));
     
     // Use hardcoded defaults if ofGetWidth is not yet valid (0)
     float defaultW = ofGetWidth() > 0 ? ofGetWidth() : 1280;
     float defaultH = ofGetHeight() > 0 ? ofGetHeight() : 720;
     
-    parameters.add(x.set("x", 0, -4096, 4096));
-    parameters.add(y.set("y", 0, -4096, 4096));
-    parameters.add(width.set("width", defaultW, 1, 4096));
-    parameters.add(height.set("height", defaultH, 1, 4096));
+    parameters->add(x.set("x", 0, -4096, 4096));
+    parameters->add(y.set("y", 0, -4096, 4096));
+    parameters->add(width.set("width", defaultW, 1, 4096));
+    parameters->add(height.set("height", defaultH, 1, 4096));
 }
 
 void ScreenOutput::setup(float posX, float posY, float w, float h) {
@@ -45,7 +45,7 @@ void ScreenOutput::update(float dt) {
         Node* sourceNode = graph->getNode(inputs[0].fromNode);
         if (sourceNode) {
             inputTexture = sourceNode->getVideoOutput(inputs[0].fromOutput);
-            Control sourceOpCtrl = sourceNode->getControl(sourceNode->opacity);
+            Control sourceOpCtrl = sourceNode->getControl(*sourceNode->opacity);
             sourceOpacity = sourceOpCtrl[0];
         }
     }

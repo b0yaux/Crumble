@@ -1,11 +1,14 @@
+#include "ofMain.h"
 #include "Session.h"
+#include "NodeProcessor.h"
 #include "../nodes/SpeakersOutput.h"
+#include <algorithm>
 
 Session* g_session = nullptr;
 
 Session::Session() {
     g_session = this;
-    setupAudio(44100, 256); // Start silent audio engine immediately
+    setupAudio(44100, 256); 
 }
 
 Session::~Session() {
@@ -35,40 +38,135 @@ void Session::setupAudio(int sampleRate, int bufferSize) {
 }
 
 void Session::audioOut(ofSoundBuffer& buffer) {
-    // 1. Advance the absolute clock (Hardware precision)
+    // 1. Process all pending commands (Wait-Free)
+    crumble::AudioCommand cmd;
+    while (commandQueue.try_dequeue(cmd)) {
+        // Helper: is this processor still alive?
+        auto alive = [&](crumble::NodeProcessor* p) -> bool {
+            if (!p) return false;
+            return std::find(activeProcessors.begin(), activeProcessors.end(), p)
+                   != activeProcessors.end();
+        };
+
+        switch (cmd.type) {
+            case crumble::AudioCommand::ADD_NODE:
+                if (cmd.processor) {
+                    activeProcessors.push_back(cmd.processor);
+                }
+                break;
+
+            case crumble::AudioCommand::REMOVE_NODE:
+                if (cmd.processor) {
+                    auto it = std::find(activeProcessors.begin(), activeProcessors.end(), cmd.processor);
+                    if (it != activeProcessors.end()) {
+                        activeProcessors.erase(it);
+                    }
+                    // Release all pattern shared_ptrs so Pattern objects can be freed.
+                    for (auto& ps : cmd.processor->patternSlots) ps.reset();
+                    releaseQueue.enqueue(cmd.processor);
+                }
+                break;
+
+            case crumble::AudioCommand::SET_PARAM:
+                if (alive(cmd.processor)) {
+                    cmd.processor->values[cmd.slotIndex].store(cmd.value, std::memory_order_relaxed);
+                }
+                break;
+
+            case crumble::AudioCommand::SET_PATTERN:
+                // Install the Pattern object. If the processor is already gone the
+                // shared_ptr simply destructs here — no leak, no crash.
+                if (alive(cmd.processor) && cmd.slotIndex >= 0 && cmd.slotIndex < 128) {
+                    cmd.processor->patternSlots[cmd.slotIndex] = std::move(cmd.pattern);
+                }
+                // cmd.pattern destructs cleanly whether we used it or not.
+                break;
+
+            case crumble::AudioCommand::SET_SLOT:
+                if (alive(cmd.processor) && !cmd.slotName.empty() && cmd.slotIndex >= 0) {
+                    cmd.processor->slotMap[cmd.slotName] = cmd.slotIndex;
+                }
+                break;
+
+            case crumble::AudioCommand::CONNECT_NODES:
+                if (cmd.targetProcessor) {
+                    cmd.targetProcessor->addInput(cmd.processor, cmd.toInput, cmd.fromOutput);
+                }
+                break;
+
+            case crumble::AudioCommand::DISCONNECT_NODES:
+                if (cmd.targetProcessor) {
+                    cmd.targetProcessor->removeInput(cmd.toInput);
+                }
+                break;
+
+            case crumble::AudioCommand::LOAD_BUFFER:
+                if (alive(cmd.processor)) {
+                    cmd.processor->handleCommand(cmd);
+                }
+                break;
+
+            default: break;
+        }
+    }
+
+    // 2. Advance the absolute clock
     float dt = buffer.getNumFrames() / (float)buffer.getSampleRate();
     transport.update(dt);
+    frameCounter++;
     
-    // 2. Clear buffer to silence initially
+    // 3. Clear buffer initially
     buffer.set(0);
-    
-    // 3. Instead of pulling from SpeakersOutput directly, we ask the Graph.
-    // The Graph handles pushing the Context to all nodes before pulling.
-    
-    // However, Graph::pullAudio looks for an "Outlet". But in the root session, 
-    // the user connects to a "SpeakersOutput". We need the Graph to know how to 
-    // push Context BEFORE pulling from the SpeakersOutput.
-    
-    std::lock_guard<std::recursive_mutex> lock(graph.getAudioMutex());
-    
-    // 3. Push timing to all nodes recursively (The "Push" phase)
-    Context ctx;
-    ctx.cycle = transport.cycle;
-    ctx.cycleStep = transport.getCyclesPerSample(buffer.getSampleRate());
-    ctx.frames = buffer.getNumFrames();
-    
-    graph.prepare(ctx);
-    
-    // 4. Find the hardware sink (SpeakersOutput) and pull audio
-    for (const auto& [id, node] : graph.getNodes()) {
-        if (node->type == "SpeakersOutput") {
-            node->pullAudio(buffer, 0);
-            break; // Just use the first one
+
+    // 4. Compute cycle timing for this block so processors can evaluate patterns
+    //    sample-accurately. transport.cycle is already updated for this block's start.
+    double blockCycle = transport.cycle;
+    double cycleStep  = transport.getCyclesPerSample(buffer.getSampleRate());
+
+    // 5. Wait-Free DSP Traversal — pull from all sinks
+    int sinkCount = 0;
+    for (auto* processor : activeProcessors) {
+        if (processor->isSink) {
+            processor->pull(buffer, 0, frameCounter, blockCycle, cycleStep);
+            sinkCount++;
         }
+    }
+    
+    static int frameDebug = 0;
+    if (frameDebug++ % 500 == 0) {
+        ofLogNotice("Session") << "Audio thread: " << activeProcessors.size() << " processors, " << sinkCount << " sinks";
     }
 }
 
-// --- Graph primitives ---
+void Session::sendCommand(const crumble::AudioCommand& cmd) {
+    if (!commandQueue.enqueue(cmd)) {
+        ofLogError("Session") << "Command Queue Overflow!";
+    }
+}
+
+void Session::update(float dt) {
+    // 1. Clean up released processors
+    crumble::NodeProcessor* released = nullptr;
+    while (releaseQueue.try_dequeue(released)) {
+        delete released;
+    }
+
+    // 2. Prepare all nodes recursively for UI/Video
+    Context ctx;
+    ctx.cycle = transport.cycle;
+    ctx.cycleStep = 0; 
+    ctx.frames = 1;
+    ctx.dt = dt;
+    
+    // NO LOCK NEEDED HERE - Nodes update their own local state
+    // Audio thread reads from its own 'Shadow' state
+    graph.prepare(ctx);
+    graph.update(dt);
+}
+
+void Session::draw() {
+    graph.draw();
+}
 
 Node* Session::addNode(const std::string& type, const std::string& name) {
     return graph.createNode(type, name);
@@ -90,8 +188,6 @@ void Session::clear() {
     graph.clear();
 }
 
-// --- Script lifecycle ---
-
 void Session::beginScript() {
     for (auto& [nodeId, node] : graph.getNodes()) {
         node->touched = false;
@@ -99,7 +195,6 @@ void Session::beginScript() {
 }
 
 void Session::endScript() {
-    // Remove untouched nodes - iterate over a copy of node IDs since we modify the map
     std::vector<int> nodeIds;
     for (const auto& [id, node] : graph.getNodes()) {
         nodeIds.push_back(id);
@@ -120,32 +215,6 @@ void Session::touchNode(int nodeId) {
     }
 }
 
-// --- Lifecycle ---
-
-void Session::update(float dt) {
-    // 1. Prepare all nodes recursively for UI/Video (Main thread pass)
-    // The 'lastPreparedCycle' optimization in Node::prepare ensures 
-    // we don't redundant work if the audio thread already ran.
-    Context ctx;
-    ctx.cycle = transport.cycle;
-    ctx.cycleStep = 0; // No sub-sample stepping for UI
-    ctx.frames = 1;
-    ctx.dt = dt;
-    
-    {
-        std::lock_guard<std::recursive_mutex> lock(graph.getAudioMutex());
-        graph.prepare(ctx);
-    }
-
-    graph.update(dt);
-}
-
-void Session::draw() {
-    graph.draw();
-}
-
-// --- Node access ---
-
 Node* Session::getNode(int nodeId) {
     return graph.getNode(nodeId);
 }
@@ -161,8 +230,6 @@ int Session::getNodeCount() const {
     return static_cast<int>(graph.getNodeCount());
 }
 
-// --- Persistence ---
-
 bool Session::save(const std::string& path) {
     return graph.saveToFile(path);
 }
@@ -171,8 +238,6 @@ bool Session::load(const std::string& path) {
     return graph.loadFromFile(path);
 }
 
-// --- Factory ---
-
 void Session::registerNodeType(const std::string& type, Graph::NodeCreator creator) {
     graph.registerNodeType(type, creator);
 }
@@ -180,8 +245,3 @@ void Session::registerNodeType(const std::string& type, Graph::NodeCreator creat
 std::vector<std::string> Session::getRegisteredTypes() const {
     return graph.getRegisteredTypes();
 }
-
-// --- Direct graph access ---
-
-Graph& Session::getGraph() { return graph; }
-const Graph& Session::getGraph() const { return graph; }

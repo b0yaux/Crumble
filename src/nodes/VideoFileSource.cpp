@@ -3,11 +3,11 @@
 VideoFileSource::VideoFileSource() {
     type = "VideoFileSource";
 
-    parameters.add(path.set("path", ""));
-    parameters.add(loop.set("loop", true));
-    parameters.add(speed.set("speed", 1.0, -4.0, 4.0));
-    parameters.add(playing.set("playing", true));
-    parameters.add(clockMode.set("clockMode", VideoFileSource::INTERNAL, VideoFileSource::INTERNAL, VideoFileSource::EXTERNAL));
+    parameters->add(path.set("path", ""));
+    parameters->add(loop.set("loop", true));
+    parameters->add(speed.set("speed", 1.0, -4.0, 4.0));
+    parameters->add(playing.set("playing", true));
+    parameters->add(clockMode.set("clockMode", VideoFileSource::INTERNAL, VideoFileSource::INTERNAL, VideoFileSource::EXTERNAL));
 
     path.addListener(this, &VideoFileSource::onPathChanged);
     clockMode.addListener(this, &VideoFileSource::onClockModeChanged);
@@ -163,7 +163,7 @@ void VideoFileSource::setLoop(bool shouldLoop) {
 
 ofJson VideoFileSource::serialize() const {
     ofJson j;
-    ofSerialize(j, parameters);
+    ofSerialize(j, *parameters);
     return j;
 }
 
@@ -179,9 +179,9 @@ void VideoFileSource::deserialize(const ofJson& json) {
     // Migrate from old "videoPath" key to new "path" key
     std::string pathValue;
     if (j.contains("videoPath")) {
-        pathValue = getSafeJson<string>(j, "videoPath", "");
+        pathValue = getSafeJson<std::string>(j, "videoPath", "");
     } else if (j.contains("path")) {
-        pathValue = getSafeJson<string>(j, "path", "");
+        pathValue = getSafeJson<std::string>(j, "path", "");
     }
     if (!pathValue.empty()) path.set(pathValue);
 
@@ -190,5 +190,5 @@ void VideoFileSource::deserialize(const ofJson& json) {
     if (j.contains("playOnLoad")) playing = getSafeJson<bool>(j, "playOnLoad", playing.get());
     if (j.contains("playing")) playing = getSafeJson<bool>(j, "playing", playing.get());
 
-    ofDeserialize(j, parameters);
+    ofDeserialize(j, *parameters);
 }

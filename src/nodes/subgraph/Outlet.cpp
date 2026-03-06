@@ -3,7 +3,7 @@
 Outlet::Outlet() {
     type = "Outlet";
     name = "Outlet";
-    parameters.add(outletIndex.set("outletIndex", 0, 0, 16));
+    parameters->add(outletIndex.set("outletIndex", 0, 0, 16));
 }
 
 ofTexture* Outlet::processVideo(int idx) {

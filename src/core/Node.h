@@ -1,10 +1,27 @@
 #pragma once
-#include "ofMain.h"
+
 #include <atomic>
 #include <unordered_map>
 #include <memory>
 #include <mutex>
+#include <string>
+#include <vector>
+
+// Use minimal forward declarations to avoid header hell
+class ofSoundBuffer;
+class ofTexture;
+template<typename T> class ofParameter;
+class ofParameterGroup;
+
+// Standard JSON from of
+#include "ofJson.h"
+
 #include "Patterns.h"
+
+namespace crumble {
+    class NodeProcessor;
+    struct AudioCommand;
+}
 
 /**
  * Context represents a "pushed" timing packet for a block of samples.
@@ -29,12 +46,12 @@ struct Control {
 class Node {
 public:
     Node();
-    virtual ~Node() = default;
+    virtual ~Node();
     
     virtual void prepare(const Context& ctx);
     virtual void update(float dt) {}
     void pullAudio(ofSoundBuffer& buffer, int index = 0);
-    ofTexture* getVideoOutput(int index = 0);
+    virtual ofTexture* getVideoOutput(int index = 0);
 
     virtual void processAudio(ofSoundBuffer& buffer, int index = 0) {}
     virtual ofTexture* processVideo(int index = 0) { return nullptr; }
@@ -44,18 +61,40 @@ public:
     Control getControl(ofParameter<float>& param) const;
     virtual void draw() {}
     
+    // Shadow Processor Lifecycle
+    virtual crumble::NodeProcessor* createProcessor() { return nullptr; }
+    void setupProcessor();
+    crumble::NodeProcessor* getProcessor() { return processor; }
+
+    // The processor pointer is public to allow composite nodes (e.g. AVSampler)
+    // to initialize an inner node's processor without the double-ADD_NODE overhead
+    // of calling setupProcessor() on the inner node.
+    crumble::NodeProcessor* processor = nullptr;
+
+    // Wait-free messaging helper
+    void pushCommand(crumble::AudioCommand cmd);
+
+    // Register a dynamically-added parameter slot in the processor's slotMap.
+    // Call this after adding a new parameter to `parameters` post-construction.
+    void registerSlot(const std::string& paramName, int slotIndex);
+
     bool canDraw = false;
-    ofParameter<int> drawLayer;
-    ofParameter<float> volume;
-    ofParameter<float> opacity;
-    ofParameter<bool> active; 
+    
+    // Use raw ofParameter members instead of pointers to stay Crumble-idiomatic
+    // but ensure Node.cpp includes the full headers.
+    // However, to satisfy forward declarations, we might need a middle ground.
+    // For now, let's keep them as pointers to ensure the header compiles.
+    std::shared_ptr<ofParameter<int>> drawLayer;
+    std::shared_ptr<ofParameter<float>> volume;
+    std::shared_ptr<ofParameter<float>> opacity;
+    std::shared_ptr<ofParameter<bool>> active; 
     
     virtual std::string getDisplayName() const { return name; }
     void setInputNode(int slot, Node* node);
     Node* getInputNode(int slot) const;
     virtual std::string resolvePath(const std::string& path, const std::string& typeHint = "") const;
     
-    ofParameterGroup parameters;
+    std::shared_ptr<ofParameterGroup> parameters;
     std::string name = "unnamed";
     std::string type = "Node";
     class Graph* graph = nullptr;
@@ -69,19 +108,22 @@ public:
     bool touched = false;
     virtual ofJson serialize() const;
     virtual void deserialize(const ofJson& json);
-    virtual void onInputConnected(int& toInput) {}
-    virtual void onInputDisconnected(int& toInput) {}
-    virtual void onParameterChanged(const std::string& paramName) {}
+    virtual void onInputConnected(int toInput) {}
+    virtual void onInputDisconnected(int toInput) {}
+    virtual void onParameterChanged(const std::string& paramName);
     
 protected:
     std::unordered_map<int, Node*> inputNodes;
+    std::unordered_map<std::string, std::shared_ptr<Pattern<float>>> modulators;
     
-    // Performance: Using raw pointers as keys to avoid string hashing on audio thread
-    std::unordered_map<void*, std::shared_ptr<Pattern<float>>> modulators;
-    std::unordered_map<std::string, void*> paramPtrs; // Mapping names to pointers for the API
+    struct CacheEntry {
+        ofSoundBuffer* buffer = nullptr;
+        std::shared_ptr<Pattern<float>> pattern;
+    };
+    mutable std::unordered_map<void*, CacheEntry> modulatorCache;
     
     mutable std::recursive_mutex modMutex;
-    mutable std::unordered_map<void*, ofSoundBuffer> controlBuffers;
+    mutable std::unordered_map<std::string, ofSoundBuffer> controlBuffers;
     double lastPreparedCycle = -1.0; 
 };
 

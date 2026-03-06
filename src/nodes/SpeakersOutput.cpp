@@ -1,46 +1,43 @@
 #include "SpeakersOutput.h"
+#include "ofMain.h"
 #include "../core/Graph.h"
+#include "../core/AudioCommand.h"
+
+using namespace crumble;
+
+class SpeakersOutputProcessor : public NodeProcessor {
+public:
+    SpeakersOutputProcessor() {
+        isSink = true;
+    }
+    
+    void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
+                 double cycle, double cycleStep) override {
+        float masterVol = getParam("masterVolume");
+        
+        if (inputs[0].processor) {
+            inputs[0].processor->pull(buffer, inputs[0].fromOutput, frameCounter, cycle, cycleStep);
+        } else {
+            buffer.set(0);
+        }
+        
+        if (masterVol != 1.0f) {
+            buffer *= masterVol;
+        }
+    }
+};
 
 SpeakersOutput::SpeakersOutput() {
     type = "SpeakersOutput";
-    parameters.add(masterVolume.set("masterVolume", 1.0, 0.0, 1.0));
+    parameters->add(masterVolume.set("masterVolume", 1.0, 0.0, 1.0));
+    setupProcessor();
 }
 
-SpeakersOutput::~SpeakersOutput() {
+NodeProcessor* SpeakersOutput::createProcessor() {
+    return new SpeakersOutputProcessor();
 }
 
-void SpeakersOutput::processAudio(ofSoundBuffer& buffer, int index) {
-    if (!graph) {
-        buffer.set(0);
-        return;
-    }
-
-    const auto& inputs = graph->getInputConnectionsRef(nodeId);
-    if (inputs.empty()) {
-        buffer.set(0);
-        return;
-    }
-
-    Node* sourceNode = getInputNode(0);
-    if (!sourceNode) {
-        buffer.set(0);
-        return;
-    }
-
-    sourceNode->pullAudio(buffer, inputs[0].fromOutput);
-
-    // Apply source volume (including modulation)
-    Control sourceVolCtrl = sourceNode->getControl(sourceNode->volume);
-    for (size_t i = 0; i < buffer.getNumFrames(); i++) {
-        float gain = sourceVolCtrl[i];
-        if (gain != 1.0f) {
-            for (int c = 0; c < buffer.getNumChannels(); c++) {
-                buffer[i * buffer.getNumChannels() + c] *= gain;
-            }
-        }
-    }
-
-    if (masterVolume != 1.0f) {
-        buffer *= (float)masterVolume;
-    }
+void SpeakersOutput::onParameterChanged(const std::string& paramName) {
+    // Node::onParameterChanged handles all params generically via slotMap.
+    Node::onParameterChanged(paramName);
 }
