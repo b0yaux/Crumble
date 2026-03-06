@@ -27,18 +27,29 @@ Graph::~Graph() {
     clear();
 }
 
-bool Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
-    if (fromNode == toNode) return false; // Self-loop
+void Graph::prepare(const Context& ctx) {
+    // 1. Prepare self (modulators on the graph node itself)
+    Node::prepare(ctx);
     
-    // Check if these nodes exist
+    // 2. Recursive Prepare: Prepare all internal nodes.
+    // This ensures all patterns in the graph are calculated exactly once.
+    std::lock_guard<std::recursive_mutex> lock(audioMutex);
+    for (auto& [id, node] : nodes) {
+        if (node) node->prepare(ctx);
+    }
+}
+
+bool Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
+    if (fromNode == toNode) return false; 
+    
+    std::lock_guard<std::recursive_mutex> lock(audioMutex);
+    
     if (nodes.find(fromNode) == nodes.end() || nodes.find(toNode) == nodes.end()) {
         return false;
     }
 
-    // Disconnect existing input at that slot (single input per slot)
     disconnect(toNode, toInput);
 
-    // Tentatively add the connection
     Connection conn;
     conn.fromNode = fromNode;
     conn.toNode = toNode;
@@ -47,15 +58,12 @@ bool Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
     
     connections.push_back(conn);
 
-    // Validate topology
     if (!validateTopology()) {
-        // Cycle detected! Revert.
         connections.pop_back();
-        ofLogError("Graph") << "Cycle detected when connecting " << fromNode << " -> " << toNode << ". Connection rejected.";
+        ofLogError("Graph") << "Cycle detected. Connection rejected.";
         return false;
     }
 
-    // Success - notify nodes
     Node* to = getNode(toNode);
     Node* from = getNode(fromNode);
     if (to) {
@@ -64,10 +72,12 @@ bool Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
     }
     
     executionDirty = true;
+    updateConnectionCache();
     return true;
 }
 
 void Graph::disconnect(int toNode, int toInput) {
+    std::lock_guard<std::recursive_mutex> lock(audioMutex);
     Node* to = getNode(toNode);
     if (to) to->setInputNode(toInput, nullptr);
 
@@ -79,30 +89,29 @@ void Graph::disconnect(int toNode, int toInput) {
         connections.end()
     );
     executionDirty = true;
+    updateConnectionCache();
 }
 
 void Graph::compactInputIndices(int toNode, int removedInput) {
+    std::lock_guard<std::recursive_mutex> lock(audioMutex);
     for (auto& conn : connections) {
         if (conn.toNode == toNode && conn.toInput > removedInput) {
             conn.toInput--;
         }
     }
     executionDirty = true;
+    updateConnectionCache();
 }
 
 void Graph::removeNode(int nodeId) {
-    // Check if node exists
     if (nodes.find(nodeId) == nodes.end()) return;
     
     std::unique_ptr<Node> nodeToDestroy;
     bool wasDrawable = false;
 
     {
-        // Protect against audio thread access during mutation
-        // We keep the lock as SHORT as possible
         std::lock_guard<std::recursive_mutex> lock(audioMutex);
         
-        // Remove all connections to/from this node
         connections.erase(
             std::remove_if(connections.begin(), connections.end(),
                 [nodeId](const Connection& c) {
@@ -119,13 +128,10 @@ void Graph::removeNode(int nodeId) {
         }
         
         executionDirty = true;
+        updateConnectionCache();
     }
     
-    // Destruction happens HERE, outside the lock!
-    // If the node has large buffers (AudioFileSource), they are freed on the UI thread
-    // without blocking the Audio Thread's pullAudio loop.
     nodeToDestroy.reset(); 
-
     if (wasDrawable) updateRenderList();
 }
 
@@ -135,47 +141,56 @@ void Graph::clear() {
         std::lock_guard<std::recursive_mutex> lock(audioMutex);
         nodesToDestroy = std::move(nodes);
         connections.clear();
+        cachedInputs.clear();
+        cachedOutputs.clear();
         renderList.clear();
         executionDirty = true;
     }
-    // nodesToDestroy goes out of scope here, deleting all nodes OUTSIDE the lock.
 }
+
 std::vector<Connection> Graph::getInputConnections(int nodeId) const {
+    std::lock_guard<std::recursive_mutex> lock(audioMutex);
     std::vector<Connection> result;
     for (const auto& conn : connections) {
-        if (conn.toNode == nodeId) {
-            result.push_back(conn);
-        }
+        if (conn.toNode == nodeId) result.push_back(conn);
     }
     return result;
 }
 
 std::vector<Connection> Graph::getOutputConnections(int nodeId) const {
+    std::lock_guard<std::recursive_mutex> lock(audioMutex);
     std::vector<Connection> result;
     for (const auto& conn : connections) {
-        if (conn.fromNode == nodeId) {
-            result.push_back(conn);
-        }
+        if (conn.fromNode == nodeId) result.push_back(conn);
     }
     return result;
 }
 
-void Graph::update(float dt) {
-    if (executionDirty) {
-        validateTopology();
+const std::vector<Connection>& Graph::getInputConnectionsRef(int nodeId) const {
+    static const std::vector<Connection> empty;
+    auto it = cachedInputs.find(nodeId);
+    if (it != cachedInputs.end()) return it->second;
+    return empty;
+}
+
+void Graph::updateConnectionCache() {
+    std::lock_guard<std::recursive_mutex> lock(audioMutex);
+    cachedInputs.clear();
+    cachedOutputs.clear();
+    for (const auto& conn : connections) {
+        cachedInputs[conn.toNode].push_back(conn);
+        cachedOutputs[conn.fromNode].push_back(conn);
     }
+}
+
+void Graph::update(float dt) {
+    if (executionDirty) validateTopology();
     
-    // Push timing to all nodes for video/UI processing
-    Context ctx;
-    ctx.cycle = getTransport().cycle;
-    ctx.cycleStep = 0; // No sub-sample stepping for 60fps frame updates
-    ctx.frames = 1;    // One "frame" of logic
-    ctx.dt = dt;
+    // NOTE: Graph::prepare is now called by Session before update()
     
     for (int nodeId : traversalOrder) {
         auto it = nodes.find(nodeId);
         if (it != nodes.end() && it->second) {
-            it->second->prepare(ctx);
             it->second->update(dt);
         }
     }
@@ -190,12 +205,8 @@ void Graph::draw() {
 void Graph::updateRenderList() {
     renderList.clear();
     for (auto& [id, node] : nodes) {
-        if (node && node->canDraw) {
-            renderList.push_back(node.get());
-        }
+        if (node && node->canDraw) renderList.push_back(node.get());
     }
-    
-    // Sort by drawLayer, then by nodeId for determinism
     std::sort(renderList.begin(), renderList.end(), [](Node* a, Node* b) {
         if (a->drawLayer != b->drawLayer) return a->drawLayer < b->drawLayer;
         return a->nodeId < b->nodeId;
@@ -203,35 +214,20 @@ void Graph::updateRenderList() {
 }
 
 ofTexture* Graph::processVideo(int index) {
-    // Search internal nodes for an 'Outlet' with matching index
     for (const auto& pair : nodes) {
         Node* node = pair.second.get();
         if (node && node->type == "Outlet") {
-            // We need to cast to access outletIndex
             Outlet* outlet = static_cast<Outlet*>(node);
-            if (outlet->outletIndex == index) {
-                return node->getVideoOutput();
-            }
+            if (outlet->outletIndex == index) return node->getVideoOutput();
         }
     }
-    
     return nullptr;
 }
 
 void Graph::processAudio(ofSoundBuffer& buffer, int index) {
+    // NOTE: Graph::prepare is now called by Session before processAudio()
+    
     std::lock_guard<std::recursive_mutex> lock(audioMutex);
-    
-    // Push timing to all nodes before processing
-    Context ctx;
-    ctx.cycle = getTransport().cycle;
-    ctx.cycleStep = getTransport().getCyclesPerSample(buffer.getSampleRate());
-    ctx.frames = buffer.getNumFrames();
-    
-    for (auto& [id, node] : nodes) {
-        node->prepare(ctx);
-    }
-    
-    // Search internal nodes for an 'Outlet' with matching index
     for (const auto& pair : nodes) {
         Node* node = pair.second.get();
         if (node && node->type == "Outlet") {
@@ -242,7 +238,6 @@ void Graph::processAudio(ofSoundBuffer& buffer, int index) {
             }
         }
     }
-    
     buffer.set(0);
 }
 
@@ -253,7 +248,6 @@ bool Graph::validateTopology() {
         return true;
     }
 
-    // Kahn's algorithm for Topological Sort & Cycle Detection
     std::vector<int> nodeIdList;
     std::unordered_map<int, int> nodeIdToIndex;
     int idx = 0;
@@ -266,77 +260,54 @@ bool Graph::validateTopology() {
     std::vector<int> inDegree(nodes.size(), 0);
     for (const auto& conn : connections) {
         auto toIt = nodeIdToIndex.find(conn.toNode);
-        if (toIt != nodeIdToIndex.end()) {
-            inDegree[toIt->second]++;
-        }
+        if (toIt != nodeIdToIndex.end()) inDegree[toIt->second]++;
     }
 
-    // Use a queue for BFS-based topological sort
     std::vector<int> queue;
     for (int i = 0; i < (int)nodeIdList.size(); i++) {
-        if (inDegree[i] == 0) {
-            queue.push_back(nodeIdList[i]);
-        }
+        if (inDegree[i] == 0) queue.push_back(nodeIdList[i]);
     }
 
-    // Process nodes
     size_t visitedCount = 0;
     while (!queue.empty()) {
         int currentNodeId = queue.front();
         queue.erase(queue.begin());
-        
         traversalOrder.push_back(currentNodeId);
         visitedCount++;
-
         for (const auto& conn : connections) {
             if (conn.fromNode == currentNodeId) {
                 auto toIt = nodeIdToIndex.find(conn.toNode);
                 if (toIt != nodeIdToIndex.end()) {
                     int toIdx = toIt->second;
                     inDegree[toIdx]--;
-                    if (inDegree[toIdx] == 0) {
-                        queue.push_back(conn.toNode);
-                    }
+                    if (inDegree[toIdx] == 0) queue.push_back(conn.toNode);
                 }
             }
         }
     }
 
     executionDirty = false;
-    
-    // If we couldn't visit all nodes, there's a cycle
     return (visitedCount == nodes.size());
 }
 
-// Node Factory
 void Graph::registerNodeType(const std::string& type, NodeCreator creator) {
     Graph::nodeTypes[type] = creator;
 }
 
 Node* Graph::createNode(const std::string& type, const std::string& name) {
     auto it = Graph::nodeTypes.find(type);
-    if (it == Graph::nodeTypes.end()) {
-        ofLogError("Graph") << "Unknown node type: " << type;
-        return nullptr;
-    }
-
+    if (it == Graph::nodeTypes.end()) return nullptr;
     auto node = it->second();
     node->type = type;
     node->name = name.empty() ? type + "_" + std::to_string(nodes.size()) : name;
     node->nodeId = Node::nextNodeId.fetch_add(1);
     node->graph = this;
-    
-    // Listen to drawLayer changes to re-sort the render list
     node->drawLayer.addListener(this, &Graph::onNodeLayerChanged);
-    
     Node* ptr = node.get();
-    
     {
-        // Thread safety: Protect against audio thread access while modifying the nodes map
         std::lock_guard<std::recursive_mutex> lock(audioMutex);
         nodes[node->nodeId] = std::move(node);
     }
-    
     executionDirty = true;
     if (ptr->canDraw) updateRenderList();
     return ptr;
@@ -344,42 +315,24 @@ Node* Graph::createNode(const std::string& type, const std::string& name) {
 
 std::vector<std::string> Graph::getRegisteredTypes() const {
     std::vector<std::string> types;
-    for (const auto& pair : Graph::nodeTypes) {
-        types.push_back(pair.first);
-    }
+    for (const auto& pair : Graph::nodeTypes) types.push_back(pair.first);
     return types;
 }
 
-// Serialization
-ofJson Graph::serialize() const {
-    // For a Graph, the "params" are the entire network structure
-    return toJson();
-}
-
-void Graph::deserialize(const ofJson& json) {
-    // Reconstruct the internal network from the json
-    fromJson(json);
-}
+ofJson Graph::serialize() const { return toJson(); }
+void Graph::deserialize(const ofJson& json) { fromJson(json); }
 
 ofJson Graph::toJson() const {
     ofJson json;
-    
-    // Build nodes array first
     ofJson nodesJson = ofJson::array();
     for (const auto& [id, node] : nodes) {
         ofJson nodeJson;
         nodeJson["id"] = node->nodeId;
         nodeJson["type"] = node->type;
         nodeJson["name"] = node->name;
-
-        // Each node serializes its own state. 
-        // If it's a sub-graph, Node::serialize() will now call Graph::serialize() polymorphically.
         nodeJson["params"] = node->serialize();
-
         nodesJson.push_back(nodeJson);
     }
-    
-    // Build connections array
     ofJson connectionsJson = ofJson::array();
     for (const auto& conn : connections) {
         ofJson connJson;
@@ -389,164 +342,82 @@ ofJson Graph::toJson() const {
         connJson["toInput"] = conn.toInput;
         connectionsJson.push_back(connJson);
     }
-    
-    // Build outputs object
-    ofJson outputsJson;
-    
-    // Assign in logical order: metadata -> nodes -> connections -> outputs
     json["version"] = "1.0";
     json["type"] = "Graph";
     json["nodes"] = nodesJson;
     json["connections"] = connectionsJson;
-    json["outputs"] = outputsJson;
-    
-    // Also include the ofParameterGroup (masterOpacity, etc. if we add them to Graph)
-    ofJson paramsJson;
-    ofSerialize(paramsJson, parameters);
-    json["internal_params"] = paramsJson;
-
+    ofSerialize(json["internal_params"], parameters);
     return json;
 }
 
 bool Graph::fromJson(const ofJson& json) {
-    // Clear existing graph
     clear();
-
-    // Check version
-    if (json.contains("version")) {
-        std::string version = json["version"];
-        if (version != "1.0") {
-            ofLogWarning("Graph") << "Loading patch with different version: " << version;
-        }
-    }
-    
-    // Load parameters
-    if (json.contains("internal_params")) {
-        ofDeserialize(json["internal_params"], parameters);
-    }
-
-    // Load nodes
+    if (json.contains("internal_params")) ofDeserialize(json["internal_params"], parameters);
     if (json.contains("nodes")) {
         for (const auto& nodeJson : json["nodes"]) {
             std::string type = nodeJson.value("type", "Node");
             std::string name = nodeJson.value("name", "");
             int nodeId = getSafeJson<int>(nodeJson, "id", -1);
-
-            // Get the node creator
             auto it = Graph::nodeTypes.find(type);
-            if (it == Graph::nodeTypes.end()) {
-                ofLogError("Graph") << "Unknown node type: " << type;
-                continue;
-            }
-
-            // Create node
+            if (it == Graph::nodeTypes.end()) continue;
             auto node = it->second();
             node->type = type;
             node->name = name.empty() ? type + "_" + std::to_string(nodes.size()) : name;
             node->graph = this;
-            
-            // Preserve nodeId from JSON if provided, otherwise generate new one
             if (nodeId >= 0) {
                 node->nodeId = nodeId;
-                // Update nextNodeId to be beyond any loaded IDs
-                if (nodeId >= Node::nextNodeId.load()) {
-                    Node::nextNodeId.store(nodeId + 1);
-                }
-            } else {
-                node->nodeId = Node::nextNodeId.fetch_add(1);
-            }
-
-            // Each node deserializes its own state
+                if (nodeId >= Node::nextNodeId.load()) Node::nextNodeId.store(nodeId + 1);
+            } else node->nodeId = Node::nextNodeId.fetch_add(1);
             ofJson params = nodeJson.contains("params") ? nodeJson["params"] : ofJson::object();
             node->deserialize(params);
-
-            // Insert into map with the nodeId as key
             nodes[node->nodeId] = std::move(node);
         }
     }
-
-            // Load connections (after all nodes created)
     if (json.contains("connections")) {
         for (const auto& connJson : json["connections"]) {
             int from = getSafeJson<int>(connJson, "from", -1);
             int to = getSafeJson<int>(connJson, "to", -1);
             int fromOutput = getSafeJson<int>(connJson, "fromOutput", 0);
             int toInput = getSafeJson<int>(connJson, "toInput", 0);
-
-            // Use nodeId-based lookup instead of array index
             if (from >= 0 && to >= 0 && nodes.find(from) != nodes.end() && nodes.find(to) != nodes.end()) {
                 connect(from, to, fromOutput, toInput);
             }
         }
     }
-    
     updateRenderList();
     executionDirty = true;
-    
     return true;
 }
 
 bool Graph::saveToFile(const std::string& path) const {
-    // Check if the path is empty
-    if (path.empty()) {
-        ofLogError("Graph") << "Cannot save to empty path";
-        return false;
-    }
-
+    if (path.empty()) return false;
     try {
-        // Ensure parent directory exists
         std::string dir = ofFilePath::getEnclosingDirectory(ofToDataPath(path));
-        if (!dir.empty() && !ofDirectory::doesDirectoryExist(dir)) {
-            ofDirectory::createDirectory(dir, false, true);
-        }
-        
+        if (!dir.empty() && !ofDirectory::doesDirectoryExist(dir)) ofDirectory::createDirectory(dir, false, true);
         ofJson json = toJson();
         std::string jsonStr = json.dump(2);
         return ofBufferToFile(path, ofBuffer(jsonStr.data(), jsonStr.size()));
-    } catch (const std::exception& e) {
-        ofLogError("Graph") << "Exception during save: " << e.what();
-        return false;
-    } catch (...) {
-        ofLogError("Graph") << "Unknown exception during save";
-        return false;
-    }
+    } catch (...) { return false; }
 }
 
 bool Graph::loadFromFile(const std::string& path) {
     ofJson json = ofLoadJson(path);
-    if (json.empty()) {
-        ofLogError("Graph") << "Failed to load JSON from: " << path;
-        return false;
-    }
+    if (json.empty()) return false;
     return fromJson(json);
 }
 
 std::string Graph::resolvePath(const std::string& path, const std::string& hint) const {
     if (path.empty()) return "";
-
-    // 1. Try Logical Asset Registry
     std::string resolved = AssetRegistry::get().resolve(path, hint);
     if (!resolved.empty()) return resolved;
-
-    // 2. Fallback to Search Paths / Data Path
     return ConfigManager::get().resolvePath(path);
 }
 
 void Graph::onScriptChanged(std::string& path) {
-    if (!path.empty() && s_scriptExecutor) {
-        ofLogNotice("Graph") << "Script parameter changed to: " << path << " for: " << name;
-        // Execute the script directly into this graph. 
-        // This graph acts as the container for the nodes created by the script.
-        s_scriptExecutor(path, this);
-    }
+    if (!path.empty() && s_scriptExecutor) s_scriptExecutor(path, this);
 }
 
-Graph* Graph::getParentGraph() const {
-    // graph is already typed Graph*, so no cast needed
-    return graph;
-}
+void Graph::onNodeLayerChanged(int& layer) { updateRenderList(); }
 
-Node* Graph::getContainingNode() const {
-    // Graph IS-A Node, so graph (which is Graph*) is always a valid Node*
-    return graph;
-}
+Graph* Graph::getParentGraph() const { return graph; }
+Node* Graph::getContainingNode() const { return graph; }

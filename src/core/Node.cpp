@@ -38,6 +38,10 @@ ofTexture* Node::processVideoBypass(int index) {
 }
 
 void Node::prepare(const Context& ctx) {
+    // Optimization: Prevent redundant pattern calculations within the same block/cycle
+    if (ctx.cycle == lastPreparedCycle && ctx.frames > 1) return;
+    lastPreparedCycle = ctx.cycle;
+
     std::lock_guard<std::recursive_mutex> lock(modMutex);
     
     // Vectorized pre-calculation for audio/control blocks
@@ -105,4 +109,37 @@ std::string Node::resolvePath(const std::string& path, const std::string& typeHi
         return graph->resolvePath(path, typeHint);
     }
     return ofToDataPath(path);
+}
+
+void Node::modulate(const std::string& paramName, std::shared_ptr<Pattern<float>> pat) {
+    std::lock_guard<std::recursive_mutex> lock(modMutex);
+    modulators[paramName] = pat;
+    
+    // Pre-allocate buffer entry to avoid map allocation on audio thread
+    if (controlBuffers.find(paramName) == controlBuffers.end()) {
+        controlBuffers[paramName].allocate(1024, 1);
+    }
+}
+
+void Node::clearModulator(const std::string& paramName) {
+    std::lock_guard<std::recursive_mutex> lock(modMutex);
+    modulators.erase(paramName);
+}
+
+std::shared_ptr<Pattern<float>> Node::getPattern(const std::string& paramName) const {
+    std::lock_guard<std::recursive_mutex> lock(modMutex);
+    auto it = modulators.find(paramName);
+    if (it != modulators.end()) return it->second;
+    return nullptr;
+}
+
+void Node::setInputNode(int slot, Node* node) {
+    std::lock_guard<std::recursive_mutex> lock(modMutex);
+    if (node) inputNodes[slot] = node;
+    else inputNodes.erase(slot);
+}
+
+Node* Node::getInputNode(int slot) const {
+    auto it = inputNodes.find(slot);
+    return (it != inputNodes.end()) ? it->second : nullptr;
 }

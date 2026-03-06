@@ -10,153 +10,78 @@
  * Context represents a "pushed" timing packet for a block of samples.
  */
 struct Context {
-    double cycle = 0;       // Current cycle (0.0 to 1.0)
-    double cycleStep = 0;   // Step per sample
-    int frames = 0;         // Block size
-    float dt = 0;           // Delta time
+    double cycle = 0;       
+    double cycleStep = 0;   
+    int frames = 0;         
+    float dt = 0;           
 };
 
 /**
- * Control provides a vectorized view of a parameter's values for the current block.
- * This is the "Control Rate" (K-rate) counterpart to audio buffers.
+ * Control provides a vectorized view of a parameter's values.
  */
 struct Control {
     const float* buffer = nullptr;
     float constant = 0.0f;
     bool modulated = false;
-    
-    inline float operator[](int i) const {
-        return modulated ? buffer[i] : constant;
-    }
+    inline float operator[](int i) const { return modulated ? buffer[i] : constant; }
 };
 
-// Minimal base class for all nodes in the graph
 class Node {
 public:
     Node();
     virtual ~Node() = default;
     
-    /**
-     * 1. Preparation (Push Phase): 
-     * The engine pushes timing context to all nodes. The base class uses this 
-     * to pre-calculate vectorized 'Control' buffers for modulated parameters.
-     */
     virtual void prepare(const Context& ctx);
-
-    /**
-     * 2. Execution (Pull Phase):
-     * The Gatekeeper wrappers (pullAudio/getVideoOutput) handle the 'active' 
-     * flag (Mute/Bypass) before calling the node's specific processing logic.
-     */
     virtual void update(float dt) {}
     void pullAudio(ofSoundBuffer& buffer, int index = 0);
     ofTexture* getVideoOutput(int index = 0);
 
-    /**
-     * Internal processing logic implemented by specific node types.
-     */
     virtual void processAudio(ofSoundBuffer& buffer, int index = 0) {}
     virtual ofTexture* processVideo(int index = 0) { return nullptr; }
-
-    /**
-     * Bypassed processing logic (The "Identity" pattern).
-     * Called when active = false. 
-     * Default implementation returns silence/transparency.
-     * Effects/Shaders should override this to return the dry input signal.
-     */
     virtual void processAudioBypass(ofSoundBuffer& buffer, int index = 0);
     virtual ofTexture* processVideoBypass(int index = 0);
 
-    /**
-     * Returns a 'Control' view for a parameter. Handles both modulated (vectorized)
-     * and static (constant) values transparently to simplify node DSP logic.
-     */
     Control getControl(ofParameter<float>& param) const;
-    
-    // Optional Functional Hooks
     virtual void draw() {}
     
-    // Registration Hint
     bool canDraw = false;
     ofParameter<int> drawLayer;
     ofParameter<float> volume;
     ofParameter<float> opacity;
-    ofParameter<bool> active; // Master on/off switch
-
+    ofParameter<bool> active; 
     
     virtual std::string getDisplayName() const { return name; }
-
-    /**
-     * Connection helpers
-     */
-    void setInputNode(int slot, Node* node) {
-        std::lock_guard<std::recursive_mutex> lock(modMutex);
-        if (node) inputNodes[slot] = node;
-        else inputNodes.erase(slot);
-    }
-    
-    Node* getInputNode(int slot) const {
-        auto it = inputNodes.find(slot);
-        return (it != inputNodes.end()) ? it->second : nullptr;
-    }
-
-    /**
-     * Resolves a logical string into a physical file path.
-     * 
-     * @param path The input path (logical alias "birds", bank "drums:5", or direct file)
-     * @param typeHint Optional stream selector ("video" or "audio") used to resolve 
-     *                 multi-stream logical assets into specific physical files.
-     * @return Absolute path on disk, or original string if not found.
-     */
+    void setInputNode(int slot, Node* node);
+    Node* getInputNode(int slot) const;
     virtual std::string resolvePath(const std::string& path, const std::string& typeHint = "") const;
     
     ofParameterGroup parameters;
-    
     std::string name = "unnamed";
     std::string type = "Node";
-    
     class Graph* graph = nullptr;
     int nodeId = -1;
     static std::atomic<int> nextNodeId;
 
-    // Modulators (The act of using a Pattern to change a parameter)
-    void modulate(const std::string& paramName, std::shared_ptr<Pattern<float>> pat) {
-        std::lock_guard<std::recursive_mutex> lock(modMutex);
-        modulators[paramName] = pat;
-    }
-
-    void clearModulator(const std::string& paramName) {
-        std::lock_guard<std::recursive_mutex> lock(modMutex);
-        modulators.erase(paramName);
-    }
-
-    std::shared_ptr<Pattern<float>> getPattern(const std::string& paramName) const {
-        std::lock_guard<std::recursive_mutex> lock(modMutex);
-        auto it = modulators.find(paramName);
-        if (it != modulators.end()) return it->second;
-        return nullptr;
-    }
+    void modulate(const std::string& paramName, std::shared_ptr<Pattern<float>> pat);
+    void clearModulator(const std::string& paramName);
+    std::shared_ptr<Pattern<float>> getPattern(const std::string& paramName) const;
     
 public:
     bool touched = false;
-    
     virtual ofJson serialize() const;
     virtual void deserialize(const ofJson& json);
-    
     virtual void onInputConnected(int& toInput) {}
     virtual void onInputDisconnected(int& toInput) {}
     virtual void onParameterChanged(const std::string& paramName) {}
     
 protected:
-    std::unordered_map<int, Node*> inputNodes; // Connected source nodes
+    std::unordered_map<int, Node*> inputNodes;
     std::unordered_map<std::string, std::shared_ptr<Pattern<float>>> modulators;
     mutable std::recursive_mutex modMutex;
-
-    // Internal buffers for pre-calculated control streams
     mutable std::unordered_map<std::string, ofSoundBuffer> controlBuffers;
+    double lastPreparedCycle = -1.0; 
 };
 
-// Helper to safely get a value from JSON with type-loose conversion
 template<typename T>
 T getSafeJson(const ofJson& j, const std::string& key, T defaultValue) {
     if (!j.contains(key)) return defaultValue;
@@ -179,7 +104,5 @@ T getSafeJson(const ofJson& j, const std::string& key, T defaultValue) {
             if (v.is_boolean()) return v.get<bool>() ? (T)1 : (T)0;
         }
         return v.get<T>();
-    } catch (...) {
-        return defaultValue;
-    }
+    } catch (...) { return defaultValue; }
 }

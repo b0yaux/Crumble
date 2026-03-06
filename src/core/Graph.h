@@ -19,7 +19,6 @@ struct Connection {
 
 /**
  * Graph is a container for Nodes and their connections. 
- * Since Graph inherits from Node, it can be nested within other Graphs.
  */
 class Graph : public Node {
 public:
@@ -30,6 +29,7 @@ public:
     virtual ~Graph();
 
     // --- Lifecycle ---
+    void prepare(const Context& ctx) override;
     void update(float dt) override;
     void draw() override;
     void processAudio(ofSoundBuffer& buffer, int index = 0) override;
@@ -55,9 +55,14 @@ public:
 
     std::vector<Connection> getInputConnections(int nodeId) const;
     std::vector<Connection> getOutputConnections(int nodeId) const;
+    
+    /**
+     * Optimized access for the audio thread.
+     */
+    const std::vector<Connection>& getInputConnectionsRef(int nodeId) const;
     const std::vector<Connection>& getConnections() const { return connections; }
 
-    // --- Navigation (for recursive lookup) ---
+    // --- Navigation ---
     Graph* getParentGraph() const;
     Node* getContainingNode() const;
 
@@ -73,44 +78,39 @@ public:
     ofJson serialize() const override;
     void deserialize(const ofJson& json) override;
     
-    // Internal JSON helpers
     ofJson toJson() const;
     bool fromJson(const ofJson& json);
     
-    // File I/O
     bool saveToFile(const std::string& path) const;
     bool loadFromFile(const std::string& path);
     
-    // Utilities
     std::string resolvePath(const std::string& path, const std::string& hint = "") const override;
     
-    // Audio Mutex
     std::recursive_mutex& getAudioMutex() { return audioMutex; }
-    
-    // Helper to get global transport from Session
     class Transport& getTransport();
 
 private:
     std::unordered_map<int, std::unique_ptr<Node>> nodes;
     std::vector<Connection> connections;
     
-    // Node drawing order (sorted by layer)
     std::vector<Node*> renderList;
     void updateRenderList();
-    void onNodeLayerChanged(int& layer) { updateRenderList(); }
+    void onNodeLayerChanged(int& layer);
     
-    // Static registry for node instantiation
     static std::map<std::string, NodeCreator> nodeTypes;
     static ScriptExecutor s_scriptExecutor;
 
-    // Execution state
-    std::vector<int> traversalOrder; // Topological sort
-    bool validateTopology();         // Re-sort and check for cycles
+    std::vector<int> traversalOrder; 
+    bool validateTopology();         
     bool executionDirty = true;
     
     void onScriptChanged(std::string& path);
     ofParameter<std::string> scriptParam;
     
-    // Thread safety for audio thread vs main thread mutation
     mutable std::recursive_mutex audioMutex;
+
+    // Connection caches for audio thread
+    std::unordered_map<int, std::vector<Connection>> cachedInputs;
+    std::unordered_map<int, std::vector<Connection>> cachedOutputs;
+    void updateConnectionCache();
 };

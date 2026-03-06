@@ -25,43 +25,44 @@ AVSampler::AVSampler() {
 }
 
 void AVSampler::prepare(const Context& ctx) {
-    // Optimization: Only update internal source configuration if graph changes.
+    // 1. Skip if node is inactive
+    if (!active) return;
+
+    // 2. Optimization: Sync graph and clockMode only when the graph changes.
     if (graph && (audioSource.graph != graph || videoSource.graph != graph)) {
         audioSource.graph = graph;
         videoSource.graph = graph;
-        
-        // Ensure video is in external clock mode for perfect A/V sync
         if (videoSource.parameters.contains("clockMode")) {
             videoSource.parameters.get("clockMode").cast<int>().set(VideoFileSource::EXTERNAL);
         }
     }
     
+    // 3. Base prepare
     Node::prepare(ctx);
     
-    // Audio source must be prepared to calculate its internal modulators
+    // 4. Selective Prepare: only prepare audio on audio thread
     audioSource.prepare(ctx);
-
-    // Video source only needs preparation during the UI update pass (ctx.frames == 1)
-    // In audio blocks, its internal modulators are ignored due to EXTERNAL clock mode.
     if (ctx.frames <= 1) {
         videoSource.prepare(ctx);
     }
 }
 
 void AVSampler::update(float dt) {
-    audioSource.update(dt);
+    // FIX: If the node is inactive, skip the update entirely to prevent seek storms.
+    if (!active) return;
+
+    // NOTE: audioSource.update is strictly handled by the audio thread.
     
-    // Simple Sync: Force video to follow audio playhead.
     if (!audioPath.get().empty() && !videoPath.get().empty()) {
         double audioPos = audioSource.getRelativePosition();
         
-        // Only seek if there's a significant jump to avoid overwhelming the decoder
+        // Performance: Only seek if the playhead moved significantly.
         if (std::abs(audioPos - lastSyncPos) > 0.001) {
             videoSource.setPosition((float)audioPos);
             lastSyncPos = audioPos;
         }
 
-        // Guard against recursive 'onParameterChanged' storm
+        // Internal change guard used to prevent recursion
         isInternalChange = true;
         position.set((float)audioPos);
         isInternalChange = false;
@@ -88,24 +89,20 @@ std::string AVSampler::getDisplayName() const {
 }
 
 void AVSampler::onParameterChanged(const std::string& paramName) {
-    // 1. Handle Unified Path (Macro)
     if (paramName == "path") {
         std::string pathVal = path.get();
         if (pathVal.empty()) return;
-
         std::string vid = resolvePath(pathVal, "video");
         std::string aud = resolvePath(pathVal, "audio");
-        
         if (aud != audioPath.get()) {
             audioPath.set(aud);
-            onParameterChanged("audioPath"); // Crucial: trigger load
+            onParameterChanged("audioPath");
         }
         if (vid != videoPath.get()) {
             videoPath.set(vid);
-            onParameterChanged("videoPath"); // Crucial: trigger load
+            onParameterChanged("videoPath");
         }
     } 
-    // 2. Handle Individual Streams (The actual loading logic)
     else if (paramName == "audioPath") {
         if (!audioPath.get().empty() && audioPath.get() != loadedAudioPath) {
             audioSource.load(audioPath.get());
@@ -119,7 +116,6 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
             masterPlayhead = 0.0;
         }
     } 
-    // 3. Propagate Modulators and State
     else if (paramName == "speed") {
         if (cachedAudioSpeed) cachedAudioSpeed->set(speed.get());
         if (cachedVideoSpeed) cachedVideoSpeed->set(speed.get());
@@ -157,10 +153,8 @@ void AVSampler::deserialize(const ofJson& json) {
     ofJson j = json;
     if (j.contains("AVSampler")) j = j["AVSampler"];
     else if (j.contains("group")) j = j["group"];
-    
     if (j.contains("path")) path.set(getSafeJson<std::string>(j, "path", ""));
     if (j.contains("audioPath")) audioPath.set(getSafeJson<std::string>(j, "audioPath", ""));
     if (j.contains("videoPath")) videoPath.set(getSafeJson<std::string>(j, "videoPath", ""));
-    
     ofDeserialize(j, parameters);
 }

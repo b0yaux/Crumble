@@ -51,17 +51,15 @@ void Session::audioOut(ofSoundBuffer& buffer) {
     
     std::lock_guard<std::recursive_mutex> lock(graph.getAudioMutex());
     
-    // Push timing to all nodes FIRST!
+    // 3. Push timing to all nodes recursively (The "Push" phase)
     Context ctx;
     ctx.cycle = transport.cycle;
     ctx.cycleStep = transport.getCyclesPerSample(buffer.getSampleRate());
     ctx.frames = buffer.getNumFrames();
     
-    for (auto& [id, node] : graph.getNodes()) {
-        node->prepare(ctx);
-    }
+    graph.prepare(ctx);
     
-    // NOW pull from the SpeakersOutput
+    // 4. Find the hardware sink (SpeakersOutput) and pull audio
     for (const auto& [id, node] : graph.getNodes()) {
         if (node->type == "SpeakersOutput") {
             node->pullAudio(buffer, 0);
@@ -125,8 +123,20 @@ void Session::touchNode(int nodeId) {
 // --- Lifecycle ---
 
 void Session::update(float dt) {
-    // IMPORTANT: transport.update(dt) is NO LONGER CALLED HERE!
-    // The Transport is strictly advanced by the audio hardware thread.
+    // 1. Prepare all nodes recursively for UI/Video (Main thread pass)
+    // The 'lastPreparedCycle' optimization in Node::prepare ensures 
+    // we don't redundant work if the audio thread already ran.
+    Context ctx;
+    ctx.cycle = transport.cycle;
+    ctx.cycleStep = 0; // No sub-sample stepping for UI
+    ctx.frames = 1;
+    ctx.dt = dt;
+    
+    {
+        std::lock_guard<std::recursive_mutex> lock(graph.getAudioMutex());
+        graph.prepare(ctx);
+    }
+
     graph.update(dt);
 }
 
