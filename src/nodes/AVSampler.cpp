@@ -11,32 +11,55 @@ AVSampler::AVSampler() {
     parameters.add(loop.set("loop", true));
     parameters.add(playing.set("playing", true));
     parameters.add(position.set("position", 0.0, 0.0, 1.0));
+    
+    // Performance: Cache direct pointers to child parameters to avoid map lookups
+    cachedAudioSpeed = &audioSource.speed;
+    cachedVideoSpeed = &videoSource.speed;
+    cachedAudioVolume = &audioSource.volume;
+    cachedAudioLoop = &audioSource.loop;
+    cachedVideoLoop = &videoSource.loop;
+    cachedAudioPlaying = &audioSource.playing;
+    cachedVideoPlaying = &videoSource.playing;
+
+    lastSyncPos = -1.0;
 }
 
 void AVSampler::prepare(const Context& ctx) {
-    // Crucial: Propagate graph context to internal sub-nodes for path resolution
-    if (graph) {
+    // Optimization: Only update internal source configuration if graph changes.
+    if (graph && (audioSource.graph != graph || videoSource.graph != graph)) {
         audioSource.graph = graph;
         videoSource.graph = graph;
         
-        // Ensure video is in external clock mode for perfect sync
-        videoSource.parameters.get("clockMode").cast<int>() = VideoFileSource::EXTERNAL;
+        // Ensure video is in external clock mode for perfect A/V sync
+        if (videoSource.parameters.contains("clockMode")) {
+            videoSource.parameters.get("clockMode").cast<int>().set(VideoFileSource::EXTERNAL);
+        }
     }
     
     Node::prepare(ctx);
+    
+    // Audio source must be prepared to calculate its internal modulators
     audioSource.prepare(ctx);
-    videoSource.prepare(ctx);
+
+    // Video source only needs preparation during the UI update pass (ctx.frames == 1)
+    // In audio blocks, its internal modulators are ignored due to EXTERNAL clock mode.
+    if (ctx.frames <= 1) {
+        videoSource.prepare(ctx);
+    }
 }
 
 void AVSampler::update(float dt) {
     audioSource.update(dt);
     
     // Simple Sync: Force video to follow audio playhead.
-    // HAP is efficient enough for this if we keep the decoder hot.
     if (!audioPath.get().empty() && !videoPath.get().empty()) {
         double audioPos = audioSource.getRelativePosition();
         
-        videoSource.setPosition((float)audioPos);
+        // Only seek if there's a significant jump to avoid overwhelming the decoder
+        if (std::abs(audioPos - lastSyncPos) > 0.001) {
+            videoSource.setPosition((float)audioPos);
+            lastSyncPos = audioPos;
+        }
 
         // Guard against recursive 'onParameterChanged' storm
         isInternalChange = true;
@@ -70,19 +93,16 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
         std::string pathVal = path.get();
         if (pathVal.empty()) return;
 
-        // Resolve logical components via base class utility
         std::string vid = resolvePath(pathVal, "video");
         std::string aud = resolvePath(pathVal, "audio");
         
-        // Propagate to internal parameters
-        // Setting these will trigger the loading logic below.
         if (aud != audioPath.get()) {
             audioPath.set(aud);
-            onParameterChanged("audioPath");
+            onParameterChanged("audioPath"); // Crucial: trigger load
         }
         if (vid != videoPath.get()) {
             videoPath.set(vid);
-            onParameterChanged("videoPath");
+            onParameterChanged("videoPath"); // Crucial: trigger load
         }
     } 
     // 2. Handle Individual Streams (The actual loading logic)
@@ -101,26 +121,19 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
     } 
     // 3. Propagate Modulators and State
     else if (paramName == "speed") {
-        audioSource.parameters[std::string("speed")].cast<float>() = speed.get();
-        videoSource.parameters[std::string("speed")].cast<float>() = speed.get();
+        if (cachedAudioSpeed) cachedAudioSpeed->set(speed.get());
+        if (cachedVideoSpeed) cachedVideoSpeed->set(speed.get());
         audioSource.modulate("speed", getPattern("speed"));
         videoSource.modulate("speed", getPattern("speed"));
     } else if (paramName == "volume") {
-        // Still propagate volume to internal audioSource so its internal logic works
-        audioSource.parameters[std::string("volume")].cast<float>() = volume.get();
+        if (cachedAudioVolume) cachedAudioVolume->set(volume.get());
         audioSource.modulate("volume", getPattern("volume"));
-    } else if (paramName == "opacity") {
-        // Still propagate opacity to internal videoSource if it has it
-        if (videoSource.parameters.contains("opacity")) {
-            videoSource.parameters[std::string("opacity")].cast<float>() = opacity.get();
-            videoSource.modulate("opacity", getPattern("opacity"));
-        }
     } else if (paramName == "loop") {
-        audioSource.parameters[std::string("loop")].cast<bool>() = loop.get();
-        videoSource.parameters[std::string("loop")].cast<bool>() = loop.get();
+        if (cachedAudioLoop) cachedAudioLoop->set(loop.get());
+        if (cachedVideoLoop) cachedVideoLoop->set(loop.get());
     } else if (paramName == "playing") {
-        audioSource.parameters[std::string("playing")].cast<bool>() = playing.get();
-        videoSource.parameters[std::string("playing")].cast<bool>() = playing.get();
+        if (cachedAudioPlaying) cachedAudioPlaying->set(playing.get());
+        if (cachedVideoPlaying) cachedVideoPlaying->set(playing.get());
     } else if (paramName == "position") {
         if (!isInternalChange) {
             audioSource.setRelativePosition(position.get());
@@ -145,7 +158,6 @@ void AVSampler::deserialize(const ofJson& json) {
     if (j.contains("AVSampler")) j = j["AVSampler"];
     else if (j.contains("group")) j = j["group"];
     
-    // Set parameters (setter logic handles the rest)
     if (j.contains("path")) path.set(getSafeJson<std::string>(j, "path", ""));
     if (j.contains("audioPath")) audioPath.set(getSafeJson<std::string>(j, "audioPath", ""));
     if (j.contains("videoPath")) videoPath.set(getSafeJson<std::string>(j, "videoPath", ""));

@@ -7,9 +7,15 @@ class VideoFileSource : public Node {
 public:
     VideoFileSource();
     
-    void load(const std::string& path);
+    // Performance: Members made public to allow AVSampler direct pointer access
+    ofParameter<std::string> path;
+    ofParameter<float> speed;
+    ofParameter<bool> loop;
+    ofParameter<bool> playing;
+    ofParameter<int> clockMode;
 
     void update(float dt) override;
+
     ofTexture* processVideo(int index = 0) override;
 
     // Returns filename for UI display
@@ -42,16 +48,11 @@ public:
     // React to parameter changes from Lua
     void onParameterChanged(const std::string& paramName) override;
     
+    void load(const std::string& path);
+
 private:
     void onPathChanged(std::string& path);
     void onClockModeChanged(int& mode);
-    ofxHapPlayer player;
     std::string loadedPath;
-    
-    // Parameters
-    ofParameter<std::string> path;
-    ofParameter<bool> loop;
-    ofParameter<float> speed;
-    ofParameter<bool> playing;
-    ofParameter<int> clockMode;
+    ofxHapPlayer player;
 };

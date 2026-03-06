@@ -25,8 +25,10 @@ void AudioFileSource::processAudio(ofSoundBuffer& buffer, int index) {
     // 1. Get pre-calculated control streams (Pushed by the engine)
     Control speedCtrl = getControl(speed);
 
+    // Performance Optimization: Load playhead once per block
+    double currentPlayhead = playhead.load();
+
     for (size_t i = 0; i < buffer.getNumFrames(); i++) {
-        double currentPlayhead = playhead.load();
         size_t frameIndex = (size_t)currentPlayhead;
 
         if (frameIndex < totalSamples) {
@@ -45,6 +47,7 @@ void AudioFileSource::processAudio(ofSoundBuffer& buffer, int index) {
             } else {
                 playing = false;
                 currentPlayhead = 0;
+                break; // Exit loop early
             }
         } else if (currentPlayhead < 0) {
             if (loop) {
@@ -52,11 +55,13 @@ void AudioFileSource::processAudio(ofSoundBuffer& buffer, int index) {
             } else {
                 playing = false;
                 currentPlayhead = 0;
+                break; // Exit loop early
             }
         }
-        
-        playhead.store(currentPlayhead);
     }
+    
+    // Performance Optimization: Store playhead once per block
+    playhead.store(currentPlayhead);
 }
 
 std::string AudioFileSource::getDisplayName() const {

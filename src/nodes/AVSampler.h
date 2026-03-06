@@ -60,8 +60,18 @@ private:
     // Master playhead (in samples, converted as needed for each source)
     double masterPlayhead = 0.0;
     std::string loadedAudioPath, loadedVideoPath;
+    double lastSyncPos = -1.0;
     
     // Performance state for Sync
     bool isInternalChange = false;
+    
+    // Cached child parameters to avoid string lookups in hot paths
+    ofParameter<float>* cachedAudioSpeed = nullptr;
+    ofParameter<float>* cachedVideoSpeed = nullptr;
+    ofParameter<float>* cachedAudioVolume = nullptr;
+    ofParameter<bool>*  cachedAudioLoop = nullptr;
+    ofParameter<bool>*  cachedVideoLoop = nullptr;
+    ofParameter<bool>*  cachedAudioPlaying = nullptr;
+    ofParameter<bool>*  cachedVideoPlaying = nullptr;
 };
 
