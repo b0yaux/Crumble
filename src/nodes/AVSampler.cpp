@@ -18,6 +18,9 @@ void AVSampler::prepare(const Context& ctx) {
     if (graph) {
         audioSource.graph = graph;
         videoSource.graph = graph;
+        
+        // Ensure video is in external clock mode for perfect sync
+        videoSource.parameters.get("clockMode").cast<int>() = VideoFileSource::EXTERNAL;
     }
     
     Node::prepare(ctx);

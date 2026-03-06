@@ -7,8 +7,24 @@ VideoFileSource::VideoFileSource() {
     parameters.add(loop.set("loop", true));
     parameters.add(speed.set("speed", 1.0, -4.0, 4.0));
     parameters.add(playing.set("playing", true));
+    parameters.add(clockMode.set("clockMode", VideoFileSource::INTERNAL, VideoFileSource::INTERNAL, VideoFileSource::EXTERNAL));
 
     path.addListener(this, &VideoFileSource::onPathChanged);
+    clockMode.addListener(this, &VideoFileSource::onClockModeChanged);
+}
+
+void VideoFileSource::onClockModeChanged(int& mode) {
+    if (player.isLoaded()) {
+        if (mode == VideoFileSource::EXTERNAL) {
+            player.setSpeed(0.0f);
+            player.setPaused(true);
+        } else {
+            if (playing) {
+                player.play();
+                player.setSpeed(speed);
+            }
+        }
+    }
 }
 
 void VideoFileSource::onPathChanged(std::string& p) {
@@ -28,10 +44,16 @@ void VideoFileSource::load(const std::string& vidPath) {
 
     if (loaded) {
         player.setLoopState(loop ? OF_LOOP_NORMAL : OF_LOOP_NONE);
-        player.setSpeed(speed);
         
-        if (playing) {
-            player.play();
+        if (clockMode == VideoFileSource::INTERNAL) {
+            player.setSpeed(speed);
+            if (playing) {
+                player.play();
+            }
+        } else {
+            // EXTERNAL mode relies entirely on manual scrubbing
+            player.setSpeed(0.0f); // Default to stopped speed, or maybe not needed
+            player.setPaused(true);
         }
         loadedPath = vidPath;
     } else {
@@ -42,13 +64,23 @@ void VideoFileSource::load(const std::string& vidPath) {
 void VideoFileSource::update(float dt) {
     if (graph) {
         Control c = getControl(speed);
-        player.setSpeed(c[0]);
+        float s = c[0];
+        
+        if (clockMode == VideoFileSource::INTERNAL) {
+            player.setSpeed(s);
+        } else {
+            // In EXTERNAL mode, we don't set speed.
+            // The playhead is exclusively driven by setPosition() or setFrame()
+        }
     }
     player.update();
     
     // Auto-play safety: ensure playing if it's supposed to be
-    if (playing && player.isLoaded() && !player.isPlaying() && !player.isPaused()) {
+    if (clockMode == VideoFileSource::INTERNAL && playing && player.isLoaded() && !player.isPlaying() && !player.isPaused()) {
         player.play();
+    } else if (clockMode == VideoFileSource::EXTERNAL && player.isLoaded() && !player.isPaused()) {
+        // Enforce pause state for external mode
+        player.setPaused(true);
     }
 }
 
@@ -56,12 +88,16 @@ void VideoFileSource::onParameterChanged(const std::string& paramName) {
     if (!player.isLoaded()) return;
 
     if (paramName == "speed") {
-        player.setSpeed(speed);
+        if (clockMode == VideoFileSource::INTERNAL) {
+            player.setSpeed(speed);
+        }
     } else if (paramName == "loop") {
         player.setLoopState(loop ? OF_LOOP_NORMAL : OF_LOOP_NONE);
     } else if (paramName == "playing") {
-        if (playing) player.play();
-        else player.setPaused(true);
+        if (clockMode == VideoFileSource::INTERNAL) {
+            if (playing) player.play();
+            else player.setPaused(true);
+        }
     }
 }
 

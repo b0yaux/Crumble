@@ -16,6 +16,11 @@ public:
     std::string getDisplayName() const override;
     
     // Playback control
+    enum ClockMode {
+        INTERNAL,
+        EXTERNAL
+    };
+    
     void play();
     void stop();
     void pause();
@@ -39,6 +44,7 @@ public:
     
 private:
     void onPathChanged(std::string& path);
+    void onClockModeChanged(int& mode);
     ofxHapPlayer player;
     std::string loadedPath;
     
@@ -47,4 +53,5 @@ private:
     ofParameter<bool> loop;
     ofParameter<float> speed;
     ofParameter<bool> playing;
+    ofParameter<int> clockMode;
 };
