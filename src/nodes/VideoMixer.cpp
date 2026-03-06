@@ -260,7 +260,9 @@ void VideoMixer::update(float dt) {
         if (sourceNode) {
             ofTexture* tex = sourceNode->getVideoOutput();
             if (tex && tex->isAllocated()) {
-                layersToDraw.push_back({tex, layerOpacities[i], layerBlendModes[i]});
+                Control sourceOpCtrl = sourceNode->getControl(sourceNode->opacity);
+                float sourceOpacity = sourceOpCtrl[0];
+                layersToDraw.push_back({tex, layerOpacities[i] * sourceOpacity, layerBlendModes[i]});
             }
         }
     }
@@ -300,7 +302,7 @@ void VideoMixer::update(float dt) {
     outputFbo.end();
 }
 
-ofTexture* VideoMixer::getVideoOutput(int index) {
+ofTexture* VideoMixer::processVideo(int index) {
     if (index != 0) return nullptr;
     return &outputFbo.getTexture();
 }

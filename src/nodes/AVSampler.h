@@ -24,8 +24,8 @@ public:
     // Node interface
     void prepare(const Context& ctx) override;
     void update(float dt) override;
-    void pullAudio(ofSoundBuffer& buffer, int index = 0) override;
-    ofTexture* getVideoOutput(int index = 0) override;
+    void processAudio(ofSoundBuffer& buffer, int index = 0) override;
+    ofTexture* processVideo(int index = 0) override;
     std::string getDisplayName() const override;
     
     // Serialization
@@ -48,20 +48,20 @@ private:
     AudioFileSource audioSource;
     VideoFileSource videoSource;
     
-    // Master playhead (in samples, converted as needed for each source)
-    double masterPlayhead = 0.0;
-    
-    // Unified parameters
-    ofParameter<std::string> path; // Unified Path (Logical or Direct)
+    // Parameters
+    ofParameter<std::string> path;
     ofParameter<std::string> audioPath;
     ofParameter<std::string> videoPath;
-    ofParameter<float> speed;      // Shared speed parameter
-    ofParameter<float> volume;     // Audio volume
-    ofParameter<bool> loop;        // Shared loop state
-    ofParameter<bool> playing;     // Shared playback state
-    ofParameter<float> position;   // Current normalized position (0.0 to 1.0)
-    // ofParameterGroup envelope;    // Envelope control
+    ofParameter<float> speed;
+    ofParameter<bool> loop;
+    ofParameter<bool> playing;
+    ofParameter<float> position;
+
+    // Master playhead (in samples, converted as needed for each source)
+    double masterPlayhead = 0.0;
+    std::string loadedAudioPath, loadedVideoPath;
     
-    std::string loadedAudioPath;
-    std::string loadedVideoPath;
+    // Performance state for Sync
+    bool isInternalChange = false;
 };
+

@@ -12,7 +12,7 @@ public:
 
     void onInputConnected(int& toInput) override;
     void removeInput(int inputIndex);
-    void pullAudio(ofSoundBuffer& buffer, int index = 0) override;
+    void processAudio(ofSoundBuffer& buffer, int index = 0) override;
     std::string getDisplayName() const override;
 
     // Serialization

@@ -34,6 +34,7 @@ void ScreenOutput::update(float dt) {
     }
 
     inputTexture = nullptr; // Reset every frame
+    sourceOpacity = 1.0f;
     if (!enabled) return;
     
     if (!graph) return;
@@ -44,6 +45,8 @@ void ScreenOutput::update(float dt) {
         Node* sourceNode = graph->getNode(inputs[0].fromNode);
         if (sourceNode) {
             inputTexture = sourceNode->getVideoOutput(inputs[0].fromOutput);
+            Control sourceOpCtrl = sourceNode->getControl(sourceNode->opacity);
+            sourceOpacity = sourceOpCtrl[0];
         }
     }
 }
@@ -62,6 +65,6 @@ void ScreenOutput::draw() {
         return;
     }
     
-    ofSetColor(255);
+    ofSetColor(255, sourceOpacity * 255);
     inputTexture->draw(x, y, width, height);
 }

@@ -32,7 +32,7 @@ public:
     // --- Lifecycle ---
     void update(float dt) override;
     void draw() override;
-    void pullAudio(ofSoundBuffer& buffer, int index = 0) override;
+    void processAudio(ofSoundBuffer& buffer, int index = 0) override;
 
     // --- Node Management ---
     Node* createNode(const std::string& type, const std::string& name = "");
@@ -67,7 +67,7 @@ public:
     std::vector<std::string> getRegisteredTypes() const;
 
     // --- Video Engine ---
-    ofTexture* getVideoOutput(int index = 0) override;
+    ofTexture* processVideo(int index = 0) override;
 
     // --- Serialization ---
     ofJson serialize() const override;

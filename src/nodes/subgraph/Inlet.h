@@ -9,8 +9,8 @@ class Inlet : public Node {
 public:
     Inlet();
     
-    ofTexture* getVideoOutput(int index = 0) override;
-    void pullAudio(ofSoundBuffer& buffer, int index = 0) override;
+    ofTexture* processVideo(int index = 0) override;
+    void processAudio(ofSoundBuffer& buffer, int index = 0) override;
     
     // The index of this inlet (0, 1, 2, ...)
     ofParameter<int> inletIndex;

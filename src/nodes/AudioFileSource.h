@@ -11,7 +11,7 @@ class AudioFileSource : public Node {
 public:
     AudioFileSource();
 
-    void pullAudio(ofSoundBuffer& buffer, int index = 0) override;
+    void processAudio(ofSoundBuffer& buffer, int index = 0) override;
     void load(const std::string& path);
     std::string getDisplayName() const override;
 
@@ -29,7 +29,6 @@ protected:
     std::string loadedPath;
 
     ofParameter<std::string> path;
-    ofParameter<float> volume;
     ofParameter<float> speed;
     ofParameter<bool> loop;
     ofParameter<bool> playing;

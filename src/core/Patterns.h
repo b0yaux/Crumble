@@ -7,8 +7,8 @@
 
 /**
  * Pattern: A stateless mathematical mapping of cycle (0.0-1.0) to value.
- * Because Patterns don't store internal state, they can be sampled at any rate
- * (e.g. audio rate or video rate) and remain perfectly phase-aligned.
+ * Patterns are sampled at any rate (e.g. audio rate or video rate)
+ * and remain perfectly phase-aligned via double-precision cycle evaluation.
  */
 template<typename T>
 class Pattern {
@@ -20,109 +20,102 @@ public:
      * @param cycle The absolute phase (0.0 to 1.0 per bar/loop).
      */
     virtual T eval(double cycle) = 0;
+
+    /**
+     * Returns a unique signature string representing the pattern's content.
+     * Used for idempotency optimization to avoid redundant re-parsing.
+     */
+    virtual std::string getSignature() const = 0;
 };
 
-/**
- * Concrete implementations of Pattern logic.
- */
 namespace patterns {
 
     /**
-     * Seq: Parses strings ("1 0.5 -1") 
-     * and returns the value for the current step.
-     */
-    class Seq : public Pattern<float> {
-    public:
-        Seq(const std::string& pattern) {
-            std::stringstream ss(pattern);
-            std::string token;
-            while (ss >> token) {
-                try {
-                    steps.push_back(std::stof(token));
-                } catch (...) {
-                    steps.push_back(0.0f);
-                }
-            }
-        }
-
-        float eval(double cycle) override {
-            if (steps.empty()) return 0.0f;
-            
-            // Normalize cycle to [0, 1)
-            double phase = cycle - std::floor(cycle);
-            
-            int index = (int)(phase * steps.size());
-            if (index >= (int)steps.size()) index = (int)steps.size() - 1;
-            if (index < 0) index = 0;
-            
-            return steps[index];
-        }
-
-    private:
-        std::vector<float> steps;
-    };
-
-    /**
-     * Osc: Sine wave shape.
-     */
-    class Osc : public Pattern<float> {
-    public:
-        Osc(float frequency) : freq(frequency) {}
-        float eval(double cycle) override {
-            return (std::sin(cycle * freq * 2.0 * M_PI) + 1.0f) * 0.5f;
-        }
-    private:
-        float freq;
-    };
-
-    /**
-     * Ramp: Sawtooth shape.
-     */
-    class Ramp : public Pattern<float> {
-    public:
-        Ramp(float frequency) : freq(frequency) {}
-        float eval(double cycle) override {
-            double phase = cycle * freq;
-            return (float)(phase - std::floor(phase));
-        }
-    private:
-        float freq;
-    };
-
-    /**
-     * Constant: Returns a constant value.
+     * Constant: A static value.
      */
     class Constant : public Pattern<float> {
     public:
         Constant(float value) : val(value) {}
         float eval(double cycle) override { return val; }
+        std::string getSignature() const override { return "const:" + std::to_string(val); }
     private:
         float val;
     };
 
     /**
-     * Mul: Multiplies two patterns.
+     * Osc: Sine wave generator.
+     * @param freq Frequency in Cycles-Per-Bar (1.0 = repeats once per bar).
      */
-    class Mul : public Pattern<float> {
+    class Osc : public Pattern<float> {
     public:
-        Mul(std::shared_ptr<Pattern<float>> a, std::shared_ptr<Pattern<float>> b) : patA(a), patB(b) {}
+        Osc(float frequency = 1.0f) : freq(frequency) {}
         float eval(double cycle) override {
-            return (patA ? patA->eval(cycle) : 0.0f) * (patB ? patB->eval(cycle) : 0.0f);
+            return (std::sin(cycle * freq * 2.0 * M_PI) + 1.0f) * 0.5f;
         }
+        std::string getSignature() const override { return "osc:" + std::to_string(freq); }
     private:
-        std::shared_ptr<Pattern<float>> patA, patB;
+        float freq;
     };
 
     /**
-     * Add: Adds two patterns.
+     * Ramp: Sawtooth generator (0 to 1).
+     * @param freq Frequency in Cycles-Per-Bar.
      */
-    class Add : public Pattern<float> {
+    class Ramp : public Pattern<float> {
     public:
-        Add(std::shared_ptr<Pattern<float>> a, std::shared_ptr<Pattern<float>> b) : patA(a), patB(b) {}
+        Ramp(float frequency = 1.0f) : freq(frequency) {}
         float eval(double cycle) override {
-            return (patA ? patA->eval(cycle) : 0.0f) + (patB ? patB->eval(cycle) : 0.0f);
+            double phase = cycle * freq;
+            return (float)(phase - std::floor(phase));
         }
+        std::string getSignature() const override { return "ramp:" + std::to_string(freq); }
     private:
-        std::shared_ptr<Pattern<float>> patA, patB;
+        float freq;
+    };
+
+    /**
+     * Noise: Stateless deterministic hash noise.
+     */
+    class Noise : public Pattern<float> {
+    public:
+        Noise(float seed = 0.0f) : s(seed) {}
+        float eval(double cycle) override {
+            double x = std::sin(cycle + s) * 43758.5453123;
+            return (float)(x - std::floor(x));
+        }
+        std::string getSignature() const override { return "noise:" + std::to_string(s); }
+    private:
+        float s;
+    };
+
+    /**
+     * Seq: Discrete step sequencer.
+     * Parses a string of numbers (e.g., "1 0 0.5 -1").
+     */
+    class Seq : public Pattern<float> {
+    public:
+        Seq(const std::string& patternString) : raw(patternString) {
+            std::stringstream ss(patternString);
+            std::string token;
+            while (ss >> token) {
+                try { steps.push_back(std::stof(token)); }
+                catch (...) { steps.push_back(0.0f); }
+            }
+        }
+
+        float eval(double cycle) override {
+            if (steps.empty()) return 0.0f;
+            double phase = cycle - std::floor(cycle);
+            int index = (int)(phase * steps.size());
+            index = std::max(0, std::min((int)steps.size() - 1, index));
+            return steps[index];
+        }
+
+        std::string getSignature() const override { return "seq:" + raw; }
+
+    private:
+        std::string raw;
+        std::vector<float> steps;
     };
 }
+

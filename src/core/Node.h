@@ -45,10 +45,27 @@ public:
 
     /**
      * 2. Execution (Pull Phase):
-     * Sink nodes pull audio buffers from their sources recursively.
+     * The Gatekeeper wrappers (pullAudio/getVideoOutput) handle the 'active' 
+     * flag (Mute/Bypass) before calling the node's specific processing logic.
      */
     virtual void update(float dt) {}
-    virtual void pullAudio(ofSoundBuffer& buffer, int index = 0) {}
+    void pullAudio(ofSoundBuffer& buffer, int index = 0);
+    ofTexture* getVideoOutput(int index = 0);
+
+    /**
+     * Internal processing logic implemented by specific node types.
+     */
+    virtual void processAudio(ofSoundBuffer& buffer, int index = 0) {}
+    virtual ofTexture* processVideo(int index = 0) { return nullptr; }
+
+    /**
+     * Bypassed processing logic (The "Identity" pattern).
+     * Called when active = false. 
+     * Default implementation returns silence/transparency.
+     * Effects/Shaders should override this to return the dry input signal.
+     */
+    virtual void processAudioBypass(ofSoundBuffer& buffer, int index = 0);
+    virtual ofTexture* processVideoBypass(int index = 0);
 
     /**
      * Returns a 'Control' view for a parameter. Handles both modulated (vectorized)
@@ -62,9 +79,35 @@ public:
     // Registration Hint
     bool canDraw = false;
     ofParameter<int> drawLayer;
+    ofParameter<float> volume;
+    ofParameter<float> opacity;
+    ofParameter<bool> active; // Master on/off switch
+
     
-    virtual ofTexture* getVideoOutput(int index = 0) { return nullptr; }
     virtual std::string getDisplayName() const { return name; }
+
+    /**
+     * Connection helpers
+     */
+    void setInputNode(int slot, Node* node) {
+        std::lock_guard<std::recursive_mutex> lock(modMutex);
+        if (node) inputNodes[slot] = node;
+        else inputNodes.erase(slot);
+    }
+    
+    Node* getInputNode(int slot) const {
+        auto it = inputNodes.find(slot);
+        return (it != inputNodes.end()) ? it->second : nullptr;
+    }
+
+    /**
+     * Resolves a logical string into a physical file path.
+     * 
+     * @param path The input path (logical alias "birds", bank "drums:5", or direct file)
+     * @param typeHint Optional stream selector ("video" or "audio") used to resolve 
+     *                 multi-stream logical assets into specific physical files.
+     * @return Absolute path on disk, or original string if not found.
+     */
     virtual std::string resolvePath(const std::string& path, const std::string& typeHint = "") const;
     
     ofParameterGroup parameters;
@@ -105,6 +148,7 @@ public:
     virtual void onParameterChanged(const std::string& paramName) {}
     
 protected:
+    std::unordered_map<int, Node*> inputNodes; // Connected source nodes
     std::unordered_map<std::string, std::shared_ptr<Pattern<float>>> modulators;
     mutable std::recursive_mutex modMutex;
 

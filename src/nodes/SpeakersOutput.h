@@ -12,7 +12,7 @@ public:
     virtual ~SpeakersOutput();
 
     // Crumble Graph API override
-    void pullAudio(ofSoundBuffer& buffer, int index = 0) override;
+    void processAudio(ofSoundBuffer& buffer, int index = 0) override;
 
 protected:
     ofParameter<float> masterVolume;

@@ -17,7 +17,7 @@ aOutput.volume = 1.0
 
 -- 2. Load directory - generic loader returns by extension
 local workDir = "/Users/jaufre/works/superstratum_video-data"
-local data = loader.scan(workDir, { limit = 64 })
+local data = loader.scan(workDir, { limit = 16 })
 
 -- 3. Caller decides what to do with the data
 local videos = data[".mov"] or {}

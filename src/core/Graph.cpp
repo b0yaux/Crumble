@@ -57,13 +57,20 @@ bool Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
 
     // Success - notify nodes
     Node* to = getNode(toNode);
-    if (to) to->onInputConnected(toInput);
+    Node* from = getNode(fromNode);
+    if (to) {
+        to->setInputNode(toInput, from);
+        to->onInputConnected(toInput);
+    }
     
     executionDirty = true;
     return true;
 }
 
 void Graph::disconnect(int toNode, int toInput) {
+    Node* to = getNode(toNode);
+    if (to) to->setInputNode(toInput, nullptr);
+
     connections.erase(
         std::remove_if(connections.begin(), connections.end(),
             [toNode, toInput](const Connection& c) {
@@ -195,7 +202,7 @@ void Graph::updateRenderList() {
     });
 }
 
-ofTexture* Graph::getVideoOutput(int index) {
+ofTexture* Graph::processVideo(int index) {
     // Search internal nodes for an 'Outlet' with matching index
     for (const auto& pair : nodes) {
         Node* node = pair.second.get();
@@ -211,7 +218,7 @@ ofTexture* Graph::getVideoOutput(int index) {
     return nullptr;
 }
 
-void Graph::pullAudio(ofSoundBuffer& buffer, int index) {
+void Graph::processAudio(ofSoundBuffer& buffer, int index) {
     std::lock_guard<std::recursive_mutex> lock(audioMutex);
     
     // Push timing to all nodes before processing

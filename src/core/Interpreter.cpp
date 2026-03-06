@@ -1,6 +1,7 @@
 #include "Interpreter.h"
 #include "Session.h"
 #include "Config.h"
+#include "PatternMath.h"
 
 Interpreter* g_interpreter = nullptr;
 
@@ -216,6 +217,14 @@ void Interpreter::bindSessionAPI() {
                     _connect(self.id, toId, fromOut or 0, toIn or 0)
                     return self
                 end
+            elseif k == "off" then
+                return function(self) self.active = false return self end
+            elseif k == "on" then
+                return function(self) self.active = true return self end
+            elseif k == "mute" then
+                return function(self) self.active = false return self end
+            elseif k == "unmute" then
+                return function(self) self.active = true return self end
             else
                 -- Try to get parameter value from node
                 return _get(t.id, k)
@@ -354,13 +363,49 @@ void Interpreter::bindSessionAPI() {
         end
         
         _G.osc = function(f)
-            local p_obj = { _isGen = true, type = "osc", val = f }
+            local p_obj = { _isGen = true, type = "osc", val = f or 1.0 }
             setmetatable(p_obj, PatternMeta)
             return p_obj
         end
         
         _G.ramp = function(f)
-            local p_obj = { _isGen = true, type = "ramp", val = f }
+            local p_obj = { _isGen = true, type = "ramp", val = f or 1.0 }
+            setmetatable(p_obj, PatternMeta)
+            return p_obj
+        end
+
+        _G.noise = function(s)
+            local p_obj = { _isGen = true, type = "noise", val = s or 0.0 }
+            setmetatable(p_obj, PatternMeta)
+            return p_obj
+        end
+
+        _G.fast = function(f, p)
+            local p_obj = { _isGen = true, type = "speed", val = f, p = p }
+            setmetatable(p_obj, PatternMeta)
+            return p_obj
+        end
+
+        _G.slow = function(f, p)
+            local p_obj = { _isGen = true, type = "speed", val = 1.0/f, p = p }
+            setmetatable(p_obj, PatternMeta)
+            return p_obj
+        end
+
+        _G.shift = function(o, p)
+            local p_obj = { _isGen = true, type = "shift", val = o, p = p }
+            setmetatable(p_obj, PatternMeta)
+            return p_obj
+        end
+
+        _G.scale = function(lo, hi, p)
+            local p_obj = { _isGen = true, type = "scale", lo = lo, hi = hi, p = p }
+            setmetatable(p_obj, PatternMeta)
+            return p_obj
+        end
+
+        _G.snap = function(n, p)
+            local p_obj = { _isGen = true, type = "snap", val = n, p = p }
             setmetatable(p_obj, PatternMeta)
             return p_obj
         end
@@ -561,6 +606,11 @@ std::shared_ptr<Pattern<float>> parsePattern(lua_State* L, int index) {
             float freq = (float)lua_tonumber(L, -1);
             lua_pop(L, 1);
             return std::make_shared<patterns::Ramp>(freq);
+        } else if (genType == "noise") {
+            lua_getfield(L, index, "val");
+            float seed = (float)lua_tonumber(L, -1);
+            lua_pop(L, 1);
+            return std::make_shared<patterns::Noise>(seed);
         } else if (genType == "mul") {
             lua_getfield(L, index, "a");
             auto patA = parsePattern(L, lua_gettop(L));
@@ -568,7 +618,7 @@ std::shared_ptr<Pattern<float>> parsePattern(lua_State* L, int index) {
             lua_getfield(L, index, "b");
             auto patB = parsePattern(L, lua_gettop(L));
             lua_pop(L, 1);
-            if (patA && patB) return std::make_shared<patterns::Mul>(patA, patB);
+            if (patA && patB) return std::make_shared<patterns::Product>(patA, patB);
         } else if (genType == "add") {
             lua_getfield(L, index, "a");
             auto patA = parsePattern(L, lua_gettop(L));
@@ -576,7 +626,42 @@ std::shared_ptr<Pattern<float>> parsePattern(lua_State* L, int index) {
             lua_getfield(L, index, "b");
             auto patB = parsePattern(L, lua_gettop(L));
             lua_pop(L, 1);
-            if (patA && patB) return std::make_shared<patterns::Add>(patA, patB);
+            if (patA && patB) return std::make_shared<patterns::Sum>(patA, patB);
+        } else if (genType == "speed") {
+            lua_getfield(L, index, "val");
+            float factor = (float)lua_tonumber(L, -1);
+            lua_pop(L, 1);
+            lua_getfield(L, index, "p");
+            auto pat = parsePattern(L, lua_gettop(L));
+            lua_pop(L, 1);
+            return std::make_shared<patterns::Speed>(factor, pat);
+        } else if (genType == "shift") {
+            lua_getfield(L, index, "val");
+            float amount = (float)lua_tonumber(L, -1);
+            lua_pop(L, 1);
+            lua_getfield(L, index, "p");
+            auto pat = parsePattern(L, lua_gettop(L));
+            lua_pop(L, 1);
+            return std::make_shared<patterns::Shift>(amount, pat);
+        } else if (genType == "scale") {
+            lua_getfield(L, index, "lo");
+            float lo = (float)lua_tonumber(L, -1);
+            lua_pop(L, 1);
+            lua_getfield(L, index, "hi");
+            float hi = (float)lua_tonumber(L, -1);
+            lua_pop(L, 1);
+            lua_getfield(L, index, "p");
+            auto pat = parsePattern(L, lua_gettop(L));
+            lua_pop(L, 1);
+            return std::make_shared<patterns::Scale>(lo, hi, pat);
+        } else if (genType == "snap") {
+            lua_getfield(L, index, "val");
+            float steps = (float)lua_tonumber(L, -1);
+            lua_pop(L, 1);
+            lua_getfield(L, index, "p");
+            auto pat = parsePattern(L, lua_gettop(L));
+            lua_pop(L, 1);
+            return std::make_shared<patterns::Snap>(steps, pat);
         }
     }
     
@@ -593,12 +678,22 @@ int Interpreter::lua_setGenerator(lua_State* L) {
     Node* node = graph->getNode(nodeIdx);
     if (!node) return 0;
 
-    auto pat = parsePattern(L, 3);
-    if (pat) {
-        node->modulate(paramName, pat);
+    // 1. Create a temporary pattern tree from the Lua tables
+    auto newPat = parsePattern(L, 3);
+    if (!newPat) return 0;
+
+    // 2. IDEMPOTENCY CHECK:
+    // If the existing pattern in this slot has the same signature, 
+    // do nothing. This avoids redundant re-allocations and mutex contention.
+    auto existingPat = node->getPattern(paramName);
+    if (existingPat && existingPat->getSignature() == newPat->getSignature()) {
+        return 0; // Exactly the same, skip the update!
     }
 
+    // 3. Perform the update
+    node->modulate(paramName, newPat);
     node->onParameterChanged(paramName);
+    
     return 0;
 }
 

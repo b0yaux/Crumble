@@ -6,7 +6,7 @@ Inlet::Inlet() {
     parameters.add(inletIndex.set("inletIndex", 0, 0, 16));
 }
 
-ofTexture* Inlet::getVideoOutput(int idx) {
+ofTexture* Inlet::processVideo(int idx) {
     if (!graph) return nullptr;
     
     Graph* childGraph = dynamic_cast<Graph*>(graph);
@@ -29,7 +29,7 @@ ofTexture* Inlet::getVideoOutput(int idx) {
     return nullptr;
 }
 
-void Inlet::pullAudio(ofSoundBuffer& buffer, int idx) {
+void Inlet::processAudio(ofSoundBuffer& buffer, int idx) {
     if (!graph) {
         buffer.set(0);
         return;

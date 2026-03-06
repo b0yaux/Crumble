@@ -5,7 +5,6 @@ AudioFileSource::AudioFileSource() {
     type = "AudioFileSource";
 
     parameters.add(path.set("path", ""));
-    parameters.add(volume.set("volume", 1.0, 0.0, 1.0));
     parameters.add(speed.set("speed", 1.0, -4.0, 4.0));
     parameters.add(loop.set("loop", true));
     parameters.add(playing.set("playing", true));
@@ -13,7 +12,7 @@ AudioFileSource::AudioFileSource() {
     path.addListener(this, &AudioFileSource::onPathChanged);
 }
 
-void AudioFileSource::pullAudio(ofSoundBuffer& buffer, int index) {
+void AudioFileSource::processAudio(ofSoundBuffer& buffer, int index) {
     if (index != 0) return;
     if (!playing || !sharedLoader || !sharedLoader->loaded() || sharedLoader->length() == 0) {
         return;
@@ -25,18 +24,16 @@ void AudioFileSource::pullAudio(ofSoundBuffer& buffer, int index) {
 
     // 1. Get pre-calculated control streams (Pushed by the engine)
     Control speedCtrl = getControl(speed);
-    Control volCtrl = getControl(volume);
 
     for (size_t i = 0; i < buffer.getNumFrames(); i++) {
         double currentPlayhead = playhead.load();
         size_t frameIndex = (size_t)currentPlayhead;
 
         if (frameIndex < totalSamples) {
-            float currentVolume = volCtrl[i];
             for (int c = 0; c < buffer.getNumChannels(); c++) {
                 int sourceChannel = c % channels;
                 float sample = data[frameIndex * channels + sourceChannel];
-                buffer[i * buffer.getNumChannels() + c] += sample * currentVolume;
+                buffer[i * buffer.getNumChannels() + c] += sample;
             }
         }
 

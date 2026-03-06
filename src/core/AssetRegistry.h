@@ -34,10 +34,14 @@ public:
 
     /**
      * Resolves a logical path to a specific stream path based on the requested extension/type.
-     * Supports:
-     * - "birds" (Logical Asset)
-     * - "drums:5" (Bank Index)
-     * - "drums:snare" (Bank Named Asset)
+     * 
+     * Supported syntaxes:
+     * - "birds"        (Logical Asset): Resolves to the MOV/WAV pair named 'birds'.
+     * - "drums:5"      (Bank Index): Resolves to the 6th asset pair in the 'drums' folder.
+     * - "drums:snare"  (Bank Named): Resolves to the 'snare' asset within the 'drums' bank.
+     * 
+     * @param logicalPath The user-provided identifier.
+     * @param typeHint The component to retrieve ("audio" or "video").
      */
     std::string resolve(const std::string& logicalPath, const std::string& typeHint = "") const;
 

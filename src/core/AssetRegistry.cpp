@@ -45,9 +45,12 @@ void AssetRegistry::processDirectory(const std::string& path, const std::string&
 
 void AssetRegistry::registerFile(const std::string& filePath, const std::string& bankName) {
     std::string ext = ofToLower(ofFilePath::getFileExt(filePath));
-    if (ext != "mov" && ext != "hap" && ext != "mp4" && ext != "wav" && ext != "mp3" && ext != "aif") {
-        return;
-    }
+    
+    // Supported Formats (matched to ofxAudioFile and ofxHapPlayer capabilities)
+    bool isVideo = (ext == "mov" || ext == "hap" || ext == "mp4" || ext == "mkv" || ext == "avi");
+    bool isAudio = (ext == "wav" || ext == "aif" || ext == "aiff" || ext == "mp3" || ext == "ogg" || ext == "flac");
+
+    if (!isVideo && !isAudio) return;
 
     std::string baseName = ofFilePath::removeExt(ofFilePath::getFileName(filePath));
     
@@ -55,11 +58,8 @@ void AssetRegistry::registerFile(const std::string& filePath, const std::string&
     LogicalAsset& asset = assets[baseName];
     asset.name = baseName;
     
-    if (ext == "mov" || ext == "hap" || ext == "mp4") {
-        asset.videoPath = filePath;
-    } else {
-        asset.audioPath = filePath;
-    }
+    if (isVideo) asset.videoPath = filePath;
+    else asset.audioPath = filePath;
 
     // 2. Register in the bank
     if (!bankName.empty()) {

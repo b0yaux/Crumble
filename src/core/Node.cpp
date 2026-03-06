@@ -6,7 +6,35 @@
 std::atomic<int> Node::nextNodeId(0);
 
 Node::Node() {
+    parameters.setName("group");
+    parameters.add(volume.set("volume", 1.0, 0.0, 1.0));
+    parameters.add(opacity.set("opacity", 1.0, 0.0, 1.0));
+    parameters.add(active.set("active", true));
     drawLayer.set("drawLayer", 0, -100, 100);
+}
+
+void Node::pullAudio(ofSoundBuffer& buffer, int index) {
+    if (active) {
+        processAudio(buffer, index);
+    } else {
+        processAudioBypass(buffer, index);
+    }
+}
+
+ofTexture* Node::getVideoOutput(int index) {
+    if (active) {
+        return processVideo(index);
+    } else {
+        return processVideoBypass(index);
+    }
+}
+
+void Node::processAudioBypass(ofSoundBuffer& buffer, int index) {
+    buffer.set(0); // Identity: Silence
+}
+
+ofTexture* Node::processVideoBypass(int index) {
+    return nullptr; // Identity: Transparency
 }
 
 void Node::prepare(const Context& ctx) {

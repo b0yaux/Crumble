@@ -79,14 +79,38 @@ mixer.opacity_0 = 0.5
 ```
 
 ### Sequencing & Modulation
-Crumble features a sample-accurate math engine. You can assign sequences, LFOs, or combine them using math operators:
+Crumble features a stateless, sample-accurate math engine. You can compose complex modulators using functional operators:
 ```lua
 local smp = addNode("AVSampler")
-smp.path = "birds" -- Auto-pairs related files
 
-smp.speed = seq("1 0.5 2") * 0.5     -- Scale a sequence
-smp.volume = osc(0.5) + seq("0 0.5") -- Add an LFO offset
+-- Composition: Mix a sequence with an LFO
+smp.speed = seq("1 2 4") * osc(0.5)
+
+-- Time Warping: Play a sequence at double speed
+smp.speed = fast(2, seq("1 0.5 2 0.25"))
+
+-- Generative Logic: Quantize a sine wave into 4 discrete steps
+smp.volume = snap(4, osc(1.0))
+
+-- Mapping: Scale a 0-1 LFO to a specific range (e.g. 200Hz to 2000Hz)
+smp.cutoff = scale(200, 2000, osc(0.25))
 ```
+
+#### Pattern Library
+
+| Function | Description |
+|----------|-------------|
+| `osc(f)` | Sine wave (frequency in cycles-per-bar) |
+| `ramp(f)` | Sawtooth (0.0 to 1.0) |
+| `noise(s)`| Deterministic stochastic noise (optional seed) |
+| `seq("...")`| Discrete step sequencer |
+| `fast(n, p)`| Speed up pattern `p` by factor `n` |
+| `slow(n, p)`| Slow down pattern `p` by factor `n` |
+| `shift(o, p)`| Offset phase by `o` (0.0 to 1.0) |
+| `scale(l, h, p)`| Map pattern range to [low, high] |
+| `snap(s, p)`| Quantize output into `s` steps |
+| `p1 * p2` | Multiply two patterns (Amplitude Modulation) |
+| `p1 + p2` | Add two patterns (Offset/Mixing) |
 
 ### Subgraph Composition
 Create a subgraph by adding a `Graph` node and setting its `script` parameter:

@@ -17,4 +17,5 @@ public:
     
     // Input texture pulled from connected source during update()
     ofTexture* inputTexture = nullptr;
+    float sourceOpacity = 1.0f;
 };

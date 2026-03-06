@@ -51,7 +51,7 @@ void AudioMixer::removeInput(int inputIndex) {
     ofLogVerbose("AudioMixer") << "Removed input " << inputIndex << " (total: " << numActiveInputs << ")";
 }
 
-void AudioMixer::pullAudio(ofSoundBuffer& buffer, int index) {
+void AudioMixer::processAudio(ofSoundBuffer& buffer, int index) {
     if (!graph) return;
 
     // Get all connections to this node
@@ -76,8 +76,11 @@ void AudioMixer::pullAudio(ofSoundBuffer& buffer, int index) {
             auto& p = *inputGains[idx];
             Control gainCtrl = getControl(p);
             
+            // Get source volume (including modulation)
+            Control sourceVolCtrl = source->getControl(source->volume);
+            
             for (size_t i = 0; i < buffer.getNumFrames(); i++) {
-                float gain = gainCtrl[i];
+                float gain = gainCtrl[i] * sourceVolCtrl[i];
                 if (gain > 0) {
                     for (int c = 0; c < buffer.getNumChannels(); c++) {
                         buffer[i * buffer.getNumChannels() + c] += tempBuffer[i * buffer.getNumChannels() + c] * gain;
