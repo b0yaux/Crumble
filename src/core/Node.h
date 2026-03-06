@@ -74,10 +74,6 @@ public:
     // Wait-free messaging helper
     void pushCommand(crumble::AudioCommand cmd);
 
-    // Register a dynamically-added parameter slot in the processor's slotMap.
-    // Call this after adding a new parameter to `parameters` post-construction.
-    void registerSlot(const std::string& paramName, int slotIndex);
-
     bool canDraw = false;
     
     // Use raw ofParameter members instead of pointers to stay Crumble-idiomatic
@@ -101,7 +97,7 @@ public:
     int nodeId = -1;
     static std::atomic<int> nextNodeId;
 
-    void modulate(const std::string& paramName, std::shared_ptr<Pattern<float>> pat);
+    virtual void modulate(const std::string& paramName, std::shared_ptr<Pattern<float>> pat);
     void clearModulator(const std::string& paramName);
     std::shared_ptr<Pattern<float>> getPattern(const std::string& paramName) const;
     

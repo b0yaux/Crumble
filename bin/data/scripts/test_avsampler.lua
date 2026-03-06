@@ -27,9 +27,9 @@ connect(vmix, screen)
 -- s1.speed = fast(5, noise(1))            -- Very slow stochastic speed drift
 -- s1.speed = 0.1
 -- s2 speed: A quantized (snapped) sequence running at double time
-s2.speed = slow(0.1, ramp(1.0)) -- 4-step staircase speed ramp
--- s2.speed = scale(-1, 1, ramp(0.5))  -- Forward to backward sweep
--- s2.speed = fast(10, noise(1)) * 2   -- Fast jittery speed
+-- s2.speed = slow(0.05, ramp(0.1)) -- 4-step staircase speed ramp
+ s2.speed = scale(-1, 1, ramp(0.5))  -- Forward to backward sweep
+-- s2.speed = 1.0   -- Fast jittery speed
 -- 4. Mixer state
 amix.volume = 2.5
 vmix.blend_0, vmix.blend_1 = 0, 1

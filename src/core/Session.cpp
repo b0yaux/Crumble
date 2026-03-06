@@ -62,30 +62,28 @@ void Session::audioOut(ofSoundBuffer& buffer) {
                         activeProcessors.erase(it);
                     }
                     // Release all pattern shared_ptrs so Pattern objects can be freed.
-                    for (auto& ps : cmd.processor->patternSlots) ps.reset();
+                    cmd.processor->patternMap.clear();
                     releaseQueue.enqueue(cmd.processor);
                 }
                 break;
 
             case crumble::AudioCommand::SET_PARAM:
-                if (alive(cmd.processor)) {
-                    cmd.processor->values[cmd.slotIndex].store(cmd.value, std::memory_order_relaxed);
+                if (alive(cmd.processor) && !cmd.slotName.empty()) {
+                    cmd.processor->valuesMap[cmd.slotName].store(cmd.value, std::memory_order_relaxed);
                 }
                 break;
 
             case crumble::AudioCommand::SET_PATTERN:
                 // Install the Pattern object. If the processor is already gone the
                 // shared_ptr simply destructs here — no leak, no crash.
-                if (alive(cmd.processor) && cmd.slotIndex >= 0 && cmd.slotIndex < 128) {
-                    cmd.processor->patternSlots[cmd.slotIndex] = std::move(cmd.pattern);
+                if (alive(cmd.processor) && !cmd.slotName.empty()) {
+                    if (cmd.pattern) {
+                        cmd.processor->patternMap[cmd.slotName] = cmd.pattern;
+                    } else {
+                        cmd.processor->patternMap.erase(cmd.slotName);
+                    }
                 }
                 // cmd.pattern destructs cleanly whether we used it or not.
-                break;
-
-            case crumble::AudioCommand::SET_SLOT:
-                if (alive(cmd.processor) && !cmd.slotName.empty() && cmd.slotIndex >= 0) {
-                    cmd.processor->slotMap[cmd.slotName] = cmd.slotIndex;
-                }
                 break;
 
             case crumble::AudioCommand::CONNECT_NODES:

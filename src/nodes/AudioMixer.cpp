@@ -7,14 +7,9 @@ namespace crumble {
 
 class AudioMixerProcessor : public NodeProcessor {
 public:
-    AudioMixerProcessor() {
-        // Pre-initialize gain slot cache to -1 (not yet registered)
-        for (int i = 0; i < 16; i++) gainSlots[i] = -1;
-    }
-
     void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
                  double cycle, double cycleStep) override {
-        // Use name-based slot lookup — never hardcoded integers.
+        // Use name-based lookup — no more index confusion!
         float masterGain = getParam("masterGain");
         
         for (int i = 0; i < 16; i++) {
@@ -28,14 +23,11 @@ public:
                 // Pass cycle/cycleStep down the graph
                 input.processor->pull(sumBuf, input.fromOutput, frameCounter, cycle, cycleStep);
                 
-                // Lazy-cache the gain slot index
-                if (gainSlots[i] < 0) {
-                    gainSlots[i] = getSlot("gain_" + std::to_string(i));
-                }
+                // Direct name-based lookup
+                float gain = getParam("gain_" + std::to_string(i));
 
                 float* pSum = sumBuf.getBuffer().data();
                 float* pOut = buffer.getBuffer().data();
-                float gain = gainSlots[i] >= 0 ? getParam(gainSlots[i]) : 0.0f;
                 
                 for (size_t k = 0; k < buffer.size(); k++) {
                     pOut[k] += pSum[k] * gain;
@@ -53,7 +45,6 @@ public:
     
 private:
     ofSoundBuffer sumBuf; // Instance-private summation buffer
-    int gainSlots[16];    // Cached slot indices for gain_0..gain_15
 };
 
 } // namespace crumble
@@ -90,19 +81,12 @@ void AudioMixer::onInputConnected(int index) {
             parameters->add(*p);
             inputGains.push_back(p);
             
-            // Calculate the slot index for this dynamically-added parameter.
-            // It will be at position (current parameters->size() - 1).
-            int slotIdx = (int)parameters->size() - 1;
-
-            // Register the slot in the processor's slotMap and sync the value.
+            // Register the parameter name and sync the value.
             if (processor) {
-                // Register name->index mapping on audio thread
-                registerSlot(name, slotIdx);
-
-                // Sync initial value
+                // Sync initial value using name-based SET_PARAM
                 crumble::AudioCommand cmd;
                 cmd.type = crumble::AudioCommand::SET_PARAM;
-                cmd.slotIndex = slotIdx;
+                cmd.slotName = name;
                 cmd.value = 0.8f;
                 pushCommand(cmd);
             }

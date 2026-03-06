@@ -134,27 +134,17 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
     else if (paramName == "speed") {
         if (cachedAudioSpeed) cachedAudioSpeed->set(speed.get());
         if (cachedVideoSpeed) cachedVideoSpeed->set(speed.get());
-        // Route the pattern only through audioSource (correct slot indices).
-        // AVSampler::processor == audioSource.processor, but AVSampler's "speed"
-        // slot index differs from audioSource's — sending from AVSampler context
-        // would corrupt a wrong slot. So we delegate entirely to audioSource.
+        // Sync pattern to audioSource first (stores in audioSource.modulators),
+        // then propagate via onParameterChanged (sends SET_PARAM + SET_PATTERN).
         auto pat = getPattern("speed");
         audioSource.modulate("speed", pat);
+        audioSource.onParameterChanged("speed");
         videoSource.modulate("speed", pat);
-        // Remove from our own modulators so prepare() doesn't re-evaluate it here
-        {
-            std::lock_guard<std::recursive_mutex> lk(modMutex);
-            modulators.erase("speed");
-        }
     } else if (paramName == "volume") {
         if (cachedAudioVolume) cachedAudioVolume->set(volume->get());
         auto pat = getPattern("volume");
         audioSource.modulate("volume", pat);
-        // Same guard: erase from own modulators
-        {
-            std::lock_guard<std::recursive_mutex> lk(modMutex);
-            modulators.erase("volume");
-        }
+        audioSource.onParameterChanged("volume");
     } else if (paramName == "loop") {
         if (cachedAudioLoop) cachedAudioLoop->set(loop.get());
         if (cachedVideoLoop) cachedVideoLoop->set(loop.get());
@@ -197,8 +187,7 @@ crumble::NodeProcessor* AVSampler::createProcessor() {
     audioSource.processor = proc;
     proc->nodeId = audioSource.nodeId;
 
-    // Populate the slotMap from audioSource's parameter group.
-    // This mirrors what Node::setupProcessor() does.
+    // Populate valuesMap from audioSource's parameter group (name-based, no indices).
     for (int i = 0; i < (int)audioSource.parameters->size(); i++) {
         auto& p = audioSource.parameters->get(i);
         float val = 0;
@@ -216,8 +205,7 @@ crumble::NodeProcessor* AVSampler::createProcessor() {
         }
 
         if (supported) {
-            proc->values[i].store(val);
-            proc->slotMap[p.getName()] = i;
+            proc->valuesMap[p.getName()].store(val);
         }
     }
 

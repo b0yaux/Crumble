@@ -40,7 +40,7 @@ void Node::setupProcessor() {
         processor->nodeId = nodeId;
         
         // GENERIC INITIAL SYNC: Loop through all parameters in the group.
-        // Also populate the slotMap so processors can look up slots by name.
+        // Populate valuesMap with initial values (name-based, no indices).
         for (int i = 0; i < (int)parameters->size(); i++) {
             auto& p = parameters->get(i);
             float val = 0;
@@ -58,9 +58,7 @@ void Node::setupProcessor() {
             }
             
             if (supported) {
-                processor->values[i].store(val);
-                // Register in slotMap so processors can use getSlot("name")
-                processor->slotMap[p.getName()] = i;
+                processor->valuesMap[p.getName()].store(val);
             }
         }
         
@@ -77,19 +75,6 @@ void Node::pushCommand(crumble::AudioCommand cmd) {
         if (!cmd.processor) cmd.processor = processor;
         g_session->sendCommand(cmd);
     }
-}
-
-void Node::registerSlot(const std::string& paramName, int slotIndex) {
-    if (!processor) return;
-    // Update the processor's slotMap directly (safe from UI thread before audio starts)
-    // and also send a command so the audio thread picks it up at runtime.
-    processor->slotMap[paramName] = slotIndex;
-
-    crumble::AudioCommand cmd;
-    cmd.type = crumble::AudioCommand::SET_SLOT;
-    cmd.slotName = paramName;
-    cmd.slotIndex = slotIndex;
-    pushCommand(cmd);
 }
 
 void Node::prepare(const Context& ctx) {
@@ -161,22 +146,6 @@ Node* Node::getInputNode(int slot) const {
 void Node::modulate(const std::string& paramName, std::shared_ptr<Pattern<float>> pat) {
     std::lock_guard<std::recursive_mutex> lock(modMutex);
     modulators[paramName] = pat;
-
-    // Send the pattern to the audio thread immediately so it can evaluate
-    // it inline per sample. No buffer allocation needed — patterns are stateless.
-    if (processor) {
-        int slot = -1;
-        for (int i = 0; i < (int)parameters->size(); i++) {
-            if (parameters->getName(i) == paramName) { slot = i; break; }
-        }
-        if (slot >= 0) {
-            crumble::AudioCommand cmd;
-            cmd.type = crumble::AudioCommand::SET_PATTERN;
-            cmd.slotIndex = slot;
-            cmd.pattern = pat; // shared_ptr copy — ref-count is atomic, safe across threads
-            pushCommand(cmd);
-        }
-    }
 }
 
 void Node::clearModulator(const std::string& paramName) {
@@ -185,17 +154,11 @@ void Node::clearModulator(const std::string& paramName) {
 
     // Send a null pattern to clear the slot on the audio thread
     if (processor) {
-        int slot = -1;
-        for (int i = 0; i < (int)parameters->size(); i++) {
-            if (parameters->getName(i) == paramName) { slot = i; break; }
-        }
-        if (slot >= 0) {
-            crumble::AudioCommand cmd;
-            cmd.type = crumble::AudioCommand::SET_PATTERN;
-            cmd.slotIndex = slot;
-            cmd.pattern = nullptr; // clears patternSlots[slot] on audio thread
-            pushCommand(cmd);
-        }
+        crumble::AudioCommand cmd;
+        cmd.type = crumble::AudioCommand::SET_PATTERN;
+        cmd.slotName = paramName;
+        cmd.pattern = nullptr; // clears patternMap[paramName] on audio thread
+        pushCommand(cmd);
     }
 }
 
@@ -208,32 +171,46 @@ std::shared_ptr<Pattern<float>> Node::getPattern(const std::string& paramName) c
 void Node::onParameterChanged(const std::string& paramName) {
     if (!processor) return;
     
-    int slot = -1;
     float val = 0;
+    bool found = false;
     
     for (int i = 0; i < (int)parameters->size(); i++) {
         if (parameters->getName(i) == paramName) {
             auto& p = parameters->get(i);
             if (p.type() == typeid(ofParameter<float>).name()) {
-                slot = i;
                 val = p.cast<float>().get();
+                found = true;
             } else if (p.type() == typeid(ofParameter<bool>).name()) {
-                slot = i;
                 val = p.cast<bool>().get() ? 1.0f : 0.0f;
+                found = true;
             } else if (p.type() == typeid(ofParameter<int>).name()) {
-                slot = i;
                 val = (float)p.cast<int>().get();
+                found = true;
             }
             break;
         }
     }
     
-    if (slot >= 0) {
+    if (found) {
         crumble::AudioCommand cmd;
         cmd.type = crumble::AudioCommand::SET_PARAM;
-        cmd.slotIndex = slot;
+        cmd.slotName = paramName;
         cmd.value = val;
         pushCommand(cmd);
+
+        // Also propagate any pattern for this parameter to the audio thread.
+        // This is the single point where patterns are sent to processors.
+        {
+            std::lock_guard<std::recursive_mutex> lock(modMutex);
+            auto it = modulators.find(paramName);
+            if (it != modulators.end()) {
+                crumble::AudioCommand patCmd;
+                patCmd.type = crumble::AudioCommand::SET_PATTERN;
+                patCmd.slotName = paramName;
+                patCmd.pattern = it->second;
+                pushCommand(patCmd);
+            }
+        }
     }
 }
 

@@ -36,7 +36,7 @@ public:
     
     // React to parameter changes from Lua
     void onParameterChanged(const std::string& paramName) override;
-    
+
     // Direct access to internal sources (for advanced use via Lua)
     AudioFileSource* getAudioSource() { return &audioSource; }
     VideoFileSource* getVideoSource() { return &videoSource; }

@@ -10,22 +10,19 @@ class AudioFileProcessor : public NodeProcessor {
 public:
     void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
                  double cycle, double cycleStep) override {
-        // Use name-based slot lookup — never hardcoded integers
+        // Use name-based lookup — no more index confusion!
         if (!data || totalSamples == 0 || getParam("playing") < 0.5f) return;
 
-        // Resolve slots once per block (cheap map lookup, not per-sample)
-        int speedSlot  = getSlot("speed");
-        int volSlot    = getSlot("volume");
-        bool loop      = getParam("loop") > 0.5f;
+        bool loop = getParam("loop") > 0.5f;
 
         double currentPlayhead = playhead.load();
 
         for (size_t i = 0; i < buffer.getNumFrames(); i++) {
             double sampleCycle = cycle + i * cycleStep;
 
-            // Evaluate speed and volume — falls back to scalar if no pattern installed
-            float speed = evalPattern(speedSlot, sampleCycle);
-            float gain  = evalPattern(volSlot,   sampleCycle);
+            // Evaluate speed and volume by name — falls back to scalar if no pattern installed
+            float speed = evalPattern("speed", sampleCycle);
+            float gain  = evalPattern("volume", sampleCycle);
 
             size_t frameIndex = (size_t)currentPlayhead;
             if (frameIndex < totalSamples) {
