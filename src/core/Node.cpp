@@ -47,10 +47,10 @@ void Node::prepare(const Context& ctx) {
     // Vectorized pre-calculation for audio/control blocks
     if (ctx.frames <= 1) return;
     
-    for (auto& [paramName, pattern] : modulators) {
+    for (auto& [ptr, pattern] : modulators) {
         if (!pattern) continue;
 
-        ofSoundBuffer& buffer = controlBuffers[paramName];
+        ofSoundBuffer& buffer = controlBuffers[ptr];
         if ((int)buffer.getNumFrames() != ctx.frames) {
             buffer.allocate(ctx.frames, 1);
         }
@@ -70,12 +70,13 @@ Control Node::getControl(ofParameter<float>& param) const {
     Control ctrl;
     ctrl.constant = param.get();
     
-    auto modIt = modulators.find(param.getName());
+    void* ptr = (void*)&param;
+    auto modIt = modulators.find(ptr);
     if (modIt != modulators.end() && modIt->second) {
         ctrl.modulated = true;
         
         // If there's a pre-calculated buffer (from prepare), use it
-        auto bufIt = controlBuffers.find(param.getName());
+        auto bufIt = controlBuffers.find(ptr);
         if (bufIt != controlBuffers.end() && bufIt->second.getNumFrames() > 1) {
             ctrl.buffer = bufIt->second.getBuffer().data();
         } else {
@@ -113,23 +114,41 @@ std::string Node::resolvePath(const std::string& path, const std::string& typeHi
 
 void Node::modulate(const std::string& paramName, std::shared_ptr<Pattern<float>> pat) {
     std::lock_guard<std::recursive_mutex> lock(modMutex);
-    modulators[paramName] = pat;
+    
+    void* ptr = nullptr;
+    auto it = paramPtrs.find(paramName);
+    if (it != paramPtrs.end()) {
+        ptr = it->second;
+    } else if (parameters.contains(paramName)) {
+        ptr = (void*)&parameters.get(paramName);
+        paramPtrs[paramName] = ptr;
+    } else {
+        return;
+    }
+
+    modulators[ptr] = pat;
     
     // Pre-allocate buffer entry to avoid map allocation on audio thread
-    if (controlBuffers.find(paramName) == controlBuffers.end()) {
-        controlBuffers[paramName].allocate(1024, 1);
+    if (controlBuffers.find(ptr) == controlBuffers.end()) {
+        controlBuffers[ptr].allocate(1024, 1);
     }
 }
 
 void Node::clearModulator(const std::string& paramName) {
     std::lock_guard<std::recursive_mutex> lock(modMutex);
-    modulators.erase(paramName);
+    auto it = paramPtrs.find(paramName);
+    if (it != paramPtrs.end()) {
+        modulators.erase(it->second);
+    }
 }
 
 std::shared_ptr<Pattern<float>> Node::getPattern(const std::string& paramName) const {
     std::lock_guard<std::recursive_mutex> lock(modMutex);
-    auto it = modulators.find(paramName);
-    if (it != modulators.end()) return it->second;
+    auto it = paramPtrs.find(paramName);
+    if (it != paramPtrs.end()) {
+        auto modIt = modulators.find(it->second);
+        if (modIt != modulators.end()) return modIt->second;
+    }
     return nullptr;
 }
 

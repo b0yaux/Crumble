@@ -66,7 +66,6 @@ public:
     void clearModulator(const std::string& paramName);
     std::shared_ptr<Pattern<float>> getPattern(const std::string& paramName) const;
     
-public:
     bool touched = false;
     virtual ofJson serialize() const;
     virtual void deserialize(const ofJson& json);
@@ -76,9 +75,13 @@ public:
     
 protected:
     std::unordered_map<int, Node*> inputNodes;
-    std::unordered_map<std::string, std::shared_ptr<Pattern<float>>> modulators;
+    
+    // Performance: Using raw pointers as keys to avoid string hashing on audio thread
+    std::unordered_map<void*, std::shared_ptr<Pattern<float>>> modulators;
+    std::unordered_map<std::string, void*> paramPtrs; // Mapping names to pointers for the API
+    
     mutable std::recursive_mutex modMutex;
-    mutable std::unordered_map<std::string, ofSoundBuffer> controlBuffers;
+    mutable std::unordered_map<void*, ofSoundBuffer> controlBuffers;
     double lastPreparedCycle = -1.0; 
 };
 

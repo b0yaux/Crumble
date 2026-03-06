@@ -15,13 +15,13 @@ void SpeakersOutput::processAudio(ofSoundBuffer& buffer, int index) {
         return;
     }
 
-    auto inputs = graph->getInputConnections(nodeId);
+    const auto& inputs = graph->getInputConnectionsRef(nodeId);
     if (inputs.empty()) {
         buffer.set(0);
         return;
     }
 
-    Node* sourceNode = graph->getNode(inputs[0].fromNode);
+    Node* sourceNode = getInputNode(0);
     if (!sourceNode) {
         buffer.set(0);
         return;

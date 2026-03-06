@@ -54,8 +54,8 @@ void AudioMixer::removeInput(int inputIndex) {
 void AudioMixer::processAudio(ofSoundBuffer& buffer, int index) {
     if (!graph) return;
 
-    // Get all connections to this node
-    auto inputs = graph->getInputConnections(nodeId);
+    // Get optimized reference to connections (No heap allocation)
+    const auto& inputs = graph->getInputConnectionsRef(nodeId);
     if (inputs.empty()) return;
 
     // Ensure tempBuffer matches output buffer size
@@ -68,7 +68,7 @@ void AudioMixer::processAudio(ofSoundBuffer& buffer, int index) {
         int idx = conn.toInput;
         if (idx < 0 || idx >= (int)inputGains.size()) continue;
 
-        Node* source = graph->getNode(conn.fromNode);
+        Node* source = getInputNode(idx);
         if (source) {
             tempBuffer.set(0);
             source->pullAudio(tempBuffer, conn.fromOutput);
@@ -81,7 +81,7 @@ void AudioMixer::processAudio(ofSoundBuffer& buffer, int index) {
             
             for (size_t i = 0; i < buffer.getNumFrames(); i++) {
                 float gain = gainCtrl[i] * sourceVolCtrl[i];
-                if (gain > 0) {
+                if (gain > 0.0001f) {
                     for (int c = 0; c < buffer.getNumChannels(); c++) {
                         buffer[i * buffer.getNumChannels() + c] += tempBuffer[i * buffer.getNumChannels() + c] * gain;
                     }
