@@ -101,7 +101,7 @@ void VideoFileSource::onParameterChanged(const std::string& paramName) {
     }
 }
 
-ofTexture* VideoFileSource::getVideoOutput(int index) {
+ofTexture* VideoFileSource::processVideo(int index) {
     if (index != 0) return nullptr;
     if (player.isLoaded()) {
         ofTexture* tex = player.getTexture();
