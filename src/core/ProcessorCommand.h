@@ -25,10 +25,11 @@ struct ProcessorCommand {
         CONNECT_NODES,
         DISCONNECT_NODES,
         SET_PARAM,
-        SET_PATTERN,      // Install a Pattern object on the audio/video thread for parameter name
+        SET_PATTERN,        // Install a Pattern object on the audio/video thread for parameter name
         SET_GRAPH_REF,
         LOAD_BUFFER,
-        RELEASE_BUFFER
+        RELEASE_BUFFER,
+        REGISTER_ENDPOINT   // Nominate this processor as a Session-driven audio endpoint
     };
 
     Type type = NONE;

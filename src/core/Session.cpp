@@ -90,6 +90,11 @@ void Session::audioOut(ofSoundBuffer& buffer) {
                     if (it != activeAudioProcessors.end()) {
                         activeAudioProcessors.erase(it);
                     }
+                    // Also remove from endpoint list if it was registered as one
+                    auto eit = std::find(audioEndpoints.begin(), audioEndpoints.end(), ap);
+                    if (eit != audioEndpoints.end()) {
+                        audioEndpoints.erase(eit);
+                    }
                     ap->patternMap.clear();
                     audioReleaseQueue.enqueue(ap);
                 }
@@ -141,6 +146,19 @@ void Session::audioOut(ofSoundBuffer& buffer) {
                 if (alive(ap)) ap->handleCommand(cmd);
                 break;
 
+            case crumble::ProcessorCommand::REGISTER_ENDPOINT:
+                // Nominate this processor as a session-driven audio endpoint.
+                // Duplicates are guarded: a node rebuilt via hot-reload will
+                // send ADD_NODE + REGISTER_ENDPOINT again, but the old processor
+                // will have been REMOVE_NODE'd first, so this list stays clean.
+                if (ap) {
+                    if (std::find(audioEndpoints.begin(), audioEndpoints.end(), ap)
+                            == audioEndpoints.end()) {
+                        audioEndpoints.push_back(ap);
+                    }
+                }
+                break;
+
             default: break;
         }
     }
@@ -157,16 +175,27 @@ void Session::audioOut(ofSoundBuffer& buffer) {
     double blockCycle = transport.cycle;
     double cycleStep  = transport.getCyclesPerSample(buffer.getSampleRate());
 
-    // 5. Wait-Free DSP Traversal
+    // 5. Wait-Free DSP Traversal — pull from every registered audio endpoint.
+    // Endpoints register themselves via REGISTER_ENDPOINT (e.g. SpeakersOutput).
+    // The list is maintained exclusively on this thread so no lock is needed.
     static int lastProcessorCount = 0;
     if ((int)activeAudioProcessors.size() != lastProcessorCount) {
-        ofLogNotice("Session") << "Audio Processors: " << activeAudioProcessors.size();
+        ofLogNotice("Session") << "Shadow audio processors registered: " << activeAudioProcessors.size();
+        ofLogNotice("Session") << "Hardware callback drivers (audio endpoints): " << audioEndpoints.size();
         lastProcessorCount = activeAudioProcessors.size();
     }
-    for (auto* ap : activeAudioProcessors) {
-        if (ap->isSink) {
-            ap->pull(buffer, 0, frameCounter, blockCycle, cycleStep);
-        }
+    for (auto* ep : audioEndpoints) {
+        ep->pull(buffer, 0, frameCounter, blockCycle, cycleStep);
+    }
+}
+
+void Session::registerAudioEndpoint(crumble::AudioProcessor* ap) {
+    if (!ap) return;
+    crumble::ProcessorCommand cmd;
+    cmd.type = crumble::ProcessorCommand::REGISTER_ENDPOINT;
+    cmd.audioProcessor = ap;
+    if (!audioCommandQueue.enqueue(cmd)) {
+        ofLogError("Session") << "Audio Command Queue Overflow on REGISTER_ENDPOINT!";
     }
 }
 

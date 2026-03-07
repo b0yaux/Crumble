@@ -2,7 +2,6 @@
 #include "AudioFileSource.h"
 #include "../core/ProcessorCommand.h"
 #include "../core/NodeProcessor.h"
-#include "../core/Session.h"
 
 namespace crumble {
 
@@ -134,14 +133,10 @@ void AudioFileSource::onPathChanged(std::string& p) {
 }
 
 void AudioFileSource::load(const std::string& p) {
-    if (!g_session) {
-        ofLogError("AudioFileSource") << "load() called before Session exists: " << p;
-        return;
-    }
-
     // Delegate to AssetCache — deduplicates RAM buffers when multiple nodes
     // reference the same file, and handles logical-alias resolution internally.
-    sharedLoader = g_session->getCache().getAudio(p);
+    // Proxying through getAudioAsset avoids direct coupling to the cache implementation.
+    sharedLoader = getAudioAsset(p);
 
     if (sharedLoader && sharedLoader->loaded()) {
         loadedPath = p;

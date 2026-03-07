@@ -1,6 +1,5 @@
 #include "SpeakersOutput.h"
 #include "ofMain.h"
-#include "../core/Graph.h"
 #include "../core/ProcessorCommand.h"
 
 using namespace crumble;
@@ -8,7 +7,6 @@ using namespace crumble;
 class SpeakersOutputProcessor : public AudioProcessor {
 public:
     SpeakersOutputProcessor() {
-        isSink = true;
     }
     
     void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
@@ -40,6 +38,19 @@ SpeakersOutput::SpeakersOutput() {
 
 AudioProcessor* SpeakersOutput::createAudioProcessor() {
     return new SpeakersOutputProcessor();
+}
+
+void SpeakersOutput::setupProcessor() {
+    // Let the base class create the processor and send ADD_NODE
+    Node::setupProcessor();
+    // Self-register as a session-driven audio endpoint via the wait-free command
+    // queue. pushCommand fills in audioProcessor automatically — no direct
+    // Session coupling needed here.
+    if (audioProcessor) {
+        crumble::ProcessorCommand cmd;
+        cmd.type = crumble::ProcessorCommand::REGISTER_ENDPOINT;
+        pushCommand(cmd);
+    }
 }
 
 void SpeakersOutput::onParameterChanged(const std::string& paramName) {

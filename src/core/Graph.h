@@ -8,8 +8,9 @@
 #include <functional>
 #include <mutex>
 
-// Forward declaration — full header included in Graph.cpp
+// Forward declarations — full headers included in Graph.cpp
 class Outlet;
+class AssetCache;
 
 namespace crumble {
     struct ProcessorCommand;
@@ -96,6 +97,9 @@ public:
     bool loadFromFile(const std::string& path);
     
     std::string resolvePath(const std::string& path, const std::string& hint = "") const override;
+
+    // Asset cache access — proxies to Session without exposing Session.h to node files
+    AssetCache* getCache() const;
     
     std::recursive_mutex& getAudioMutex() { return audioMutex; }
     class Transport& getTransport();

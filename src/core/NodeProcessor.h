@@ -122,8 +122,6 @@ public:
         int fromOutput = 0;
     };
     std::array<Input, 16> inputs;
-
-    bool isSink = false;
 };
 
 /**

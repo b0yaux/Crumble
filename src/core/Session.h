@@ -69,6 +69,11 @@ public:
     // --- Wait-Free Messaging ---
     void sendCommand(const crumble::ProcessorCommand& cmd);
 
+    // --- Audio Endpoint Registration ---
+    // Called by nodes that are session-driven audio endpoints (e.g. SpeakersOutput).
+    // Enqueues a REGISTER_ENDPOINT command so the audio thread maintains the list.
+    void registerAudioEndpoint(crumble::AudioProcessor* ap);
+
 private:
     Graph graph;
     AssetCache assetCache;
@@ -80,6 +85,11 @@ private:
     crumble::SPSCQueue<crumble::ProcessorCommand> audioCommandQueue{1024};
     crumble::SPSCQueue<crumble::AudioProcessor*> audioReleaseQueue{1024};
     std::vector<crumble::AudioProcessor*> activeAudioProcessors;
+
+    // Processors nominated as session-driven audio endpoints.
+    // Populated and iterated exclusively on the audio thread via REGISTER_ENDPOINT
+    // and REMOVE_NODE commands — no locks required.
+    std::vector<crumble::AudioProcessor*> audioEndpoints;
 
     // The "Air-Gap" Queues (Video - Evaluated on Main Thread)
     crumble::SPSCQueue<crumble::ProcessorCommand> videoCommandQueue{1024};

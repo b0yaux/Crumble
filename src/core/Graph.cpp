@@ -487,6 +487,12 @@ bool Graph::loadFromFile(const std::string& path) {
     return fromJson(json);
 }
 
+AssetCache* Graph::getCache() const {
+    if (g_session) return &g_session->getCache();
+    if (graph) return graph->getCache(); // nested subgraph: walk up to the root
+    return nullptr;
+}
+
 std::string Graph::resolvePath(const std::string& path, const std::string& hint) const {
     if (path.empty()) return "";
     std::string resolved = AssetRegistry::get().resolve(path, hint);
