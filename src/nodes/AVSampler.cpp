@@ -16,15 +16,6 @@ AVSampler::AVSampler() {
     // NOTE: Processors are created via createAudioProcessor() and createVideoProcessor()
     // when Graph::createNode() calls setupProcessor() -> createAudioProcessor()/createVideoProcessor()
     
-    // Performance: Cache direct pointers to child parameters to avoid map lookups
-    cachedAudioSpeed = &audioSource.speed;
-    cachedVideoSpeed = &videoSource.speed;
-    cachedAudioVolume = audioSource.volume.get();
-    cachedAudioLoop = &audioSource.loop;
-    cachedVideoLoop = &videoSource.loop;
-    cachedAudioPlaying = &audioSource.playing;
-    cachedVideoPlaying = &videoSource.playing;
-
     lastSyncPos = -1.0;
 }
 
@@ -137,9 +128,7 @@ void AVSampler::prepare(const Context& ctx) {
     if (graph && (audioSource.graph != graph || videoSource.graph != graph)) {
         audioSource.graph = graph;
         videoSource.graph = graph;
-        if (videoSource.parameters->contains("clockMode")) {
-            videoSource.parameters->get("clockMode").cast<int>().set(VideoFileSource::INTERNAL);
-        }
+        videoSource.setClockMode(VideoFileSource::INTERNAL);
     }
     
     // 3. Base prepare
@@ -243,8 +232,8 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
 
     if (paramName == "speed") {
         ofLogNotice("AVSampler") << "onParameterChanged: speed - propagating to children";
-        if (cachedAudioSpeed) cachedAudioSpeed->set(speed.get());
-        if (cachedVideoSpeed) cachedVideoSpeed->set(speed.get());
+        audioSource.speed.set(speed.get());
+        videoSource.speed.set(speed.get());
         
         auto pat = getPattern("speed");
         ofLogNotice("AVSampler") << "  pattern for speed: " << (pat ? pat->getSignature() : "null");
@@ -253,7 +242,7 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
         videoSource.modulate("speed", pat);
         videoSource.onParameterChanged("speed");
     } else if (paramName == "volume") {
-        if (cachedAudioVolume) cachedAudioVolume->set(volume->get());
+        audioSource.volume->set(volume->get());
         auto pat = getPattern("volume");
         audioSource.modulate("volume", pat);
         audioSource.onParameterChanged("volume");
@@ -263,13 +252,13 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
         videoSource.modulate("opacity", pat);
         videoSource.onParameterChanged("opacity");
     } else if (paramName == "loop") {
-        if (cachedAudioLoop) cachedAudioLoop->set(loop.get());
-        if (cachedVideoLoop) cachedVideoLoop->set(loop.get());
+        audioSource.loop.set(loop.get());
+        videoSource.loop.set(loop.get());
         audioSource.onParameterChanged("loop");   // updates AudioFileProcessor valuesMap
         videoSource.onParameterChanged("loop");   // updates HAP player loop state
     } else if (paramName == "playing") {
-        if (cachedAudioPlaying) cachedAudioPlaying->set(playing.get());
-        if (cachedVideoPlaying) cachedVideoPlaying->set(playing.get());
+        audioSource.playing.set(playing.get());
+        videoSource.playing.set(playing.get());
         audioSource.onParameterChanged("playing"); // updates AudioFileProcessor valuesMap
         videoSource.onParameterChanged("playing"); // pauses/plays HAP player
     } else if (paramName == "position") {
@@ -299,7 +288,9 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
     // duplicate on the audio processor but is the only mechanism that updates the VIDEO
     // shadow processor's valuesMap, since VideoFileSource::onParameterChanged routes
     // changes directly to the HAP player without calling Node::onParameterChanged.
-    // Full de-duplication of the audio side is deferred to S6 (cached-pointer removal).
+    // Full de-duplication of the audio-side SET_PARAM commands is a deeper
+    // architectural concern: VideoFileSource::onParameterChanged would need to
+    // call Node::onParameterChanged to make the video processor self-sufficient.
     Node::onParameterChanged(paramName);
 }
 

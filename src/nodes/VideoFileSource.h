@@ -39,6 +39,10 @@ public:
     
     // Looping
     void setLoop(bool loop);
+
+    // Clock mode — use this instead of poking the clockMode parameter directly.
+    // Routes through the ofParameter so onClockModeChanged fires correctly.
+    void setClockMode(ClockMode mode);
     
     // Serialization
     ofJson serialize() const override;

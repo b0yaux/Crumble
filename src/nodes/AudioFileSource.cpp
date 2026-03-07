@@ -134,24 +134,31 @@ void AudioFileSource::onPathChanged(std::string& p) {
 }
 
 void AudioFileSource::load(const std::string& p) {
-    if (!sharedLoader) sharedLoader = std::make_shared<ofxAudioFile>();
-    
-    sharedLoader->load(p);
-    
-    if (sharedLoader->loaded()) {
+    if (!g_session) {
+        ofLogError("AudioFileSource") << "load() called before Session exists: " << p;
+        return;
+    }
+
+    // Delegate to AssetCache — deduplicates RAM buffers when multiple nodes
+    // reference the same file, and handles logical-alias resolution internally.
+    sharedLoader = g_session->getCache().getAudio(p);
+
+    if (sharedLoader && sharedLoader->loaded()) {
         loadedPath = p;
-        
+
         crumble::AudioCommand cmd;
-        cmd.type = crumble::AudioCommand::LOAD_BUFFER;
-        cmd.nodeId = nodeId;
+        cmd.type         = crumble::AudioCommand::LOAD_BUFFER;
+        cmd.nodeId       = nodeId;
         cmd.audioProcessor = audioProcessor;
-        cmd.audioData  = sharedLoader->data();
-        cmd.dataOwner  = sharedLoader;   // keeps buffer alive in the processor
+        cmd.audioData    = sharedLoader->data();
+        cmd.dataOwner    = sharedLoader;   // keeps buffer alive in the processor
         cmd.totalSamples = sharedLoader->length();
-        cmd.channels   = sharedLoader->channels();
+        cmd.channels     = sharedLoader->channels();
         pushCommand(cmd);
-        
-        ofLogNotice("AudioFileSource") << "Loaded: " << p << " (" << sharedLoader->length() << " samples)";
+
+        ofLogNotice("AudioFileSource") << "Loaded: " << p
+            << " (" << sharedLoader->length() << " samples)"
+            << " [cache use_count=" << sharedLoader.use_count() << "]";
     } else {
         ofLogError("AudioFileSource") << "Failed to load: " << p;
     }

@@ -68,6 +68,12 @@ crumble::VideoProcessor* VideoFileSource::createVideoProcessor() {
     return new VideoFileProcessor(&player);
 }
 
+void VideoFileSource::setClockMode(ClockMode mode) {
+    // Route through the ofParameter so onClockModeChanged fires correctly
+    // and all side-effects (pause/play, speed restore) are applied in one place.
+    clockMode.set(static_cast<int>(mode));
+}
+
 void VideoFileSource::safeSetPlayerSpeed(float newSpeed) {
     // Never call setSpeed(0) on the HAP player: the Clock computes pos/rate
     // internally; rate==0 yields +inf which is cast to int64_t (UB), corrupting

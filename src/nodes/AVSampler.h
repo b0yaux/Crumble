@@ -69,13 +69,6 @@ private:
     // Performance state for Sync
     bool isInternalChange = false;
     
-    // Cached child parameters to avoid string lookups in hot paths
-    ofParameter<float>* cachedAudioSpeed = nullptr;
-    ofParameter<float>* cachedVideoSpeed = nullptr;
-    ofParameter<float>* cachedAudioVolume = nullptr;
-    ofParameter<bool>*  cachedAudioLoop = nullptr;
-    ofParameter<bool>*  cachedVideoLoop = nullptr;
-    ofParameter<bool>*  cachedAudioPlaying = nullptr;
-    ofParameter<bool>*  cachedVideoPlaying = nullptr;
+
 };
 
