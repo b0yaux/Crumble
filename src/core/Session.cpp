@@ -102,13 +102,13 @@ void Session::audioOut(ofSoundBuffer& buffer) {
                 break;
 
             case crumble::ProcessorCommand::SET_PARAM:
-                if (alive(ap) && !cmd.slotName.empty()) {
+                if (alive(ap) && ap->nodeId == cmd.nodeId && !cmd.slotName.empty()) {
                     ap->valuesMap[cmd.slotName].store(cmd.value, std::memory_order_relaxed);
                 }
                 break;
 
             case crumble::ProcessorCommand::SET_PATTERN:
-                if (alive(ap) && !cmd.slotName.empty()) {
+                if (alive(ap) && ap->nodeId == cmd.nodeId && !cmd.slotName.empty()) {
                     if (cmd.pattern) {
                         ofLogNotice("Session") << "SET_PATTERN: nodeId=" << ap->nodeId << " slot=" << cmd.slotName;
                         ap->patternMap[cmd.slotName] = cmd.pattern;
@@ -116,22 +116,24 @@ void Session::audioOut(ofSoundBuffer& buffer) {
                         ap->patternMap.erase(cmd.slotName);
                     }
                 } else {
-                    ofLogWarning("Session") << "SET_PATTERN: failed alive check or empty slot - nodeId=" << (ap ? ap->nodeId : -1) << " slot=" << cmd.slotName;
+                    // This is now expected during script-swaps; no need to log a warning
                 }
                 break;
 
             case crumble::ProcessorCommand::CONNECT_NODES:
-                ofLogNotice("Session") << "CONNECT_NODES: targetNodeId=" << (cmd.targetAudioProcessor ? cmd.targetAudioProcessor->nodeId : -1) 
-                     << " fromNodeId=" << (ap ? ap->nodeId : -1) << " toInput=" << cmd.toInput;
-                if (cmd.targetAudioProcessor) {
-                    cmd.targetAudioProcessor->addInput(ap, cmd.toInput, cmd.fromOutput);
+                if (alive(cmd.targetAudioProcessor) && (ap == nullptr || alive(ap))) {
+                    // Verify IDs if processors are present
+                    bool targetMatch = (cmd.targetAudioProcessor->nodeId == cmd.targetId);
+                    bool sourceMatch = (ap == nullptr || ap->nodeId == cmd.nodeId);
+                    
+                    if (targetMatch && sourceMatch) {
+                        cmd.targetAudioProcessor->addInput(ap, cmd.toInput, cmd.fromOutput);
+                    }
                 }
                 break;
 
             case crumble::ProcessorCommand::DISCONNECT_NODES:
-                ofLogNotice("Session") << "DISCONNECT_NODES: targetNodeId=" << (cmd.targetAudioProcessor ? cmd.targetAudioProcessor->nodeId : -1) 
-                     << " toInput=" << cmd.toInput;
-                if (cmd.targetAudioProcessor) {
+                if (alive(cmd.targetAudioProcessor) && cmd.targetAudioProcessor->nodeId == cmd.targetId) {
                     cmd.targetAudioProcessor->removeInput(cmd.toInput);
                 }
                 break;
@@ -249,14 +251,14 @@ void Session::update(float dt) {
                 break;
 
             case crumble::ProcessorCommand::SET_PARAM:
-                if (alive(vp) && !cmd.slotName.empty()) {
+                if (alive(vp) && vp->nodeId == cmd.nodeId && !cmd.slotName.empty()) {
                     vp->valuesMap[cmd.slotName].store(cmd.value, std::memory_order_relaxed);
                 }
                 break;
 
             case crumble::ProcessorCommand::SET_PATTERN:
-                ofLogNotice("Session") << "Video SET_PATTERN: nodeId=" << (vp ? vp->nodeId : -1) << " slot=" << cmd.slotName;
-                if (alive(vp) && !cmd.slotName.empty()) {
+                if (alive(vp) && vp->nodeId == cmd.nodeId && !cmd.slotName.empty()) {
+                    ofLogNotice("Session") << "Video SET_PATTERN: nodeId=" << vp->nodeId << " slot=" << cmd.slotName;
                     if (cmd.pattern) {
                         vp->patternMap[cmd.slotName] = cmd.pattern;
                     } else {
@@ -266,13 +268,19 @@ void Session::update(float dt) {
                 break;
 
             case crumble::ProcessorCommand::CONNECT_NODES:
-                if (cmd.targetVideoProcessor) {
-                    cmd.targetVideoProcessor->addInput(vp, cmd.toInput, cmd.fromOutput);
+                if (alive(cmd.targetVideoProcessor) && (vp == nullptr || alive(vp))) {
+                    // Verify IDs if processors are present
+                    bool targetMatch = (cmd.targetVideoProcessor->nodeId == cmd.targetId);
+                    bool sourceMatch = (vp == nullptr || vp->nodeId == cmd.nodeId);
+                    
+                    if (targetMatch && sourceMatch) {
+                        cmd.targetVideoProcessor->addInput(vp, cmd.toInput, cmd.fromOutput);
+                    }
                 }
                 break;
 
             case crumble::ProcessorCommand::DISCONNECT_NODES:
-                if (cmd.targetVideoProcessor) {
+                if (alive(cmd.targetVideoProcessor) && cmd.targetVideoProcessor->nodeId == cmd.targetId) {
                     cmd.targetVideoProcessor->removeInput(cmd.toInput);
                 }
                 break;
