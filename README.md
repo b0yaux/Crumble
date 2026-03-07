@@ -117,8 +117,8 @@ smp.cutoff = scale(200, 2000, osc(0.25))
 
 | Function | Description |
 |----------|-------------|
-| `osc(f)` | Sine wave (frequency in cycles-per-bar) |
-| `ramp(f)` | Sawtooth (0.0 to 1.0) |
+| `osc(f)` | Sine wave (frequency in cycles-per-bar, 4/4 assumed) |
+| `ramp(f)` | Sawtooth (0.0 to 1.0, frequency in cycles-per-bar) |
 | `noise(s)`| Deterministic stochastic noise (optional seed) |
 | `seq("...")`| Discrete step sequencer |
 | `fast(n, p)`| Speed up pattern `p` by factor `n` |
@@ -128,6 +128,10 @@ smp.cutoff = scale(200, 2000, osc(0.25))
 | `snap(s, p)`| Quantize output into `s` steps |
 | `p1 * p2` | Multiply two patterns (Amplitude Modulation) |
 | `p1 + p2` | Add two patterns (Offset/Mixing) |
+
+> **Timing contract:** `Transport.cycle` advances in **bars** (4/4 assumed).
+> At 120 BPM one bar lasts 2 seconds, so `osc(1.0)` completes one full
+> oscillation every 2 seconds. Use `fast(4, p)` to get beat-rate modulation.
 
 ### Subgraph Composition
 Create a subgraph by adding a `Graph` node and setting its `script` parameter:

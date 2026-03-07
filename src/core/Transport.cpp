@@ -2,20 +2,16 @@
 
 void Transport::update(float dt) {
     if (!isPlaying) return;
-    
+
     absoluteTime += dt;
-    
-    // Calculate cycles based on BPM
-    // 1 beat = 60 / BPM seconds
-    // Cycles per second = BPM / 60
-    double cyclesPerSecond = bpm / 60.0;
-    
-    // Increment cycle
-    cycle += dt * cyclesPerSecond;
-    
-    // Wrap cycle to [0.0, 1.0)
-    // using while loop handles large dt or fast BPMs better than simple fmod sometimes
-    while (cycle >= 1.0) {
-        cycle -= 1.0;
-    }
+
+    // Advance cycle in bars (4/4 assumed).
+    // bpm / 60.0  = beats per second
+    // ÷ 4         = bars per second  (1 bar = 4 beats in 4/4)
+    // So at 120 BPM: 120/60/4 = 0.5 bars/s → cycle wraps every 2 seconds.
+    // This matches the documented contract: osc(1.0) = one cycle per bar.
+    double barsPerSecond = (bpm / 60.0) / 4.0;
+    cycle += dt * barsPerSecond;
+
+    while (cycle >= 1.0) cycle -= 1.0;
 }
