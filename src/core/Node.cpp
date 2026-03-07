@@ -84,8 +84,7 @@ void Node::prepare(const Context& ctx) {
     std::lock_guard<std::recursive_mutex> lock(modMutex);
     
     // Update controlBuffers for UI/video use (getControl()).
-    // We do NOT send SET_PATTERN here — patterns are sent once in modulate()
-    // and evaluated sample-accurately by the audio thread via patternSlots.
+    // Patterns are sent to the audio thread via onParameterChanged().
     for (auto& [paramName, pattern] : modulators) {
         if (!pattern) continue;
 

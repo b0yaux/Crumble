@@ -109,10 +109,6 @@ public:
 
     int nodeId = -1;
 
-    // Base slots populated by Node::Node() in order:
-    //   0: volume, 1: opacity, 2: active, 3: drawLayer
-    // Always use getParam("name") / evalPattern("name", cycle) — never hardcode indices.
-
     bool isSink = false;
 };
 

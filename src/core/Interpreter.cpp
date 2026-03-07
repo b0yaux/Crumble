@@ -1,115 +1,71 @@
 #include "Interpreter.h"
-#include "Session.h"
 #include "Config.h"
+#include "AssetRegistry.h"
 #include "PatternMath.h"
-
-Interpreter* g_interpreter = nullptr;
 
 Session* Interpreter::s_currentSession = nullptr;
 thread_local std::vector<Graph*> Interpreter::s_graphStack;
+Interpreter* g_interpreter = nullptr;
 
 Interpreter::Interpreter() {
     g_interpreter = this;
+    lua.addListener(this);
 }
 
 Interpreter::~Interpreter() {
     lua.removeListener(this);
+    if (g_interpreter == this) g_interpreter = nullptr;
 }
 
 void Interpreter::setup(Session* s) {
-    session = s;
-    
-    // Register the nested script executor in Graph
-    Graph::setScriptExecutor([](const std::string& path, Graph* nestedGraph) {
-        executeInNestedGraph(path, nestedGraph);
-    });
-    
+    this->session = s;
     lua.init();
-    lua.addListener(this);
     
-    // Add scripts directory to Lua's package.path for require()
+    // Add scripts folder to package.path for 'require' support
     std::string scriptsPath = ofToDataPath("scripts", true);
     ofLogNotice("Interpreter") << "Scripts path: " << scriptsPath;
+    
     std::string pathSetup = "package.path = '" + scriptsPath + "/?.lua;" + scriptsPath + "/?.lua;' .. package.path";
-    ofLogNotice("Interpreter") << "Path setup: " << pathSetup;
     lua.doString(pathSetup);
+    ofLogNotice("Interpreter") << "Path setup: " << pathSetup;
     
     bindSessionAPI();
-}
-
-Graph* Interpreter::getCurrentGraph() {
-    if (!s_graphStack.empty()) {
-        return s_graphStack.back();
-    }
-    return &s_currentSession->getGraph();
 }
 
 bool Interpreter::runScript(const std::string& path) {
     if (!session) return false;
     
     s_currentSession = session;
+    GraphContext rootContext(&session->getGraph());
     
-    ofFile script(path);
-    if (!script.exists()) {
-        ofLogError("Interpreter") << "Script not found: " << path;
-        return false;
-    }
-    
-    // Root graph context
-    GraphContext ctx(&session->getGraph());
-    
-    // Prepare for idempotent script execution
-    session->beginScript();
-    
-    // Execute the script
-    lua.doScript(path);
-    
-    // Remove nodes that weren't touched
-    session->endScript();
+    bool success = lua.doScript(path, true);
     
     s_currentSession = nullptr;
-    return true;
+    return success;
 }
 
 bool Interpreter::runScriptInGraph(const std::string& path, Graph* nestedGraph) {
     if (!session || !nestedGraph) return false;
     
     s_currentSession = session;
-    
-    ofFile script(path);
-    if (!script.exists()) {
-        ofLogError("Interpreter") << "Script not found: " << path;
-        return false;
-    }
-    
     GraphContext ctx(nestedGraph);
-    lua.doScript(path);
     
-    return true;
+    bool success = lua.doScript(path, true);
+    
+    s_currentSession = nullptr;
+    return success;
 }
 
 void Interpreter::executeInNestedGraph(const std::string& path, Graph* nestedGraph) {
-    if (!nestedGraph || !g_interpreter) return;
-    
-    ofFile script(path);
-    if (!script.exists()) {
-        ofLogError("Interpreter") << "Nested script not found: " << path;
-        return;
+    if (g_interpreter) {
+        g_interpreter->runScriptInGraph(path, nestedGraph);
     }
-    
-    g_interpreter->runScriptInGraph(path, nestedGraph);
 }
 
 bool Interpreter::runScripts(const std::vector<std::string>& paths) {
-    if (!session) return false;
-    
     bool allSuccess = true;
-    for (const auto& path : paths) {
-        ofLogNotice("Interpreter") << "Loading script: " << path;
-        if (!runScript(path)) {
-            ofLogError("Interpreter") << "Failed to load script: " << path;
-            allSuccess = false;
-        }
+    for (const auto& p : paths) {
+        if (!runScript(p)) allSuccess = false;
     }
     return allSuccess;
 }
@@ -117,37 +73,33 @@ bool Interpreter::runScripts(const std::vector<std::string>& paths) {
 void Interpreter::update(const Transport& t) {
     if (!session) return;
     
-    // Set static session pointer so _set and _get bindings work during update()
     s_currentSession = session;
+    GraphContext rootContext(&session->getGraph());
+
+    lua_State* L = lua;
     
-    lua_State* L = lua; // Uses ofxLua conversion operator
+    // Create 'Time' table
+    lua_newtable(L);
     
-    // 1. Update global 'Time' table (create if not exists)
-    lua_getglobal(L, "Time");
-    if (lua_isnil(L, -1)) {
-        lua_pop(L, 1);
-        lua_newtable(L);
-        lua_pushvalue(L, -1);
-        lua_setglobal(L, "Time");
-    }
-    
-    lua_pushnumber(L, t.bpm);
-    lua_setfield(L, -2, "bpm");
-    
+    lua_pushstring(L, "absoluteTime");
     lua_pushnumber(L, t.absoluteTime);
-    lua_setfield(L, -2, "absoluteTime");
+    lua_settable(L, -3);
     
+    lua_pushstring(L, "cycle");
     lua_pushnumber(L, t.cycle);
-    lua_setfield(L, -2, "cycle");
+    lua_settable(L, -3);
     
-    lua_pushboolean(L, t.isPlaying);
-    lua_setfield(L, -2, "isPlaying");
+    lua_pushstring(L, "tempo");
+    lua_pushnumber(L, t.bpm);
+    lua_settable(L, -3);
     
-    // 2. Check if 'update' function exists in global scope
+    lua_setglobal(L, "Time");
+
+    // Call global update function if it exists
     lua_getglobal(L, "update");
     if (lua_isfunction(L, -1)) {
-        // Push the 'Time' table again as an argument
-        lua_pushvalue(L, -2);
+        // Push the Time table as argument
+        lua_getglobal(L, "Time");
         
         // Call update(Time)
         if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
@@ -156,12 +108,9 @@ void Interpreter::update(const Transport& t) {
             lua_pop(L, 1);
         }
     } else {
-        lua_pop(L, 1); // Pop if not a function
+        lua_pop(L, 1);
     }
     
-    lua_pop(L, 1); // Pop 'Time' table
-    
-    // Reset it
     s_currentSession = nullptr;
 }
 
@@ -170,9 +119,8 @@ void Interpreter::errorReceived(std::string& msg) {
 }
 
 void Interpreter::bindSessionAPI() {
-    lua_State* L = lua; // Uses the operator lua_State*() from ofxLua
+    lua_State* L = lua;
     
-    // Register global C functions
     lua_register(L, "_addNode", lua_addNode);
     lua_register(L, "_connect", lua_connect);
     lua_register(L, "_get", lua_getParam);
@@ -182,14 +130,12 @@ void Interpreter::bindSessionAPI() {
     lua_register(L, "_listDir", lua_listDirectory);
     lua_register(L, "_exists", lua_fileExists);
     lua_register(L, "_resolve", lua_resolvePath);
+    lua_register(L, "_getBank", lua_getBank);
     
-    // Create the 'session' table and 'Node' metatable in Lua
     std::string helper = R"(
         session = {}
-        
         local NodeMeta = {}
         
-        -- Support for node.parameter = value
         function NodeMeta:__newindex(key, value)
             if key == "id" or key == "type" or key == "name" then
                 rawset(self, key, value)
@@ -200,15 +146,11 @@ void Interpreter::bindSessionAPI() {
             end
         end
 
-        -- Support for value = node.parameter
         NodeMeta.__index = function(t, k)
             if k == "set" then 
                 return function(self, name, val) 
-                    if type(val) == "table" and val._isGen then
-                        _setGen(self.id, name, val)
-                    else
-                        _set(self.id, name, val)
-                    end
+                    if type(val) == "table" and val._isGen then _setGen(self.id, name, val)
+                    else _set(self.id, name, val) end
                     return self 
                 end
             elseif k == "connect" then
@@ -217,284 +159,83 @@ void Interpreter::bindSessionAPI() {
                     _connect(self.id, toId, fromOut or 0, toIn or 0)
                     return self
                 end
-            elseif k == "off" then
-                return function(self) self.active = false return self end
-            elseif k == "on" then
-                return function(self) self.active = true return self end
-            elseif k == "mute" then
-                return function(self) self.active = false return self end
-            elseif k == "unmute" then
-                return function(self) self.active = true return self end
-            else
-                -- Try to get parameter value from node
-                return _get(t.id, k)
-            end
+            elseif k == "off" then return function(self) self.active = false return self end
+            elseif k == "on" then return function(self) self.active = true return self end
+            elseif k == "mute" then return function(self) self.active = false return self end
+            elseif k == "unmute" then return function(self) self.active = true return self end
+            else return _get(t.id, k) end
         end
 
-        -- Internal helper
-        local function _getArgs(s, a, b)
-            if s == session then return a, b end
-            return s, a
-        end
-
-        -- Global shortcuts and session methods
-        -- Track all nodes for glob pattern matching
         _G._allNodes = {}
+        local _autoIndices = {}
+        
+        function getBank(name) return _getBank(name) end
         
         local function addNodeInternal(t, n)
-            if type(t) ~= "string" then
-                error("addNode: first argument must be a string (type), got " .. type(t), 2)
-            end
             local id = _addNode(t, n or "")
             if id then
-                local nodeObj = { id = id, type = t, name = n or t .. "_" .. id }
-                table.insert(_G._allNodes, nodeObj)
-                setmetatable(nodeObj, NodeMeta)
-                return nodeObj
+                local node = { id = id, type = t, name = n or "" }
+                setmetatable(node, NodeMeta)
+                _G._allNodes[id] = node
+                if n and n ~= "" then _G[n] = node end
+                return node
             end
-        end
-        
-        _G.addNode = addNodeInternal
-        
-        session.addNode = function(s, t, n)
-            if s == session then return addNodeInternal(t, n) end
-            return addNodeInternal(s, t)
+            return nil
         end
 
-        local function connectInternal(f, t, fo, ti)
-            -- Helper to resolve a node object or name to an ID
-            local function toId(obj)
-                if type(obj) == "table" then return obj.id end
-                if type(obj) == "number" then return obj end
-                if type(obj) == "string" then
-                    -- Search by name in _allNodes
-                    for _, node in ipairs(_G._allNodes or {}) do
-                        if node.name == obj then return node.id end
-                    end
-                end
-                return nil
+        function addNode(type, name) return addNodeInternal(type, name) end
+        
+        function clear() 
+            _clear() 
+            _G._allNodes = {} 
+            _autoIndices = {} 
+        end
+
+        function connect(src, dst, outIdx, inIdx)
+            if type(src) == "table" and not src.id then
+                local lastIdx = 0
+                for _, s in ipairs(src) do lastIdx = connect(s, dst, outIdx, inIdx) end
+                return lastIdx
             end
-
-            local tid = toId(t)
-            if not tid then return end
-
-            local toIdx = ti or 0
-            local fromIdx = fo or 0
-            
-            -- 1. Handle array of sources: connect({s1, s2}, mixer)
-            if type(f) == "table" and not f.id then
-                for _, src in ipairs(f) do
-                    local fid = toId(src)
-                    if fid then
-                        _connect(fid, tid, fromIdx, toIdx)
-                        toIdx = toIdx + 1
-                    end
-                end
-                return
+            if type(dst) == "table" and not dst.id then
+                local lastIdx = 0
+                for _, d in ipairs(dst) do lastIdx = connect(src, d, outIdx, inIdx) end
+                return lastIdx
             end
             
-            -- 2. Handle glob pattern: connect("smp*", mixer)
-            if type(f) == "string" and f:match("%*") then
-                local pattern = f:gsub("%*", ".*")
-                local matched = false
-                for _, node in ipairs(_G._allNodes or {}) do
-                    if node.name:match(pattern) or node.type:match(pattern) then
-                        _connect(node.id, tid, fromIdx, toIdx)
-                        toIdx = toIdx + 1
-                        matched = true
-                    end
-                end
-                if matched then return end
-            end
+            local sId = type(src) == "table" and src.id or src
+            local dId = type(dst) == "table" and dst.id or dst
             
-            -- 3. Single node connection
-            local fid = toId(f)
-            if fid then
-                _connect(fid, tid, fromIdx, toIdx)
-            end
-        end
-
-        _G.connect = connectInternal
-        
-        session.connect = function(s, f, t, fo, ti)
-            if s == session then return connectInternal(f, t, fo, ti) end
-            return connectInternal(s, f, t, fo)
-        end
-
-        _G.clear = _clear
-        session.clear = function(s)
-            _clear()
-        end
-
-        _G.fileExists = _exists
-        
-        session.checkpoint = function() end
-
-        session.setParam = function(s, a, b, c)
-            local id, name, value = _getArgs(s, a, b, c)
-            local targetId = type(id) == "table" and id.id or id
-            if type(value) == "table" and value._isGen then
-                _setGen(targetId, name, value)
-            else
-                _set(targetId, name, value)
-            end
-        end
-
-        -- Musical Pattern DSL
-        PatternMeta = {}
-        PatternMeta.__index = PatternMeta
-
-        function PatternMeta.__mul(a, b)
-            local p = { _isGen = true, type = "mul", a = a, b = b }
-            setmetatable(p, PatternMeta)
-            return p
-        end
-
-        function PatternMeta.__add(a, b)
-            local p = { _isGen = true, type = "add", a = a, b = b }
-            setmetatable(p, PatternMeta)
-            return p
-        end
-
-        _G.seq = function(p)
-            local p_obj = { _isGen = true, type = "seq", val = p }
-            setmetatable(p_obj, PatternMeta)
-            return p_obj
-        end
-        
-        _G.osc = function(f)
-            local p_obj = { _isGen = true, type = "osc", val = f or 1.0 }
-            setmetatable(p_obj, PatternMeta)
-            return p_obj
-        end
-        
-        _G.ramp = function(f)
-            local p_obj = { _isGen = true, type = "ramp", val = f or 1.0 }
-            setmetatable(p_obj, PatternMeta)
-            return p_obj
-        end
-
-        _G.noise = function(s)
-            local p_obj = { _isGen = true, type = "noise", val = s or 0.0 }
-            setmetatable(p_obj, PatternMeta)
-            return p_obj
-        end
-
-        _G.fast = function(f, p)
-            local p_obj = { _isGen = true, type = "speed", val = f, p = p }
-            setmetatable(p_obj, PatternMeta)
-            return p_obj
-        end
-
-        _G.slow = function(f, p)
-            local p_obj = { _isGen = true, type = "speed", val = 1.0/f, p = p }
-            setmetatable(p_obj, PatternMeta)
-            return p_obj
-        end
-
-        _G.shift = function(o, p)
-            local p_obj = { _isGen = true, type = "shift", val = o, p = p }
-            setmetatable(p_obj, PatternMeta)
-            return p_obj
-        end
-
-        _G.scale = function(lo, hi, p)
-            local p_obj = { _isGen = true, type = "scale", lo = lo, hi = hi, p = p }
-            setmetatable(p_obj, PatternMeta)
-            return p_obj
-        end
-
-        _G.snap = function(n, p)
-            local p_obj = { _isGen = true, type = "snap", val = n, p = p }
-            setmetatable(p_obj, PatternMeta)
-            return p_obj
-        end
-
-        -- Pure Path Discovery Helper
-        function getFiles(dir, extension)
-            local files = _listDir(dir or "")
-            local results = {}
-            
-            local filter = extension
-            if not filter then
-                filter = {".mov", ".hap", ".mp4", ".wav", ".mp3", ".aif"}
-            elseif type(filter) == "string" then
-                filter = {filter}
-            end
-
-            for _, f in ipairs(files) do
-                local ext = f:match("^.+(%..+)$")
-                local name = f:match("([^/]+)%..-$") or f
-                local match = false
-                
-                if ext then
-                    for _, allowed in ipairs(filter) do
-                        if ext:lower() == allowed:lower() then
-                            match = true
-                            break
-                        end
-                    end
+            if sId and dId then
+                local targetIn = inIdx
+                if not targetIn then
+                    _autoIndices[dId] = (_autoIndices[dId] or -1) + 1
+                    targetIn = _autoIndices[dId]
                 end
-
-                if match then
-                    table.insert(results, f)
-                    results[name] = f -- Named access: results.kick
-                end
+                _connect(sId, dId, outIdx or 0, targetIn)
+                return targetIn -- Return the index used!
             end
-            return results
+            return -1
         end
     )";
-    
-    bool success = lua.doString(helper);
-    if (!success) {
-        ofLogError("Interpreter") << "Failed to evaluate Lua helper DSL!";
-    }
+    lua.doString(helper);
 }
 
-int Interpreter::lua_listDirectory(lua_State* L) {
-    std::string path = luaL_checkstring(L, 1);
-    
-    // Resolve the directory path using search paths
-    std::string resolvedPath = ConfigManager::get().resolvePath(path);
-    ofDirectory dir(resolvedPath);
-    
-    // Return all files and let Lua handle the filtering logic.
-    dir.listDir();
-    
-    lua_newtable(L);
-    for(int i=0; i<(int)dir.size(); i++) {
-        lua_pushinteger(L, i+1);
-        lua_pushstring(L, dir.getPath(i).c_str());
-        lua_settable(L, -3);
-    }
-    
-    return 1;
-}
-
-int Interpreter::lua_fileExists(lua_State* L) {
-    std::string path = luaL_checkstring(L, 1);
-    ofFile file(path);
-    lua_pushboolean(L, file.exists());
-    return 1;
-}
-
-int Interpreter::lua_resolvePath(lua_State* L) {
-    std::string path = luaL_checkstring(L, 1);
-    std::string resolved = ConfigManager::get().resolvePath(path);
-    lua_pushstring(L, resolved.c_str());
-    return 1;
+Graph* Interpreter::getCurrentGraph() {
+    if (s_graphStack.empty()) return nullptr;
+    return s_graphStack.back();
 }
 
 int Interpreter::lua_addNode(lua_State* L) {
     if (!s_currentSession) return 0;
-    
+    if (lua_isnil(L, 1)) {
+        ofLogWarning("Interpreter") << "addNode: type argument is nil, ignoring";
+        return 0;
+    }
     std::string type = luaL_checkstring(L, 1);
     std::string name = "";
-    if (lua_gettop(L) >= 2) name = luaL_checkstring(L, 2);
-    
+    if (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) name = luaL_checkstring(L, 2);
     Graph* graph = getCurrentGraph();
-    
-    // Idempotent: if name provided and node with that name exists, return existing
     if (!name.empty()) {
         for (const auto& pair : graph->getNodes()) {
             Node* existing = pair.second.get();
@@ -505,238 +246,201 @@ int Interpreter::lua_addNode(lua_State* L) {
             }
         }
     }
-    
     Node* node = graph->createNode(type, name);
-    if (node) {
-        node->touched = true;
-        lua_pushinteger(L, node->nodeId);
-        return 1;
+    if (!node) {
+        ofLogWarning("Interpreter") << "addNode: failed to create node of type '" << type << "'";
+        return 0;
     }
-    return 0;
+    lua_pushinteger(L, node->nodeId);
+    return 1;
 }
 
 int Interpreter::lua_connect(lua_State* L) {
     if (!s_currentSession) return 0;
-    
-    int fromNode = luaL_checkinteger(L, 1);
-    int toNode = luaL_checkinteger(L, 2);
-    int fromOut = 0;
-    int toIn = 0;
-    
-    if (lua_gettop(L) >= 3) fromOut = luaL_checkinteger(L, 3);
-    if (lua_gettop(L) >= 4) toIn = luaL_checkinteger(L, 4);
-    
+    if (lua_isnil(L, 1) || lua_isnil(L, 2)) {
+        ofLogWarning("Interpreter") << "connect: source or destination node ID is nil, ignoring";
+        return 0;
+    }
+    int fromNode = (int)luaL_checkinteger(L, 1);
+    int toNode = (int)luaL_checkinteger(L, 2);
+    int fromOut = 0, toIn = 0;
+    if (lua_gettop(L) >= 3 && !lua_isnil(L, 3)) fromOut = (int)luaL_checkinteger(L, 3);
+    if (lua_gettop(L) >= 4 && !lua_isnil(L, 4)) toIn = (int)luaL_checkinteger(L, 4);
     Graph* graph = getCurrentGraph();
     graph->connect(fromNode, toNode, fromOut, toIn);
     return 0;
 }
 
-int Interpreter::lua_setParam(lua_State* L) {
-    if (!s_currentSession) return 0;
-    
-    int nodeIdx = luaL_checkinteger(L, 1);
-    std::string paramName = luaL_checkstring(L, 2);
-    
-    Graph* graph = getCurrentGraph();
-    Node* node = graph->getNode(nodeIdx);
-    if (!node) return 0;
-    
-    // Clear any existing modulator so static value takes precedence!
-    node->clearModulator(paramName);
-    
-    // Try to find the parameter
-    if (node->parameters->contains(paramName)) {
-        auto& p = node->parameters->get(paramName);
-        
-        if (lua_isboolean(L, 3)) {
-            p.cast<bool>().set(lua_toboolean(L, 3));
-        } else if (lua_isnumber(L, 3)) {
-            double val = lua_tonumber(L, 3);
-            // Check if it's an int or float parameter
-            if (p.type() == typeid(ofParameter<int>).name()) {
-                p.cast<int>().set((int)val);
-            } else if (p.type() == typeid(ofParameter<float>).name()) {
-                p.cast<float>().set((float)val);
-            } else if (p.type() == typeid(ofParameter<double>).name()) {
-                p.cast<double>().set(val);
-            } else if (p.type() == typeid(ofParameter<bool>).name()) {
-                p.cast<bool>().set(val > 0.5);
-            }
-        } else if (lua_isstring(L, 3)) {
-            p.fromString(lua_tostring(L, 3));
-        }
-        
-        // Notify the node that a parameter changed (enables reactive behavior)
-        node->onParameterChanged(paramName);
-    }
-    
-    return 0;
-}
-
-// Internal helper to recursively build C++ Patterns from Lua tables
-std::shared_ptr<Pattern<float>> parsePattern(lua_State* L, int index) {
-    if (index < 0) index = lua_gettop(L) + index + 1;
-    
-    int type = lua_type(L, index);
-
-    if (type == LUA_TNUMBER) {
-        float val = (float)lua_tonumber(L, index);
-        return std::make_shared<patterns::Constant>(val);
-    }
-    
-    if (type == LUA_TTABLE) {
-        lua_getfield(L, index, "type");
-        const char* typeStr = lua_tostring(L, -1);
-        std::string genType = typeStr ? typeStr : "";
-        lua_pop(L, 1);
-        
-        if (genType == "seq") {
-            lua_getfield(L, index, "val");
-            const char* patStr = lua_tostring(L, -1);
-            std::string pattern = patStr ? patStr : "";
-            lua_pop(L, 1);
-            return std::make_shared<patterns::Seq>(pattern);
-        } else if (genType == "osc") {
-            lua_getfield(L, index, "val");
-            float freq = (float)lua_tonumber(L, -1);
-            lua_pop(L, 1);
-            return std::make_shared<patterns::Osc>(freq);
-        } else if (genType == "ramp") {
-            lua_getfield(L, index, "val");
-            float freq = (float)lua_tonumber(L, -1);
-            lua_pop(L, 1);
-            return std::make_shared<patterns::Ramp>(freq);
-        } else if (genType == "noise") {
-            lua_getfield(L, index, "val");
-            float seed = (float)lua_tonumber(L, -1);
-            lua_pop(L, 1);
-            return std::make_shared<patterns::Noise>(seed);
-        } else if (genType == "mul") {
-            lua_getfield(L, index, "a");
-            auto patA = parsePattern(L, lua_gettop(L));
-            lua_pop(L, 1);
-            lua_getfield(L, index, "b");
-            auto patB = parsePattern(L, lua_gettop(L));
-            lua_pop(L, 1);
-            if (patA && patB) return std::make_shared<patterns::Product>(patA, patB);
-        } else if (genType == "add") {
-            lua_getfield(L, index, "a");
-            auto patA = parsePattern(L, lua_gettop(L));
-            lua_pop(L, 1);
-            lua_getfield(L, index, "b");
-            auto patB = parsePattern(L, lua_gettop(L));
-            lua_pop(L, 1);
-            if (patA && patB) return std::make_shared<patterns::Sum>(patA, patB);
-        } else if (genType == "speed") {
-            lua_getfield(L, index, "val");
-            float factor = (float)lua_tonumber(L, -1);
-            lua_pop(L, 1);
-            lua_getfield(L, index, "p");
-            auto pat = parsePattern(L, lua_gettop(L));
-            lua_pop(L, 1);
-            return std::make_shared<patterns::Speed>(factor, pat);
-        } else if (genType == "shift") {
-            lua_getfield(L, index, "val");
-            float amount = (float)lua_tonumber(L, -1);
-            lua_pop(L, 1);
-            lua_getfield(L, index, "p");
-            auto pat = parsePattern(L, lua_gettop(L));
-            lua_pop(L, 1);
-            return std::make_shared<patterns::Shift>(amount, pat);
-        } else if (genType == "scale") {
-            lua_getfield(L, index, "lo");
-            float lo = (float)lua_tonumber(L, -1);
-            lua_pop(L, 1);
-            lua_getfield(L, index, "hi");
-            float hi = (float)lua_tonumber(L, -1);
-            lua_pop(L, 1);
-            lua_getfield(L, index, "p");
-            auto pat = parsePattern(L, lua_gettop(L));
-            lua_pop(L, 1);
-            return std::make_shared<patterns::Scale>(lo, hi, pat);
-        } else if (genType == "snap") {
-            lua_getfield(L, index, "val");
-            float steps = (float)lua_tonumber(L, -1);
-            lua_pop(L, 1);
-            lua_getfield(L, index, "p");
-            auto pat = parsePattern(L, lua_gettop(L));
-            lua_pop(L, 1);
-            return std::make_shared<patterns::Snap>(steps, pat);
-        }
-    }
-    
-    return nullptr;
-}
-
-int Interpreter::lua_setGenerator(lua_State* L) {
-    if (!s_currentSession) return 0;
-    
-    int nodeIdx = (int)luaL_checkinteger(L, 1);
-    std::string paramName = luaL_checkstring(L, 2);
-    
-    Graph* graph = getCurrentGraph();
-    Node* node = graph->getNode(nodeIdx);
-    if (!node) return 0;
-
-    // 1. Create a temporary pattern tree from the Lua tables
-    auto newPat = parsePattern(L, 3);
-    if (!newPat) return 0;
-
-    // 2. IDEMPOTENCY CHECK:
-    // If the existing pattern in this slot has the same signature, 
-    // do nothing. This avoids redundant re-allocations and mutex contention.
-    auto existingPat = node->getPattern(paramName);
-    if (existingPat && existingPat->getSignature() == newPat->getSignature()) {
-        return 0; // Exactly the same, skip the update!
-    }
-
-    // 3. Perform the update
-    node->modulate(paramName, newPat);
-    node->onParameterChanged(paramName);
-    
-    return 0;
-}
-
 int Interpreter::lua_getParam(lua_State* L) {
     if (!s_currentSession) return 0;
-    
-    int nodeIdx = luaL_checkinteger(L, 1);
+    int nodeIdx = (int)luaL_checkinteger(L, 1);
     std::string paramName = luaL_checkstring(L, 2);
-    
     Graph* graph = getCurrentGraph();
     Node* node = graph->getNode(nodeIdx);
     if (!node) return 0;
-    
-    // Try to find the parameter
     if (node->parameters->contains(paramName)) {
         auto& p = node->parameters->get(paramName);
-        
-        // Push the parameter value to Lua stack
-        if (p.type() == typeid(ofParameter<bool>).name()) {
-            lua_pushboolean(L, p.cast<bool>());
-        } else if (p.type() == typeid(ofParameter<int>).name()) {
-            lua_pushinteger(L, p.cast<int>());
-        } else if (p.type() == typeid(ofParameter<float>).name()) {
-            lua_pushnumber(L, p.cast<float>());
-        } else if (p.type() == typeid(ofParameter<double>).name()) {
-            lua_pushnumber(L, p.cast<double>());
-        } else if (p.type() == typeid(ofParameter<std::string>).name()) {
-            std::string val = p.cast<std::string>();
-            lua_pushstring(L, val.c_str());
-        } else {
-            // Fallback: try to convert to string
-            lua_pushstring(L, p.toString().c_str());
-        }
+        if (p.type() == typeid(ofParameter<float>).name()) lua_pushnumber(L, p.cast<float>().get());
+        else if (p.type() == typeid(ofParameter<int>).name()) lua_pushinteger(L, p.cast<int>().get());
+        else if (p.type() == typeid(ofParameter<bool>).name()) lua_pushboolean(L, p.cast<bool>().get());
+        else if (p.type() == typeid(ofParameter<std::string>).name()) lua_pushstring(L, p.cast<std::string>().get().c_str());
+        else lua_pushstring(L, p.toString().c_str());
         return 1;
     }
-    
-    // Parameter not found, return nil
+    return 0;
+}
+
+int Interpreter::lua_setParam(lua_State* L) {
+    if (!s_currentSession) return 0;
+    if (lua_isnil(L, 1) || lua_isnil(L, 2)) return 0;
+    int nodeIdx = (int)luaL_checkinteger(L, 1);
+    std::string paramName = luaL_checkstring(L, 2);
+    if (lua_isnil(L, 3)) {
+        ofLogWarning("Interpreter") << "lua_setParam: tried to set '" << paramName << "' to nil on node " << nodeIdx << ". Ignoring.";
+        return 0;
+    }
+    Graph* graph = getCurrentGraph();
+    Node* node = graph->getNode(nodeIdx);
+    if (!node) return 0;
+    node->clearModulator(paramName);
+    if (node->parameters->contains(paramName)) {
+        auto& p = node->parameters->get(paramName);
+        if (lua_isboolean(L, 3)) p.cast<bool>().set(lua_toboolean(L, 3));
+        else if (lua_isnumber(L, 3)) {
+            double val = lua_tonumber(L, 3);
+            if (p.type() == typeid(ofParameter<int>).name()) p.cast<int>().set((int)val);
+            else if (p.type() == typeid(ofParameter<float>).name()) p.cast<float>().set((float)val);
+            else if (p.type() == typeid(ofParameter<double>).name()) p.cast<double>().set(val);
+            else if (p.type() == typeid(ofParameter<bool>).name()) p.cast<bool>().set(val > 0.5);
+        } else if (lua_isstring(L, 3)) p.fromString(lua_tostring(L, 3));
+        node->onParameterChanged(paramName);
+    }
     return 0;
 }
 
 int Interpreter::lua_clear(lua_State* L) {
     if (!s_currentSession) return 0;
-    Graph* graph = getCurrentGraph();
-    graph->clear();
+    getCurrentGraph()->clear();
     return 0;
+}
+
+int Interpreter::lua_listDirectory(lua_State* L) {
+    std::string path = luaL_checkstring(L, 1);
+    ofDirectory dir(path);
+    dir.listDir();
+    lua_newtable(L);
+    for (size_t i = 0; i < dir.size(); ++i) {
+        lua_pushinteger(L, i + 1);
+        lua_pushstring(L, dir.getPath(i).c_str());
+        lua_settable(L, -3);
+    }
+    return 1;
+}
+
+int Interpreter::lua_fileExists(lua_State* L) {
+    std::string path = luaL_checkstring(L, 1);
+    lua_pushboolean(L, ofFile(path).exists());
+    return 1;
+}
+
+int Interpreter::lua_resolvePath(lua_State* L) {
+    std::string path = luaL_checkstring(L, 1);
+    std::string hint = "";
+    if (lua_gettop(L) >= 2) hint = luaL_checkstring(L, 2);
+    std::string resolved = AssetRegistry::get().resolve(path, hint);
+    if (resolved.empty()) resolved = ConfigManager::get().resolvePath(path);
+    lua_pushstring(L, resolved.c_str());
+    return 1;
+}
+
+int Interpreter::lua_getBank(lua_State* L) {
+    std::string bankName = luaL_checkstring(L, 1);
+    const auto& banks = AssetRegistry::get().getBanks();
+    auto it = banks.find(bankName);
+    if (it == banks.end()) { lua_newtable(L); return 1; }
+    const auto& bank = it->second;
+    lua_newtable(L);
+    for (size_t i = 0; i < bank.size(); ++i) {
+        const auto& asset = bank[i];
+        lua_pushinteger(L, i + 1);
+        lua_newtable(L);
+        lua_pushstring(L, "name"); lua_pushstring(L, asset.name.c_str()); lua_settable(L, -3);
+        lua_pushstring(L, "path"); std::string lp = bankName + ":" + std::to_string(i); lua_pushstring(L, lp.c_str()); lua_settable(L, -3);
+        lua_pushstring(L, "videoPath"); lua_pushstring(L, asset.videoPath.c_str()); lua_settable(L, -3);
+        lua_pushstring(L, "audioPath"); lua_pushstring(L, asset.audioPath.c_str()); lua_settable(L, -3);
+        lua_settable(L, -3);
+    }
+    return 1;
+}
+
+std::shared_ptr<Pattern<float>> parsePattern(lua_State* L, int index);
+
+int Interpreter::lua_setGenerator(lua_State* L) {
+    if (!s_currentSession) return 0;
+    int nodeIdx = (int)luaL_checkinteger(L, 1);
+    std::string paramName = luaL_checkstring(L, 2);
+    Graph* graph = getCurrentGraph();
+    Node* node = graph->getNode(nodeIdx);
+    if (!node) return 0;
+    auto pat = parsePattern(L, 3);
+    if (pat) node->modulate(paramName, pat);
+    return 0;
+}
+
+std::shared_ptr<Pattern<float>> parsePattern(lua_State* L, int index) {
+    if (index < 0) index = lua_gettop(L) + index + 1;
+    int type = lua_type(L, index);
+    if (type == LUA_TNUMBER) return std::make_shared<patterns::Constant>((float)lua_tonumber(L, index));
+    if (type == LUA_TTABLE) {
+        lua_getfield(L, index, "type");
+        std::string genType = lua_tostring(L, -1) ? lua_tostring(L, -1) : "";
+        lua_pop(L, 1);
+        if (genType == "seq") {
+            lua_getfield(L, index, "val");
+            std::string p = lua_tostring(L, -1) ? lua_tostring(L, -1) : "";
+            lua_pop(L, 1); return std::make_shared<patterns::Seq>(p);
+        } else if (genType == "osc") {
+            lua_getfield(L, index, "val");
+            float f = (float)lua_tonumber(L, -1);
+            lua_pop(L, 1); return std::make_shared<patterns::Osc>(f);
+        } else if (genType == "ramp") {
+            lua_getfield(L, index, "val");
+            float f = (float)lua_tonumber(L, -1);
+            lua_pop(L, 1); return std::make_shared<patterns::Ramp>(f);
+        } else if (genType == "noise") {
+            lua_getfield(L, index, "val");
+            float s = (float)lua_tonumber(L, -1);
+            lua_pop(L, 1); return std::make_shared<patterns::Noise>(s);
+        } else if (genType == "mul") {
+            lua_getfield(L, index, "a"); auto pa = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
+            lua_getfield(L, index, "b"); auto pb = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
+            if (pa && pb) return std::make_shared<patterns::Product>(pa, pb);
+        } else if (genType == "add") {
+            lua_getfield(L, index, "a"); auto pa = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
+            lua_getfield(L, index, "b"); auto pb = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
+            if (pa && pb) return std::make_shared<patterns::Sum>(pa, pb);
+        } else if (genType == "fast") {
+            lua_getfield(L, index, "n"); float n = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+            lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
+            if (p) return std::make_shared<patterns::Speed>(n, p);
+        } else if (genType == "slow") {
+            lua_getfield(L, index, "n"); float n = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+            lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
+            if (p) return std::make_shared<patterns::Speed>(1.0f/n, p);
+        } else if (genType == "shift") {
+            lua_getfield(L, index, "o"); float o = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+            lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
+            if (p) return std::make_shared<patterns::Shift>(o, p);
+        } else if (genType == "scale") {
+            lua_getfield(L, index, "l"); float l = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+            lua_getfield(L, index, "h"); float h = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+            lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
+            if (p) return std::make_shared<patterns::Scale>(l, h, p);
+        } else if (genType == "snap") {
+            lua_getfield(L, index, "s"); float s = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+            lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
+            if (p) return std::make_shared<patterns::Snap>(s, p);
+        }
+    }
+    return nullptr;
 }

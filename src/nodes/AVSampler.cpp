@@ -48,7 +48,7 @@ void AVSampler::prepare(const Context& ctx) {
         audioSource.graph = graph;
         videoSource.graph = graph;
         if (videoSource.parameters->contains("clockMode")) {
-            videoSource.parameters->get("clockMode").cast<int>().set(VideoFileSource::EXTERNAL);
+            videoSource.parameters->get("clockMode").cast<int>().set(VideoFileSource::INTERNAL);
         }
     }
     
@@ -63,16 +63,20 @@ void AVSampler::prepare(const Context& ctx) {
 }
 
 void AVSampler::update(float dt) {
-    // FIX: If the node is inactive, skip the update entirely to prevent seek storms.
     if (!active->get()) return;
 
-    // NOTE: audioSource.update is strictly handled by the audio thread.
-    
     if (!audioPath.get().empty() && !videoPath.get().empty()) {
         double audioPos = audioSource.getRelativePosition();
         
-        // Performance: Only seek if the playhead moved significantly.
-        if (std::abs(audioPos - lastSyncPos) > 0.001) {
+        // PASSIVE SYNC (Soft Sync)
+        // We rely on the fact that AudioFileSource and VideoFileSource share the same 
+        // internal 'speed' multiplier, so they run parallel to each other naturally.
+        // Calling setPosition() on a HAP player forces its internal demuxer to flush 
+        // its background decoding queue, which causes severe I/O and CPU stalls if 
+        // done every frame across many layers.
+        // We only force a "Hard Sync" jump if the drift exceeds our tolerance threshold.
+        const double DRIFT_TOLERANCE = 0.05; // 5% divergence
+        if (std::abs(audioPos - lastSyncPos) > DRIFT_TOLERANCE) {
             videoSource.setPosition((float)audioPos);
             lastSyncPos = audioPos;
         }

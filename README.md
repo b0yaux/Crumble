@@ -18,9 +18,12 @@ make RunRelease     # loads bin/data/config.json
 
 ## Architecture
 
+Crumble uses a **Shadow Processor** architecture to decouple slow UI/Lua logic from the real-time audio thread.
+
 ```text
 Session (Root Container: Hardware & Threading)
 ├── Transport (Musical Clock & Phase)
+├── Shadow Processors (Wait-free Audio DSP)
 ├── Patterns (Stateless logic: cycle -> value shapes)
 ├── Graph (Recursive topology & Node lifecycle)
 │   └── Node (Atomic processing units)
@@ -36,6 +39,7 @@ Session (Root Container: Hardware & Threading)
 - **Patterns**: Stateless recipes (`cycle -> value`) used for sample-accurate modulation.
 - **Interpreter**: The Lua runtime that parses and executes live-coding scripts.
 - **AssetRegistry**: A logical mapping layer that handles media discovery, banks, and automatic A/V pairing.
+- **Shadow Processors**: High-performance worker objects that live on the audio thread, receiving parameter changes via wait-free SPSC queues.
 - **AssetCache**: A global registry that deduplicates media files and caches RAM buffers for efficiency.
 
 ## Data Types & Flows
@@ -63,19 +67,31 @@ Load media into nodes using logical strings:
 - **Logical Name**: `node.path = "birds"` (Finds associated media files named 'birds').
 - **Direct Path**: `node.path = "clips/loop.mov"` (Standard file path resolution).
 
+### Data-Driven Scripts
+Query the `AssetRegistry` directly to build generative graphs based on folder contents:
+```lua
+local assets = getBank("my-folder")
+for i, asset in ipairs(assets) do
+    local s = addNode("AVSampler", asset.name)
+    s.path = asset.path -- e.g. "my-folder:0"
+end
+```
+
 ## Lua API
 
 ### Graph Construction & Routing
+Crumble supports **Auto-Indexing** and **Table Routing** for concise graph setup.
 ```lua
-local video = addNode("VideoFileSource", "movie1")
-local mixer = addNode("VideoMixer")
-local output = addNode("ScreenOutput")
+local sampler = addNode("AVSampler", "s1")
+local vmix = addNode("VideoMixer", "vmix")
+local amix = addNode("AudioMixer", "amix")
 
-connect(video, mixer)
-connect(mixer, output)
+-- Route one source to multiple mixers. 
+-- connect() finds the next free slot and returns the layer index.
+local layer = connect(sampler, {vmix, amix})
 
-video.path = "superstratum:40" 
-mixer.opacity_0 = 0.5
+vmix["opacity_" .. layer] = 0.5
+amix["gain_" .. layer] = 0.5
 ```
 
 ### Sequencing & Modulation
@@ -105,7 +121,7 @@ smp.cutoff = scale(200, 2000, osc(0.25))
 | `noise(s)`| Deterministic stochastic noise (optional seed) |
 | `seq("...")`| Discrete step sequencer |
 | `fast(n, p)`| Speed up pattern `p` by factor `n` |
-| `slow(n, p)`| Slow down pattern `p` by factor `n` |
+| `slow(n, p)`| Slow down pattern `p` by factor `n` (1/n speed) |
 | `shift(o, p)`| Offset phase by `o` (0.0 to 1.0) |
 | `scale(l, h, p)`| Map pattern range to [low, high] |
 | `snap(s, p)`| Quantize output into `s` steps |
@@ -130,6 +146,12 @@ sub.script = "scripts/inner.lua" -- Populates the sub-graph reactively
 | **Audio** | `AudioFileSource` | RAM-cached sample player |
 | | `AudioMixer` | Multi-channel summation |
 | | `SpeakersOutput` | Hardware audio sink |
+| **AV** | `AVSampler` | Unified audio+video player with Soft Sync |
+
+## Robustness
+
+- **Null-Safety**: Setting parameters to `nil` or passing `nil` to routing functions logs a warning without crashing the application.
+- **State Preservation**: The C++ rendering engine remains active and maintains the last valid graph state when a Lua script encounters runtime errors.
 
 ## Shortcuts
 
