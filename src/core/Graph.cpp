@@ -1,5 +1,6 @@
 #include <deque>
 #include "Graph.h"
+#include "../nodes/subgraph/Outlet.h"
 #include "Session.h"
 #include "Transport.h"
 #include "AssetRegistry.h"
@@ -182,6 +183,8 @@ void Graph::removeNode(int nodeId) {
     {
         std::lock_guard<std::recursive_mutex> lock(audioMutex);
         
+        outletRegistry.erase(nodeId);
+
         connections.erase(
             std::remove_if(connections.begin(), connections.end(),
                 [nodeId](const Connection& c) {
@@ -214,6 +217,7 @@ void Graph::clear() {
         cachedInputs.clear();
         cachedOutputs.clear();
         renderList.clear();
+        outletRegistry.clear();
         executionDirty = true;
     }
 }
@@ -282,26 +286,18 @@ void Graph::updateRenderList() {
 }
 
 ofTexture* Graph::processVideo(int index) {
-    for (const auto& pair : nodes) {
-        Node* node = pair.second.get();
-        if (node && node->type == "Outlet") {
-            Outlet* outlet = static_cast<Outlet*>(node);
-            if (outlet->outletIndex == index) return node->getVideoOutput();
-        }
+    for (auto& [id, outlet] : outletRegistry) {
+        if (outlet && outlet->outletIndex == index) return outlet->getVideoOutput();
     }
     return nullptr;
 }
 
 void Graph::processAudio(ofSoundBuffer& buffer, int index) {
     std::lock_guard<std::recursive_mutex> lock(audioMutex);
-    for (const auto& pair : nodes) {
-        Node* node = pair.second.get();
-        if (node && node->type == "Outlet") {
-            Outlet* outlet = static_cast<Outlet*>(node);
-            if (outlet->outletIndex == index) {
-                node->pullAudio(buffer);
-                return;
-            }
+    for (auto& [id, outlet] : outletRegistry) {
+        if (outlet && outlet->outletIndex == index) {
+            outlet->pullAudio(buffer);
+            return;
         }
     }
     buffer.set(0);
@@ -386,6 +382,9 @@ Node* Graph::createNode(const std::string& type, const std::string& name) {
 
     {
         std::lock_guard<std::recursive_mutex> lock(audioMutex);
+        if (auto* outlet = dynamic_cast<Outlet*>(ptr)) {
+            outletRegistry[ptr->nodeId] = outlet;
+        }
         nodes[node->nodeId] = std::move(node);
     }
     executionDirty = true;
@@ -503,3 +502,11 @@ void Graph::onNodeLayerChanged(int& layer) { updateRenderList(); }
 
 Graph* Graph::getParentGraph() const { return graph; }
 Node* Graph::getContainingNode() const { return const_cast<Graph*>(this); }
+
+void Graph::registerOutlet(Outlet* outlet) {
+    if (outlet) outletRegistry[outlet->nodeId] = outlet;
+}
+
+void Graph::unregisterOutlet(int nodeId) {
+    outletRegistry.erase(nodeId);
+}

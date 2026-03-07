@@ -3,9 +3,13 @@
 #include "ofMain.h"
 #include <vector>
 #include <map>
+#include <unordered_map>
 #include <string>
 #include <functional>
 #include <mutex>
+
+// Forward declaration — full header included in Graph.cpp
+class Outlet;
 
 namespace crumble {
     struct AudioCommand;
@@ -120,4 +124,10 @@ private:
     std::unordered_map<int, std::vector<Connection>> cachedInputs;
     std::unordered_map<int, std::vector<Connection>> cachedOutputs;
     void updateConnectionCache();
+
+    // Outlet registry — keyed by nodeId, populated by createNode/removeNode/clear.
+    // Eliminates the per-frame O(N) type-string scan in processAudio/processVideo.
+    std::unordered_map<int, Outlet*> outletRegistry;
+    void registerOutlet(Outlet* outlet);
+    void unregisterOutlet(int nodeId);
 };
