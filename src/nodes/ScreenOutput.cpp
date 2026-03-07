@@ -1,6 +1,7 @@
 #include "ofMain.h"
 #include "ScreenOutput.h"
 #include "../core/Graph.h"
+#include "../core/NodeProcessor.h"
 
 ScreenOutput::ScreenOutput() {
     type = "ScreenOutput";

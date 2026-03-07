@@ -1,6 +1,7 @@
 #include "SpeakersOutput.h"
 #include "ofMain.h"
 #include "../core/ProcessorCommand.h"
+#include "../core/NodeProcessor.h"
 
 using namespace crumble;
 

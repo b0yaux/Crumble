@@ -1,5 +1,6 @@
 #include "AVSampler.h"
 #include "ofMain.h"
+#include "../core/NodeProcessor.h"
 
 AVSampler::AVSampler() {
     type = "AVSampler";
