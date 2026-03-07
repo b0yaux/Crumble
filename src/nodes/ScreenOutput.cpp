@@ -1,7 +1,6 @@
-#include "ofMain.h"
 #include "ScreenOutput.h"
-#include "../core/Graph.h"
-#include "../core/NodeProcessor.h"
+#include "ofMain.h"
+
 
 ScreenOutput::ScreenOutput() {
     type = "ScreenOutput";
@@ -39,18 +38,13 @@ void ScreenOutput::update(float dt) {
     sourceOpacity = 1.0f;
     if (!enabled) return;
     
-    if (!graph) return;
-    
-    // Pull input texture from connected node. 
-    // This will hit the background thread's ping-pong FBO lock-free pointer.
-    auto inputs = graph->getInputConnections(nodeId);
-    if (!inputs.empty()) {
-        Node* sourceNode = graph->getNode(inputs[0].fromNode);
-        if (sourceNode) {
-            inputTexture = sourceNode->getVideoOutput(inputs[0].fromOutput);
-            Control sourceOpCtrl = sourceNode->getControl(*sourceNode->opacity);
-            sourceOpacity = sourceOpCtrl[0];
-        }
+    // Pull input texture from connected node via Node abstraction
+    // (avoids coupling to Graph.h)
+    Node* sourceNode = getInputNode(0);
+    if (sourceNode) {
+        inputTexture = sourceNode->getVideoOutput(0);
+        Control sourceOpCtrl = sourceNode->getControl(*sourceNode->opacity);
+        sourceOpacity = sourceOpCtrl[0];
     }
 }
 
