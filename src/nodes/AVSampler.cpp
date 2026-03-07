@@ -29,6 +29,17 @@ AVSampler::AVSampler() {
 }
 
 AVSampler::~AVSampler() {
+    // Send RELEASE_BUFFER before nulling audioSource.audioProcessor and before
+    // ~Node() sends REMOVE_NODE.  This ensures the AudioFileProcessor zeroes its
+    // data pointer and releases its dataOwner reference while the processor is
+    // still registered — closing the use-after-free window that exists between
+    // sharedLoader being destroyed (as an AudioFileSource member) and the
+    // processor being dequeued from activeAudioProcessors.
+    if (audioProcessor) {
+        crumble::AudioCommand cmd;
+        cmd.type = crumble::AudioCommand::RELEASE_BUFFER;
+        pushCommand(cmd);
+    }
     audioSource.audioProcessor = nullptr;
 }
 
@@ -195,6 +206,9 @@ std::string AVSampler::getDisplayName() const {
 }
 
 void AVSampler::onParameterChanged(const std::string& paramName) {
+    // "path / audioPath / videoPath" are std::string parameters — Node::onParameterChanged
+    // only handles float/bool/int and would no-op for these anyway.  Return early to
+    // skip the unnecessary linear scan over the parameter group at the tail.
     if (paramName == "path") {
         std::string pathVal = path.get();
         if (pathVal.empty()) return;
@@ -208,21 +222,26 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
             videoPath.set(vid);
             onParameterChanged("videoPath");
         }
-    } 
-    else if (paramName == "audioPath") {
+        return;
+    }
+    if (paramName == "audioPath") {
         if (!audioPath.get().empty() && audioPath.get() != loadedAudioPath) {
             audioSource.load(audioPath.get());
             loadedAudioPath = audioPath.get();
             masterPlayhead = 0.0;
         }
-    } else if (paramName == "videoPath") {
+        return;
+    }
+    if (paramName == "videoPath") {
         if (!videoPath.get().empty() && videoPath.get() != loadedVideoPath) {
             videoSource.load(videoPath.get());
             loadedVideoPath = videoPath.get();
             masterPlayhead = 0.0;
         }
-    } 
-    else if (paramName == "speed") {
+        return;
+    }
+
+    if (paramName == "speed") {
         ofLogNotice("AVSampler") << "onParameterChanged: speed - propagating to children";
         if (cachedAudioSpeed) cachedAudioSpeed->set(speed.get());
         if (cachedVideoSpeed) cachedVideoSpeed->set(speed.get());
@@ -274,7 +293,13 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
         audioSource.onParameterChanged("playing");
     }
     
-    // Always propagate to processors for unhandled params (like opacity, volume)
+    // Propagate to both shadow processors.
+    // For audio params (speed, loop, playing, volume) the audioSource already pushed
+    // a SET_PARAM via its own Node::onParameterChanged above — this produces a harmless
+    // duplicate on the audio processor but is the only mechanism that updates the VIDEO
+    // shadow processor's valuesMap, since VideoFileSource::onParameterChanged routes
+    // changes directly to the HAP player without calling Node::onParameterChanged.
+    // Full de-duplication of the audio side is deferred to S6 (cached-pointer removal).
     Node::onParameterChanged(paramName);
 }
 

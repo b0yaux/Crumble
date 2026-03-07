@@ -47,10 +47,16 @@ struct AudioCommand {
     // For SET_PATTERN: the pattern object evaluated each block.
     std::shared_ptr<Pattern<float>> pattern;
     
-    // For LOAD_BUFFER
+    // For LOAD_BUFFER / RELEASE_BUFFER
+    // dataOwner keeps the underlying audio buffer alive for exactly as long as
+    // the AudioFileProcessor holds a reference to it.  The processor stores this
+    // shared_ptr alongside the raw audioData pointer; the raw pointer becomes
+    // safe to dereference for the processor's entire lifetime without any
+    // explicit synchronisation between the UI thread and the audio thread.
     const float* audioData = nullptr;
     size_t totalSamples = 0;
     int channels = 0;
+    std::shared_ptr<void> dataOwner; // type-erased to avoid pulling ofxAudioFile here
     
     int fromOutput = 0;
     int toInput = 0;

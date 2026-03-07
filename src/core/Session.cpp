@@ -134,6 +134,13 @@ void Session::audioOut(ofSoundBuffer& buffer) {
                 if (alive(ap)) ap->handleCommand(cmd);
                 break;
 
+            case crumble::AudioCommand::RELEASE_BUFFER:
+                // Zero the processor's data pointer and release its dataOwner
+                // reference before REMOVE_NODE arrives.  Safe to call even if
+                // the processor has already been removed (alive() guards it).
+                if (alive(ap)) ap->handleCommand(cmd);
+                break;
+
             default: break;
         }
     }

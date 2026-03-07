@@ -16,6 +16,7 @@ namespace crumble {
 class AudioFileSource : public Node {
 public:
     AudioFileSource();
+    ~AudioFileSource();
     
     // Performance: Members made public to allow AVSampler direct pointer access
     ofParameter<std::string> path;

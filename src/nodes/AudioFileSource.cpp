@@ -48,20 +48,48 @@ public:
     
     void handleCommand(const AudioCommand& cmd) override {
         if (cmd.type == AudioCommand::LOAD_BUFFER) {
-            data = cmd.audioData;
+            // Store the lifetime anchor first so the data pointer is never
+            // valid without the underlying buffer being kept alive.
+            dataOwner   = cmd.dataOwner;
+            data        = cmd.audioData;
             totalSamples = cmd.totalSamples;
-            channels = cmd.channels;
+            channels    = cmd.channels;
             playhead.store(0.0);
+        } else if (cmd.type == AudioCommand::RELEASE_BUFFER) {
+            // Zero the raw pointer before releasing the owner so there is
+            // never a window where data is non-null but the buffer is freed.
+            data        = nullptr;
+            totalSamples = 0;
+            channels    = 0;
+            dataOwner.reset();
         }
     }
-    
+
     std::atomic<double> playhead{0.0};
     const float* data = nullptr;
     size_t totalSamples = 0;
     int channels = 0;
+
+private:
+    // Keeps the ofxAudioFile buffer alive for as long as this processor
+    // holds a reference, regardless of what the UI thread does with the
+    // originating AudioFileSource.
+    std::shared_ptr<void> dataOwner;
 };
 
 } // namespace crumble
+
+AudioFileSource::~AudioFileSource() {
+    // Send RELEASE_BUFFER before ~Node() sends REMOVE_NODE.
+    // This lets the AudioFileProcessor zero its data pointer and release its
+    // dataOwner reference in the correct order: the raw pointer is cleared
+    // first, then the owning shared_ptr, then the processor is unregistered.
+    if (audioProcessor) {
+        crumble::AudioCommand cmd;
+        cmd.type = crumble::AudioCommand::RELEASE_BUFFER;
+        pushCommand(cmd);
+    }
+}
 
 AudioFileSource::AudioFileSource() {
     type = "AudioFileSource";
@@ -117,9 +145,10 @@ void AudioFileSource::load(const std::string& p) {
         cmd.type = crumble::AudioCommand::LOAD_BUFFER;
         cmd.nodeId = nodeId;
         cmd.audioProcessor = audioProcessor;
-        cmd.audioData = sharedLoader->data();
+        cmd.audioData  = sharedLoader->data();
+        cmd.dataOwner  = sharedLoader;   // keeps buffer alive in the processor
         cmd.totalSamples = sharedLoader->length();
-        cmd.channels = sharedLoader->channels();
+        cmd.channels   = sharedLoader->channels();
         pushCommand(cmd);
         
         ofLogNotice("AudioFileSource") << "Loaded: " << p << " (" << sharedLoader->length() << " samples)";

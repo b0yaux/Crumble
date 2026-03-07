@@ -7,6 +7,15 @@ namespace crumble {
 
 class AudioMixerProcessor : public AudioProcessor {
 public:
+    AudioMixerProcessor() {
+        // Pre-allocate to the default buffer size (256 frames, stereo) so the
+        // size check in process() is a no-op in the common case.  The guard
+        // below still handles any session that uses a non-default buffer size.
+        sumBuf.allocate(256, 2);
+        sumBuf.setSampleRate(44100);
+        sumBuf.set(0);
+    }
+
     void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
                  double cycle, double cycleStep) override {
         float masterGain = getParam("masterGain");
@@ -14,8 +23,11 @@ public:
         for (int i = 0; i < 16; i++) {
             auto& input = inputs[i];
             if (input.processor) {
-                if (sumBuf.size() != buffer.size()) {
+                // Only reallocate when the host changes buffer geometry (rare).
+                if (sumBuf.getNumFrames() != buffer.getNumFrames() ||
+                    sumBuf.getNumChannels() != buffer.getNumChannels()) {
                     sumBuf.allocate(buffer.getNumFrames(), buffer.getNumChannels());
+                    sumBuf.setSampleRate(buffer.getSampleRate());
                 }
                 sumBuf.set(0);
                 
