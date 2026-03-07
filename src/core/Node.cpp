@@ -248,10 +248,6 @@ AssetCache* Node::getCache() const {
 
 std::shared_ptr<ofxAudioFile> Node::getAudioAsset(const std::string& path) const {
     auto cache = getCache();
-    // Fallback: if graph not yet set (e.g. during member initialization in composite nodes),
-    // directly access session cache. This handles the edge case where load() is called
-    // before the composite node's prepare() has set up the graph pointer.
-    if (!cache && g_session) cache = &g_session->getCache();
     if (cache) return cache->getAudio(path);
     return nullptr;
 }

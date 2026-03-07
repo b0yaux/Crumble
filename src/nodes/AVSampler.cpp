@@ -176,7 +176,17 @@ void AVSampler::setupProcessor() {
     audioSource.nodeId = nodeId;
     videoSource.nodeId = nodeId;
     
+    // Bind children to the same graph so they can reach global services (Cache, Registry)
+    audioSource.graph = graph;
+    videoSource.graph = graph;
+    
     Node::setupProcessor();
+
+    // HANDOVER: internal children must point to the same shadow processors 
+    // created by the factory methods above. This ensures they can send
+    // correctly-targeted ProcessorCommands (e.g. LOAD_BUFFER).
+    audioSource.audioProcessor = audioProcessor;
+    videoSource.videoProcessor = videoProcessor;
 }
 
 void AVSampler::processAudio(ofSoundBuffer& buffer, int index) {
