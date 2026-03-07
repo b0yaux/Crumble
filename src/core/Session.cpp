@@ -12,8 +12,31 @@ Session::Session() {
 }
 
 Session::~Session() {
+    // 1. Explicitly destroy the graph while the audio thread is still running.
+    //    Node::~Node() enqueues REMOVE_NODE commands — they must land while
+    //    audioOut() can still dequeue them, otherwise processors are abandoned.
+    graph.clear();
+
+    // 2. Now it is safe to stop the stream.
     soundStream.stop();
     soundStream.close();
+
+    // 3. Drain and delete every shadow processor that is still alive.
+    //    activeAudioProcessors holds processors that were ADD_NODE'd but not yet
+    //    REMOVE_NODE'd (e.g. nodes added after the last audioOut() call).
+    for (auto* p : activeAudioProcessors) delete p;
+    activeAudioProcessors.clear();
+
+    for (auto* p : activeVideoProcessors) delete p;
+    activeVideoProcessors.clear();
+
+    // 4. Drain the deferred-release queues (processors removed during this run).
+    crumble::AudioProcessor* ap = nullptr;
+    while (audioReleaseQueue.try_dequeue(ap)) delete ap;
+
+    crumble::VideoProcessor* vp = nullptr;
+    while (videoReleaseQueue.try_dequeue(vp)) delete vp;
+
     g_session = nullptr;
 }
 
