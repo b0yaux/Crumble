@@ -173,6 +173,7 @@ void Node::clearModulator(const std::string& paramName) {
 }
 
 std::shared_ptr<Pattern<float>> Node::getPattern(const std::string& paramName) const {
+    std::lock_guard<std::recursive_mutex> lock(modMutex);
     auto it = modulators.find(paramName);
     if (it != modulators.end()) return it->second;
     return nullptr;
