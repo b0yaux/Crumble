@@ -34,7 +34,8 @@ public:
 SpeakersOutput::SpeakersOutput() {
     type = "SpeakersOutput";
     parameters->add(masterVolume.set("masterVolume", 1.0, 0.0, 1.0));
-    setupProcessor();
+    // NOTE: setupProcessor() is NOT called here.
+    // Graph::createNode() calls it after nodeId is assigned.
 }
 
 AudioProcessor* SpeakersOutput::createAudioProcessor() {

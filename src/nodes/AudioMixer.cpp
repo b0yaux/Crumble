@@ -57,7 +57,6 @@ AudioMixer::AudioMixer() {
     type = "AudioMixer";
     parameters->add(masterGain.set("masterGain", 1.0, 0.0, 4.0));
     numActiveInputs = 0;
-    setupProcessor();
 }
 
 crumble::AudioProcessor* AudioMixer::createAudioProcessor() {
