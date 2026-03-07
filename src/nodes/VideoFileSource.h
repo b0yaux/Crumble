@@ -52,6 +52,14 @@ public:
 private:
     void onPathChanged(std::string& path);
     void onClockModeChanged(int& mode);
+
+    // Safe speed setter: never calls setSpeed(0) on the HAP player.
+    // The HAP Clock computes pos/rate internally; rate==0 produces +inf
+    // which is cast to int64_t (UB) and corrupts _start, causing multi-ms
+    // stalls on the next update(). Use setPaused() for the zero crossing.
+    void safeSetPlayerSpeed(float newSpeed);
+
     std::string loadedPath;
+    float lastSpeed = 1.0f;   // tracks the last speed actually sent to the player
     ofxHapPlayer player;
 };

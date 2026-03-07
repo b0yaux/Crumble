@@ -5,15 +5,35 @@
 // Shadow processor for the video thread
 class VideoFileProcessor : public crumble::VideoProcessor {
 public:
-    VideoFileProcessor(ofxHapPlayer* p) : playerRef(p) {}
-    
+    VideoFileProcessor(ofxHapPlayer* p) : playerRef(p), lastSpeed(1.0f) {}
+
     void processVideo(double cycle, double cycleStep) override {
-        if (playerRef && playerRef->isLoaded()) {
-            // Evaluate speed pattern each frame for video
-            float actualSpeed = getParam("speed");
-            playerRef->setSpeed(actualSpeed);
-            playerRef->update();
+        if (!playerRef || !playerRef->isLoaded()) return;
+
+        float newSpeed = getParam("speed");
+
+        // Only call into the player when the speed value actually changes.
+        // Every setSpeed() call notifies the AudioThread unconditionally, and
+        // setSpeed(0.0f) is unsafe: Clock::setRateAt stores _rate=0 then calls
+        // syncAt() which computes pos/0.0f = +inf, casts it to int64_t (UB),
+        // corrupting _start. On the next update() the clock returns a wrong pts,
+        // causing a cache miss that blocks the main thread for up to 30 ms
+        // (the player's _timeout). Use setPaused() for the zero crossing instead.
+        if (std::abs(newSpeed - lastSpeed) > 1e-4f) {
+            if (newSpeed == 0.0f) {
+                playerRef->setPaused(true);
+            } else {
+                // Only un-pause for speed recovery if the node is actually meant to
+                // be playing; don't override an explicit playing=false pause.
+                if (lastSpeed == 0.0f && getParam("playing") > 0.5f) {
+                    playerRef->setPaused(false);
+                }
+                playerRef->setSpeed(newSpeed);
+            }
+            lastSpeed = newSpeed;
         }
+
+        playerRef->update();
     }
     
     ofTexture* getOutput(int index = 0) override {
@@ -28,6 +48,7 @@ public:
     
 private:
     ofxHapPlayer* playerRef = nullptr;
+    float lastSpeed;
 };
 
 VideoFileSource::VideoFileSource() {
@@ -47,15 +68,34 @@ crumble::VideoProcessor* VideoFileSource::createVideoProcessor() {
     return new VideoFileProcessor(&player);
 }
 
+void VideoFileSource::safeSetPlayerSpeed(float newSpeed) {
+    // Never call setSpeed(0) on the HAP player: the Clock computes pos/rate
+    // internally; rate==0 yields +inf which is cast to int64_t (UB), corrupting
+    // _start and causing multi-ms stalls on the next update(). Route zero through
+    // setPaused() instead, and restore the pause state on recovery.
+    if (newSpeed == 0.0f) {
+        player.setPaused(true);
+    } else {
+        // Un-pause only if we paused because speed reached zero AND the node is
+        // supposed to be playing — don't override an explicit playing=false.
+        if (lastSpeed == 0.0f && playing.get()) {
+            player.setPaused(false);
+        }
+        player.setSpeed(newSpeed);
+    }
+    lastSpeed = newSpeed;
+}
+
 void VideoFileSource::onClockModeChanged(int& mode) {
     if (player.isLoaded()) {
         if (mode == VideoFileSource::EXTERNAL) {
-            player.setSpeed(0.0f);
+            // Switching to external clock: freeze the player.
+            // Do NOT call setSpeed(0) — use setPaused() to avoid HAP Clock UB.
             player.setPaused(true);
         } else {
             if (playing) {
                 player.play();
-                player.setSpeed(speed);
+                safeSetPlayerSpeed(speed.get());
             }
         }
     }
@@ -80,13 +120,14 @@ void VideoFileSource::load(const std::string& vidPath) {
         player.setLoopState(loop ? OF_LOOP_NORMAL : OF_LOOP_NONE);
         
         if (clockMode == VideoFileSource::INTERNAL) {
-            player.setSpeed(speed);
+            // play() must be called before setSpeed() so the HAP clock is
+            // initialised with a non-zero rate from the start.
             if (playing) {
                 player.play();
             }
+            safeSetPlayerSpeed(speed.get());
         } else {
-            // EXTERNAL mode relies entirely on manual scrubbing
-            player.setSpeed(0.0f); // Default to stopped speed, or maybe not needed
+            // EXTERNAL mode relies entirely on manual scrubbing; just freeze.
             player.setPaused(true);
         }
         loadedPath = vidPath;
@@ -100,7 +141,7 @@ void VideoFileSource::onParameterChanged(const std::string& paramName) {
 
     if (paramName == "speed") {
         if (clockMode == VideoFileSource::INTERNAL) {
-            player.setSpeed(speed);
+            safeSetPlayerSpeed(speed.get());
         }
     } else if (paramName == "loop") {
         player.setLoopState(loop ? OF_LOOP_NORMAL : OF_LOOP_NONE);
