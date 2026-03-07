@@ -352,15 +352,6 @@ bool Graph::validateTopology() {
     }
 
     executionDirty = false;
-    
-    // UPDATE AUDIO THREAD TOPOLOGY
-    if (visitedCount == nodes.size()) {
-        crumble::AudioCommand cmd;
-        cmd.type = crumble::AudioCommand::UPDATE_TOPOLOGY;
-        // Logic for passing full traversal list would go here
-        // For now, we'll keep it simple
-    }
-
     return (visitedCount == nodes.size());
 }
 

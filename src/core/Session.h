@@ -86,6 +86,5 @@ private:
     crumble::SPSCQueue<crumble::VideoProcessor*> videoReleaseQueue{1024};
     std::vector<crumble::VideoProcessor*> activeVideoProcessors;
     
-    // Legacy support
-    crumble::SPSCQueue<crumble::NodeProcessor*> releaseQueue{1024};
+
 };

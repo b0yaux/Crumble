@@ -152,10 +152,7 @@ void Session::sendCommand(const crumble::AudioCommand& cmd) {
         }
     }
     
-    // Legacy fallback (remove once fully ported)
-    if (cmd.processor && !cmd.audioProcessor && !cmd.videoProcessor) {
-        ofLogWarning("Session") << "Legacy processor command sent! Type: " << cmd.type;
-    }
+
 }
 
 void Session::update(float dt) {

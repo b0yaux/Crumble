@@ -23,9 +23,8 @@ struct AudioCommand {
         CONNECT_NODES,
         DISCONNECT_NODES,
         SET_PARAM,
-        SET_PATTERN,      // Install a Pattern object on the audio thread for parameter name
+        SET_PATTERN,      // Install a Pattern object on the audio/video thread for parameter name
         SET_GRAPH_REF,
-        UPDATE_TOPOLOGY,
         LOAD_BUFFER,
         RELEASE_BUFFER
     };
@@ -35,10 +34,6 @@ struct AudioCommand {
     int targetId = -1;
     float value = 0.0f;
     
-    // Legacy base pointer (keep for compiling compatibility during refactor if needed)
-    NodeProcessor* processor = nullptr;
-    NodeProcessor* targetProcessor = nullptr;
-
     // Type-specific processor pointers
     AudioProcessor* audioProcessor = nullptr;
     AudioProcessor* targetAudioProcessor = nullptr;

@@ -64,18 +64,15 @@ public:
     virtual void draw() {}
     
     // Shadow Processor Lifecycle
-    virtual crumble::NodeProcessor* createProcessor() { return nullptr; } // Legacy fallback
     virtual crumble::AudioProcessor* createAudioProcessor() { return nullptr; }
     virtual crumble::VideoProcessor* createVideoProcessor() { return nullptr; }
 
     virtual void setupProcessor();
-    crumble::NodeProcessor* getProcessor() { return processor; }
     crumble::AudioProcessor* getAudioProcessor() { return audioProcessor; }
     crumble::VideoProcessor* getVideoProcessor() { return videoProcessor; }
 
     // The processor pointers are public to allow composite nodes (e.g. AVSampler)
     // to initialize an inner node's processor without the double-ADD_NODE overhead.
-    crumble::NodeProcessor* processor = nullptr; // Legacy
     crumble::AudioProcessor* audioProcessor = nullptr;
     crumble::VideoProcessor* videoProcessor = nullptr;
 
@@ -119,12 +116,6 @@ public:
 protected:
     std::unordered_map<int, Node*> inputNodes;
     std::unordered_map<std::string, std::shared_ptr<Pattern<float>>> modulators;
-    
-    struct CacheEntry {
-        ofSoundBuffer* buffer = nullptr;
-        std::shared_ptr<Pattern<float>> pattern;
-    };
-    mutable std::unordered_map<void*, CacheEntry> modulatorCache;
     
     mutable std::recursive_mutex modMutex;
     mutable std::unordered_map<std::string, ofSoundBuffer> controlBuffers;

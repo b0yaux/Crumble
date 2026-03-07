@@ -166,11 +166,6 @@ public:
     std::atomic<ofTexture*> readyTex { nullptr };
     ofTexture* writeTex = nullptr;
     
-    // Raw GL FBOs allocated lazily on the Video Thread
-    unsigned int fbo_A = 0;
-    unsigned int fbo_B = 0;
-    unsigned int writeFbo = 0;
-
     void allocateTextures(int width, int height) {
         // Called on MAIN thread during initialization
         // Textures are shared across OpenGL contexts
@@ -184,7 +179,6 @@ public:
     void swapFbo() {
         ofTexture* oldReady = readyTex.exchange(writeTex, std::memory_order_acq_rel);
         writeTex = oldReady;
-        writeFbo = (writeTex == &tex_A) ? fbo_A : fbo_B;
     }
 };
 

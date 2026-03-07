@@ -224,7 +224,6 @@ void Interpreter::bindSessionAPI() {
                     _G._autoIndices[dId] = (_G._autoIndices[dId] or -1) + 1
                     targetIn = _G._autoIndices[dId]
                 end
-                print("CONNECT: " .. tostring(sId) .. " -> " .. tostring(dId) .. " toInput=" .. tostring(targetIn))
                 _connect(sId, dId, outIdx or 0, targetIn)
                 return targetIn
             end

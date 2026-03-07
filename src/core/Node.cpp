@@ -28,20 +28,18 @@ Node::~Node() {
     if (g_session) {
         crumble::AudioCommand cmd;
         cmd.type = crumble::AudioCommand::REMOVE_NODE;
-        cmd.processor = processor;
         cmd.audioProcessor = audioProcessor;
         cmd.videoProcessor = videoProcessor;
-        g_session->sendCommand(cmd); // Session will route to appropriate queues
+        g_session->sendCommand(cmd);
     }
 }
 
 void Node::setupProcessor() {
-    if (processor || audioProcessor || videoProcessor) return;
-    
-    processor = createProcessor();
+    if (audioProcessor || videoProcessor) return;
+
     audioProcessor = createAudioProcessor();
     videoProcessor = createVideoProcessor();
-    
+
     auto initProcessor = [&](crumble::NodeProcessor* p) {
         if (!p) return;
         p->nodeId = nodeId;
@@ -49,7 +47,7 @@ void Node::setupProcessor() {
             auto& param = parameters->get(i);
             float val = 0;
             bool supported = false;
-            
+
             if (param.type() == typeid(ofParameter<float>).name()) {
                 val = param.cast<float>().get();
                 supported = true;
@@ -60,21 +58,19 @@ void Node::setupProcessor() {
                 val = (float)param.cast<int>().get();
                 supported = true;
             }
-            
+
             if (supported) {
                 p->valuesMap[param.getName()].store(val);
             }
         }
     };
-    
-    initProcessor(processor);
+
     initProcessor(audioProcessor);
     initProcessor(videoProcessor);
-    
-    if (processor || audioProcessor || videoProcessor) {
+
+    if (audioProcessor || videoProcessor) {
         crumble::AudioCommand cmd;
         cmd.type = crumble::AudioCommand::ADD_NODE;
-        cmd.processor = processor;
         cmd.audioProcessor = audioProcessor;
         cmd.videoProcessor = videoProcessor;
         pushCommand(cmd);
@@ -84,7 +80,6 @@ void Node::setupProcessor() {
 void Node::pushCommand(crumble::AudioCommand cmd) {
     if (g_session) {
         cmd.nodeId = nodeId;
-        if (!cmd.processor) cmd.processor = processor;
         if (!cmd.audioProcessor) cmd.audioProcessor = audioProcessor;
         if (!cmd.videoProcessor) cmd.videoProcessor = videoProcessor;
         g_session->sendCommand(cmd);
@@ -96,7 +91,7 @@ void Node::prepare(const Context& ctx) {
     lastPreparedCycle = ctx.cycle;
 
     std::lock_guard<std::recursive_mutex> lock(modMutex);
-    
+
     // Update controlBuffers for UI/video use (getControl()).
     // Patterns are sent to the audio thread via onParameterChanged().
     for (auto& [paramName, pattern] : modulators) {
@@ -106,7 +101,7 @@ void Node::prepare(const Context& ctx) {
         if (buf.getNumFrames() != (size_t)ctx.frames) {
             buf.allocate(ctx.frames, 1);
         }
-        
+
         float* data = buf.getBuffer().data();
         double c = ctx.cycle;
         for (int i = 0; i < ctx.frames; i++) {
@@ -158,7 +153,8 @@ Node* Node::getInputNode(int slot) const {
 
 void Node::modulate(const std::string& paramName, std::shared_ptr<Pattern<float>> pat) {
     std::lock_guard<std::recursive_mutex> lock(modMutex);
-    ofLogNotice("Node") << "modulate: " << name << " param=" << paramName << " pattern=" << (pat ? pat->getSignature() : "null");
+    ofLogNotice("Node") << "modulate: " << name << " param=" << paramName
+                        << " pattern=" << (pat ? pat->getSignature() : "null");
     modulators[paramName] = pat;
 }
 
@@ -166,12 +162,12 @@ void Node::clearModulator(const std::string& paramName) {
     std::lock_guard<std::recursive_mutex> lock(modMutex);
     modulators.erase(paramName);
 
-    // Send a null pattern to clear the slot on the audio thread
-    if (processor || audioProcessor || videoProcessor) {
+    // Send a null pattern to clear the slot on the audio/video thread
+    if (audioProcessor || videoProcessor) {
         crumble::AudioCommand cmd;
         cmd.type = crumble::AudioCommand::SET_PATTERN;
         cmd.slotName = paramName;
-        cmd.pattern = nullptr; // clears patternMap[paramName] on audio thread
+        cmd.pattern = nullptr;
         pushCommand(cmd);
     }
 }
@@ -183,14 +179,15 @@ std::shared_ptr<Pattern<float>> Node::getPattern(const std::string& paramName) c
 }
 
 void Node::onParameterChanged(const std::string& paramName) {
-    if (!processor && !audioProcessor && !videoProcessor) {
-        ofLogWarning("Node") << "onParameterChanged: no processor for node " << name << " param " << paramName;
+    if (!audioProcessor && !videoProcessor) {
+        ofLogWarning("Node") << "onParameterChanged: no processor for node "
+                             << name << " param " << paramName;
         return;
     }
-    
+
     float val = 0;
     bool found = false;
-    
+
     for (int i = 0; i < (int)parameters->size(); i++) {
         if (parameters->getName(i) == paramName) {
             auto& p = parameters->get(i);
@@ -207,23 +204,25 @@ void Node::onParameterChanged(const std::string& paramName) {
             break;
         }
     }
-    
+
     if (found) {
-        ofLogNotice("Node") << "onParameterChanged: " << name << " param=" << paramName << " value=" << val;
-        
+        ofLogNotice("Node") << "onParameterChanged: " << name
+                            << " param=" << paramName << " value=" << val;
+
         crumble::AudioCommand cmd;
         cmd.type = crumble::AudioCommand::SET_PARAM;
         cmd.slotName = paramName;
         cmd.value = val;
         pushCommand(cmd);
 
-        // Also propagate any pattern for this parameter to the audio thread.
+        // Also propagate any pattern for this parameter to the audio/video thread.
         // This is the single point where patterns are sent to processors.
         {
             std::lock_guard<std::recursive_mutex> lock(modMutex);
             auto it = modulators.find(paramName);
             if (it != modulators.end()) {
-                ofLogNotice("Node") << "onParameterChanged: " << name << " sending pattern for " << paramName;
+                ofLogNotice("Node") << "onParameterChanged: " << name
+                                    << " sending pattern for " << paramName;
                 crumble::AudioCommand patCmd;
                 patCmd.type = crumble::AudioCommand::SET_PATTERN;
                 patCmd.slotName = paramName;

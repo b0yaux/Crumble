@@ -31,6 +31,5 @@ protected:
     std::vector<std::shared_ptr<ofParameter<float>>> inputGains;
     int numActiveInputs;
 
-    // Cached buffer for processing
-    ofSoundBuffer tempBuffer;
+
 };

@@ -60,7 +60,7 @@ public:
 private:
     void onNumLayersChanged(int& count);      // Listener for numActiveLayers
     
-    void allocateFbo();
+
     void detectGpuLimits();                   // Query GL_MAX_TEXTURE_IMAGE_UNITS
     void resizeLayerArrays(int newSize);      // Resize parameter arrays
     
@@ -68,8 +68,7 @@ private:
     int fboHeight = 1080;
     int maxSupportedLayers = 64;              // Detected from GPU, default 64
     
-    ofFbo outputFbo;
-    
+
     // Per-layer parameters (dynamically sized)
     std::vector<ofParameter<float>> layerOpacities;
     std::vector<ofParameter<int>> layerBlendModes;

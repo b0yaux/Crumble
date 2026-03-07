@@ -108,9 +108,7 @@ void VideoMixer::setup(int width, int height) {
     detectGpuLimits();
 }
 
-void VideoMixer::allocateFbo() {
-    // Moved to VideoMixerProcessor
-}
+
 
 void VideoMixer::resizeLayerArrays(int newSize) {
     int currentSize = (int)layerOpacities.size();
