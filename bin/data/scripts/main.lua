@@ -17,7 +17,7 @@ speakers.volume = 1.0
 -- 2. Data-driven loading from AssetRegistry
 local bankName = "superstratum_video-data"
 local assets = getBank(bankName)
-local maxClips = math.min(#assets, 88)
+local maxClips = math.min(#assets, 19)
 
 -- 3. Create AVSampler nodes for unified A/V playback
 for i = 1, maxClips do
