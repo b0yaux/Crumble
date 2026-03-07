@@ -246,9 +246,13 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
     } else if (paramName == "loop") {
         if (cachedAudioLoop) cachedAudioLoop->set(loop.get());
         if (cachedVideoLoop) cachedVideoLoop->set(loop.get());
+        audioSource.onParameterChanged("loop");   // updates AudioFileProcessor valuesMap
+        videoSource.onParameterChanged("loop");   // updates HAP player loop state
     } else if (paramName == "playing") {
         if (cachedAudioPlaying) cachedAudioPlaying->set(playing.get());
         if (cachedVideoPlaying) cachedVideoPlaying->set(playing.get());
+        audioSource.onParameterChanged("playing"); // updates AudioFileProcessor valuesMap
+        videoSource.onParameterChanged("playing"); // pauses/plays HAP player
     } else if (paramName == "position") {
         if (!isInternalChange) {
             audioSource.setRelativePosition(position.get());
