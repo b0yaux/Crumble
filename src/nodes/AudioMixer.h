@@ -1,6 +1,5 @@
 #pragma once
 #include "../core/Node.h"
-#include "../core/NodeProcessor.h"
 
 /**
  * AudioMixer sums multiple audio inputs into a single output.

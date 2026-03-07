@@ -16,6 +16,8 @@ std::map<std::string, Graph::NodeCreator> Graph::nodeTypes;
 Graph::ScriptExecutor Graph::s_scriptExecutor = nullptr;
 
 Transport& Graph::getTransport() {
+    if (rootTransport) return *rootTransport;
+    // Fallback if transport not injected yet
     return g_session->getTransport();
 }
 
@@ -379,6 +381,11 @@ Node* Graph::createNode(const std::string& type, const std::string& name) {
     Node* ptr = node.get();
     
     ptr->setupProcessor();
+
+    // If it's a subgraph, inject the transport from the parent graph
+    if (auto* subGraph = dynamic_cast<Graph*>(ptr)) {
+        subGraph->setTransport(rootTransport);
+    }
 
     {
         std::lock_guard<std::recursive_mutex> lock(audioMutex);

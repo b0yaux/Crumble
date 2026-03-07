@@ -1,4 +1,6 @@
 #include "Inlet.h"
+#include "ofMain.h"
+#include "../../core/Graph.h"
 
 Inlet::Inlet() {
     type = "Inlet";

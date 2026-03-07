@@ -1,6 +1,5 @@
 #pragma once
 #include "../../core/Node.h"
-#include "../../core/Graph.h"
 
 // Outlet: Output boundary node for nested subgraphs
 // Acts as a sink inside child graph; nodes connect TO Outlet

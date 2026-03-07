@@ -11,6 +11,7 @@
 // Forward declarations — full headers included in Graph.cpp
 class Outlet;
 class AssetCache;
+class Transport;
 
 namespace crumble {
     struct ProcessorCommand;
@@ -101,10 +102,13 @@ public:
     // Asset cache access — proxies to Session without exposing Session.h to node files
     AssetCache* getCache() const;
     
+    void setTransport(Transport* t) { rootTransport = t; }
+    Transport& getTransport();
+
     std::recursive_mutex& getAudioMutex() { return audioMutex; }
-    class Transport& getTransport();
 
 private:
+    Transport* rootTransport = nullptr;
     std::unordered_map<int, std::unique_ptr<Node>> nodes;
     std::vector<Connection> connections;
     

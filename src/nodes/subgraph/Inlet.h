@@ -1,6 +1,5 @@
 #pragma once
 #include "../../core/Node.h"
-#include "../../core/Graph.h"
 
 // Inlet: Input boundary node for nested subgraphs
 // Acts as a source inside child graph, pulling from parent graph connections

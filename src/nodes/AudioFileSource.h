@@ -1,6 +1,5 @@
 #pragma once
 #include "../core/Node.h"
-#include "../core/NodeProcessor.h"
 #include "ofxAudioFile.h"
 #include <atomic>
 #include <string>

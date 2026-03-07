@@ -1,6 +1,5 @@
 #pragma once
 #include "../core/Node.h"
-#include "../core/NodeProcessor.h"
 
 class SpeakersOutput : public Node {
 public:

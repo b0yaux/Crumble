@@ -8,6 +8,7 @@ Session* g_session = nullptr;
 
 Session::Session() {
     g_session = this;
+    graph.setTransport(&transport);
     setupAudio(44100, 256); 
 }
 

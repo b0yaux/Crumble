@@ -1,4 +1,6 @@
 #include "Outlet.h"
+#include "ofMain.h"
+#include "../../core/Graph.h"
 
 Outlet::Outlet() {
     type = "Outlet";
