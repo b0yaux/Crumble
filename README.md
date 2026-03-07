@@ -117,7 +117,7 @@ smp.cutoff = scale(200, 2000, osc(0.25))
 
 | Function | Description |
 |----------|-------------|
-| `osc(f)` | Sine wave (frequency in cycles-per-bar, 4/4 assumed) |
+| `osc(f)` | Sine wave (frequency in cycles-per-bar) |
 | `ramp(f)` | Sawtooth (0.0 to 1.0, frequency in cycles-per-bar) |
 | `noise(s)`| Deterministic stochastic noise (optional seed) |
 | `seq("...")`| Discrete step sequencer |
@@ -129,9 +129,18 @@ smp.cutoff = scale(200, 2000, osc(0.25))
 | `p1 * p2` | Multiply two patterns (Amplitude Modulation) |
 | `p1 + p2` | Add two patterns (Offset/Mixing) |
 
-> **Timing contract:** `Transport.cycle` advances in **bars** (4/4 assumed).
-> At 120 BPM one bar lasts 2 seconds, so `osc(1.0)` completes one full
-> oscillation every 2 seconds. Use `fast(4, p)` to get beat-rate modulation.
+> **Timing contract:** All pattern frequencies are in **cycles per bar**.
+> `Transport.cycle` advances at `bpm / beatsPerBar` beats-per-second, wrapping
+> once per bar. The default is `beatsPerBar = 4` (common time). Change it for
+> other time signatures:
+>
+> | `beatsPerBar` | Time sig | Bar length at 120 BPM | `osc(1.0)` rate |
+> |---|---|---|---|
+> | 4 (default) | 4/4 | 2.0 s | 0.5 Hz |
+> | 3 | 3/4 | 1.5 s | 0.67 Hz |
+> | 5 | 5/4 | 2.5 s | 0.4 Hz |
+>
+> To modulate at beat rate in 4/4, use `fast(4, osc(1.0))` or simply `osc(4.0)`.
 
 ### Subgraph Composition
 Create a subgraph by adding a `Graph` node and setting its `script` parameter:

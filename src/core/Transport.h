@@ -3,22 +3,23 @@
 
 class Transport {
 public:
-    Transport() : bpm(120.0f), absoluteTime(0.0), cycle(0.0), isPlaying(true) {}
+    Transport() : bpm(120.0f), beatsPerBar(4), absoluteTime(0.0), cycle(0.0), isPlaying(true) {}
 
     // Core timing update (called from audio thread each block)
     void update(float dt);
 
     // Core timing state
-    float bpm;              // Beats per minute
-    double absoluteTime;    // Total running time in seconds
-    double cycle;           // Current bar phase [0.0, 1.0) — wraps once per 4-beat bar (4/4)
+    float  bpm;           // Beats per minute
+    int    beatsPerBar;   // Time signature numerator (default 4 — change for 3/4, 5/4, etc.)
+    double absoluteTime;  // Total running time in seconds
+    double cycle;         // Current bar phase [0.0, 1.0) — wraps once per bar
 
     bool isPlaying;
 
     // Returns bars per sample — use as cycleStep in sample-accurate pattern evaluation.
-    // At 120 BPM: (120/60)/4 / sampleRate = 0.5 / 44100 ≈ 1.13e-5 bars/sample.
+    // Example at 120 BPM, 4/4: (120/60)/4 / 44100 ≈ 1.13e-5 bars/sample.
     double getCyclesPerSample(int sampleRate) const {
-        double barsPerSecond = (bpm / 60.0) / 4.0;
+        double barsPerSecond = (bpm / 60.0) / beatsPerBar;
         return barsPerSecond / (double)sampleRate;
     }
 
