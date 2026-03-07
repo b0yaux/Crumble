@@ -1,3 +1,4 @@
+#include <deque>
 #include "Graph.h"
 #include "Session.h"
 #include "Transport.h"
@@ -328,7 +329,7 @@ bool Graph::validateTopology() {
         if (toIt != nodeIdToIndex.end()) inDegree[toIt->second]++;
     }
 
-    std::vector<int> queue;
+    std::deque<int> queue;
     for (int i = 0; i < (int)nodeIdList.size(); i++) {
         if (inDegree[i] == 0) queue.push_back(nodeIdList[i]);
     }
@@ -336,7 +337,7 @@ bool Graph::validateTopology() {
     size_t visitedCount = 0;
     while (!queue.empty()) {
         int currentNodeId = queue.front();
-        queue.erase(queue.begin());
+        queue.pop_front();
         traversalOrder.push_back(currentNodeId);
         visitedCount++;
         for (const auto& conn : connections) {
