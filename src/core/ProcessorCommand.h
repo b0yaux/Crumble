@@ -1,5 +1,5 @@
-#ifndef CRUMBLE_AUDIO_COMMAND_H
-#define CRUMBLE_AUDIO_COMMAND_H
+#ifndef CRUMBLE_PROCESSOR_COMMAND_H
+#define CRUMBLE_PROCESSOR_COMMAND_H
 
 #include <string>
 #include <memory>
@@ -12,10 +12,12 @@ class AudioProcessor;
 class VideoProcessor;
 
 /**
- * AudioCommand: A POD-like structure for wait-free communication.
- * Contains instructions from the UI/Lua thread for the background threads.
+ * ProcessorCommand: A POD-like structure for wait-free communication.
+ * Contains instructions from the UI/Lua thread to the shadow processor layer
+ * (both AudioProcessor and VideoProcessor).  Travels through SPSC queues;
+ * keep it cheap to copy and free of non-trivial destructors on the hot path.
  */
-struct AudioCommand {
+struct ProcessorCommand {
     enum Type {
         NONE = 0,
         ADD_NODE,
@@ -64,4 +66,4 @@ struct AudioCommand {
 
 } // namespace crumble
 
-#endif // CRUMBLE_AUDIO_COMMAND_H
+#endif // CRUMBLE_PROCESSOR_COMMAND_H

@@ -5,7 +5,7 @@
 #include "Transport.h"
 #include "AssetRegistry.h"
 #include "Config.h"
-#include "AudioCommand.h"
+#include "ProcessorCommand.h"
 #include "NodeProcessor.h"
 #include "../nodes/subgraph/Outlet.h"
 
@@ -85,8 +85,8 @@ bool Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
         to->onInputConnected(toInput);
         
         // Wait-free Shadow Connection (Audio)
-        crumble::AudioCommand cmd;
-        cmd.type = crumble::AudioCommand::CONNECT_NODES;
+        crumble::ProcessorCommand cmd;
+        cmd.type = crumble::ProcessorCommand::CONNECT_NODES;
         cmd.targetAudioProcessor = to->getAudioProcessor();
         cmd.audioProcessor = from ? from->getAudioProcessor() : nullptr;
         cmd.toInput = toInput;
@@ -94,8 +94,8 @@ bool Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
         pushCommand(cmd);
         
         // Wait-free Shadow Connection (Video)
-        crumble::AudioCommand videoCmd;
-        videoCmd.type = crumble::AudioCommand::CONNECT_NODES;
+        crumble::ProcessorCommand videoCmd;
+        videoCmd.type = crumble::ProcessorCommand::CONNECT_NODES;
         videoCmd.targetVideoProcessor = to->getVideoProcessor();
         videoCmd.videoProcessor = from ? from->getVideoProcessor() : nullptr;
         videoCmd.toInput = toInput;
@@ -138,15 +138,15 @@ void Graph::disconnect(int toNode, int toInput) {
         to->setInputNode(toInput, nullptr);
         
         // Wait-free Shadow Disconnection (Audio)
-        crumble::AudioCommand cmd;
-        cmd.type = crumble::AudioCommand::DISCONNECT_NODES;
+        crumble::ProcessorCommand cmd;
+        cmd.type = crumble::ProcessorCommand::DISCONNECT_NODES;
         cmd.targetAudioProcessor = to->getAudioProcessor();
         cmd.toInput = toInput;
         pushCommand(cmd);
         
         // Wait-free Shadow Disconnection (Video)
-        crumble::AudioCommand videoCmd;
-        videoCmd.type = crumble::AudioCommand::DISCONNECT_NODES;
+        crumble::ProcessorCommand videoCmd;
+        videoCmd.type = crumble::ProcessorCommand::DISCONNECT_NODES;
         videoCmd.targetVideoProcessor = to->getVideoProcessor();
         videoCmd.toInput = toInput;
         pushCommand(videoCmd);

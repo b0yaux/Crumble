@@ -7,7 +7,7 @@
 #include <string>
 #include <memory>
 #include <unordered_map>
-#include "AudioCommand.h"
+#include "ProcessorCommand.h"
 
 namespace crumble {
 
@@ -19,7 +19,7 @@ public:
     NodeProcessor() = default;
     virtual ~NodeProcessor() = default;
 
-    virtual void handleCommand(const AudioCommand& cmd) {}
+    virtual void handleCommand(const ProcessorCommand& cmd) {}
 
     // --- Pattern evaluation (SET_PATTERN) ---
     inline float evalPattern(const std::string& name, double cycle) {

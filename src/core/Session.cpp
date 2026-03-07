@@ -62,7 +62,7 @@ void Session::setupAudio(int sampleRate, int bufferSize) {
 
 void Session::audioOut(ofSoundBuffer& buffer) {
     // 1. Process all pending commands (Wait-Free)
-    crumble::AudioCommand cmd;
+    crumble::ProcessorCommand cmd;
     while (audioCommandQueue.try_dequeue(cmd)) {
         // Helper: is this processor still alive?
         auto alive = [&](crumble::AudioProcessor* p) -> bool {
@@ -74,7 +74,7 @@ void Session::audioOut(ofSoundBuffer& buffer) {
         crumble::AudioProcessor* ap = cmd.audioProcessor;
 
         switch (cmd.type) {
-            case crumble::AudioCommand::ADD_NODE:
+            case crumble::ProcessorCommand::ADD_NODE:
                 if (ap) {
                     // Prevent duplicate entries
                     if (std::find(activeAudioProcessors.begin(), activeAudioProcessors.end(), ap) 
@@ -84,7 +84,7 @@ void Session::audioOut(ofSoundBuffer& buffer) {
                 }
                 break;
 
-            case crumble::AudioCommand::REMOVE_NODE:
+            case crumble::ProcessorCommand::REMOVE_NODE:
                 if (ap) {
                     auto it = std::find(activeAudioProcessors.begin(), activeAudioProcessors.end(), ap);
                     if (it != activeAudioProcessors.end()) {
@@ -95,13 +95,13 @@ void Session::audioOut(ofSoundBuffer& buffer) {
                 }
                 break;
 
-            case crumble::AudioCommand::SET_PARAM:
+            case crumble::ProcessorCommand::SET_PARAM:
                 if (alive(ap) && !cmd.slotName.empty()) {
                     ap->valuesMap[cmd.slotName].store(cmd.value, std::memory_order_relaxed);
                 }
                 break;
 
-            case crumble::AudioCommand::SET_PATTERN:
+            case crumble::ProcessorCommand::SET_PATTERN:
                 if (alive(ap) && !cmd.slotName.empty()) {
                     if (cmd.pattern) {
                         ofLogNotice("Session") << "SET_PATTERN: nodeId=" << ap->nodeId << " slot=" << cmd.slotName;
@@ -114,7 +114,7 @@ void Session::audioOut(ofSoundBuffer& buffer) {
                 }
                 break;
 
-            case crumble::AudioCommand::CONNECT_NODES:
+            case crumble::ProcessorCommand::CONNECT_NODES:
                 ofLogNotice("Session") << "CONNECT_NODES: targetNodeId=" << (cmd.targetAudioProcessor ? cmd.targetAudioProcessor->nodeId : -1) 
                      << " fromNodeId=" << (ap ? ap->nodeId : -1) << " toInput=" << cmd.toInput;
                 if (cmd.targetAudioProcessor) {
@@ -122,7 +122,7 @@ void Session::audioOut(ofSoundBuffer& buffer) {
                 }
                 break;
 
-            case crumble::AudioCommand::DISCONNECT_NODES:
+            case crumble::ProcessorCommand::DISCONNECT_NODES:
                 ofLogNotice("Session") << "DISCONNECT_NODES: targetNodeId=" << (cmd.targetAudioProcessor ? cmd.targetAudioProcessor->nodeId : -1) 
                      << " toInput=" << cmd.toInput;
                 if (cmd.targetAudioProcessor) {
@@ -130,11 +130,11 @@ void Session::audioOut(ofSoundBuffer& buffer) {
                 }
                 break;
 
-            case crumble::AudioCommand::LOAD_BUFFER:
+            case crumble::ProcessorCommand::LOAD_BUFFER:
                 if (alive(ap)) ap->handleCommand(cmd);
                 break;
 
-            case crumble::AudioCommand::RELEASE_BUFFER:
+            case crumble::ProcessorCommand::RELEASE_BUFFER:
                 // Zero the processor's data pointer and release its dataOwner
                 // reference before REMOVE_NODE arrives.  Safe to call even if
                 // the processor has already been removed (alive() guards it).
@@ -170,7 +170,7 @@ void Session::audioOut(ofSoundBuffer& buffer) {
     }
 }
 
-void Session::sendCommand(const crumble::AudioCommand& cmd) {
+void Session::sendCommand(const crumble::ProcessorCommand& cmd) {
     if (cmd.audioProcessor) {
         if (!audioCommandQueue.enqueue(cmd)) {
             ofLogError("Session") << "Audio Command Queue Overflow!";
@@ -187,7 +187,7 @@ void Session::sendCommand(const crumble::AudioCommand& cmd) {
 
 void Session::update(float dt) {
     // 1. Process Video Commands (on Main Thread)
-    crumble::AudioCommand cmd;
+    crumble::ProcessorCommand cmd;
     while (videoCommandQueue.try_dequeue(cmd)) {
         auto alive = [&](crumble::VideoProcessor* p) -> bool {
             if (!p) return false;
@@ -198,7 +198,7 @@ void Session::update(float dt) {
         crumble::VideoProcessor* vp = cmd.videoProcessor;
         
         switch (cmd.type) {
-            case crumble::AudioCommand::ADD_NODE:
+            case crumble::ProcessorCommand::ADD_NODE:
                 if (vp) {
                     if (std::find(activeVideoProcessors.begin(), activeVideoProcessors.end(), vp)
                         == activeVideoProcessors.end()) {
@@ -207,7 +207,7 @@ void Session::update(float dt) {
                 }
                 break;
 
-            case crumble::AudioCommand::REMOVE_NODE:
+            case crumble::ProcessorCommand::REMOVE_NODE:
                 if (vp) {
                     auto it = std::find(activeVideoProcessors.begin(), activeVideoProcessors.end(), vp);
                     if (it != activeVideoProcessors.end()) {
@@ -218,13 +218,13 @@ void Session::update(float dt) {
                 }
                 break;
 
-            case crumble::AudioCommand::SET_PARAM:
+            case crumble::ProcessorCommand::SET_PARAM:
                 if (alive(vp) && !cmd.slotName.empty()) {
                     vp->valuesMap[cmd.slotName].store(cmd.value, std::memory_order_relaxed);
                 }
                 break;
 
-            case crumble::AudioCommand::SET_PATTERN:
+            case crumble::ProcessorCommand::SET_PATTERN:
                 ofLogNotice("Session") << "Video SET_PATTERN: nodeId=" << (vp ? vp->nodeId : -1) << " slot=" << cmd.slotName;
                 if (alive(vp) && !cmd.slotName.empty()) {
                     if (cmd.pattern) {
@@ -235,19 +235,19 @@ void Session::update(float dt) {
                 }
                 break;
 
-            case crumble::AudioCommand::CONNECT_NODES:
+            case crumble::ProcessorCommand::CONNECT_NODES:
                 if (cmd.targetVideoProcessor) {
                     cmd.targetVideoProcessor->addInput(vp, cmd.toInput, cmd.fromOutput);
                 }
                 break;
 
-            case crumble::AudioCommand::DISCONNECT_NODES:
+            case crumble::ProcessorCommand::DISCONNECT_NODES:
                 if (cmd.targetVideoProcessor) {
                     cmd.targetVideoProcessor->removeInput(cmd.toInput);
                 }
                 break;
 
-            case crumble::AudioCommand::LOAD_BUFFER:
+            case crumble::ProcessorCommand::LOAD_BUFFER:
                 if (alive(vp)) vp->handleCommand(cmd);
                 break;
 

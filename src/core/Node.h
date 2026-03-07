@@ -22,7 +22,7 @@ namespace crumble {
     class NodeProcessor;
     class AudioProcessor;
     class VideoProcessor;
-    struct AudioCommand;
+    struct ProcessorCommand;
 }
 
 /**
@@ -77,7 +77,7 @@ public:
     crumble::VideoProcessor* videoProcessor = nullptr;
 
     // Wait-free messaging helper
-    void pushCommand(crumble::AudioCommand cmd);
+    void pushCommand(crumble::ProcessorCommand cmd);
 
     bool canDraw = false;
     

@@ -3,7 +3,7 @@
 #include "Graph.h"
 #include "AssetCache.h"
 #include "Transport.h"
-#include "AudioCommand.h"
+#include "ProcessorCommand.h"
 #include "moodycamel/readerwriterqueue.h"
 #include <vector>
 #include <thread>
@@ -67,7 +67,7 @@ public:
     const Transport& getTransport() const { return transport; }
 
     // --- Wait-Free Messaging ---
-    void sendCommand(const crumble::AudioCommand& cmd);
+    void sendCommand(const crumble::ProcessorCommand& cmd);
 
 private:
     Graph graph;
@@ -77,12 +77,12 @@ private:
     ofSoundStream soundStream;
 
     // The "Air-Gap" Queues (Audio Thread)
-    crumble::SPSCQueue<crumble::AudioCommand> audioCommandQueue{1024};
+    crumble::SPSCQueue<crumble::ProcessorCommand> audioCommandQueue{1024};
     crumble::SPSCQueue<crumble::AudioProcessor*> audioReleaseQueue{1024};
     std::vector<crumble::AudioProcessor*> activeAudioProcessors;
 
     // The "Air-Gap" Queues (Video - Evaluated on Main Thread)
-    crumble::SPSCQueue<crumble::AudioCommand> videoCommandQueue{1024};
+    crumble::SPSCQueue<crumble::ProcessorCommand> videoCommandQueue{1024};
     crumble::SPSCQueue<crumble::VideoProcessor*> videoReleaseQueue{1024};
     std::vector<crumble::VideoProcessor*> activeVideoProcessors;
     

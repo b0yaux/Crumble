@@ -3,7 +3,7 @@
 #include "Graph.h"
 #include "Session.h"
 #include "NodeProcessor.h"
-#include "AudioCommand.h"
+#include "ProcessorCommand.h"
 
 std::atomic<int> Node::nextNodeId{0};
 
@@ -26,8 +26,8 @@ Node::Node() {
 
 Node::~Node() {
     if (g_session) {
-        crumble::AudioCommand cmd;
-        cmd.type = crumble::AudioCommand::REMOVE_NODE;
+        crumble::ProcessorCommand cmd;
+        cmd.type = crumble::ProcessorCommand::REMOVE_NODE;
         cmd.audioProcessor = audioProcessor;
         cmd.videoProcessor = videoProcessor;
         g_session->sendCommand(cmd);
@@ -69,15 +69,15 @@ void Node::setupProcessor() {
     initProcessor(videoProcessor);
 
     if (audioProcessor || videoProcessor) {
-        crumble::AudioCommand cmd;
-        cmd.type = crumble::AudioCommand::ADD_NODE;
+        crumble::ProcessorCommand cmd;
+        cmd.type = crumble::ProcessorCommand::ADD_NODE;
         cmd.audioProcessor = audioProcessor;
         cmd.videoProcessor = videoProcessor;
         pushCommand(cmd);
     }
 }
 
-void Node::pushCommand(crumble::AudioCommand cmd) {
+void Node::pushCommand(crumble::ProcessorCommand cmd) {
     if (g_session) {
         cmd.nodeId = nodeId;
         if (!cmd.audioProcessor) cmd.audioProcessor = audioProcessor;
@@ -164,8 +164,8 @@ void Node::clearModulator(const std::string& paramName) {
 
     // Send a null pattern to clear the slot on the audio/video thread
     if (audioProcessor || videoProcessor) {
-        crumble::AudioCommand cmd;
-        cmd.type = crumble::AudioCommand::SET_PATTERN;
+        crumble::ProcessorCommand cmd;
+        cmd.type = crumble::ProcessorCommand::SET_PATTERN;
         cmd.slotName = paramName;
         cmd.pattern = nullptr;
         pushCommand(cmd);
@@ -210,8 +210,8 @@ void Node::onParameterChanged(const std::string& paramName) {
         ofLogNotice("Node") << "onParameterChanged: " << name
                             << " param=" << paramName << " value=" << val;
 
-        crumble::AudioCommand cmd;
-        cmd.type = crumble::AudioCommand::SET_PARAM;
+        crumble::ProcessorCommand cmd;
+        cmd.type = crumble::ProcessorCommand::SET_PARAM;
         cmd.slotName = paramName;
         cmd.value = val;
         pushCommand(cmd);
@@ -224,8 +224,8 @@ void Node::onParameterChanged(const std::string& paramName) {
             if (it != modulators.end()) {
                 ofLogNotice("Node") << "onParameterChanged: " << name
                                     << " sending pattern for " << paramName;
-                crumble::AudioCommand patCmd;
-                patCmd.type = crumble::AudioCommand::SET_PATTERN;
+                crumble::ProcessorCommand patCmd;
+                patCmd.type = crumble::ProcessorCommand::SET_PATTERN;
                 patCmd.slotName = paramName;
                 patCmd.pattern = it->second;
                 pushCommand(patCmd);

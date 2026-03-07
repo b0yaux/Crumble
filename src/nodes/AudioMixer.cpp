@@ -1,6 +1,6 @@
 #include "ofMain.h"
 #include "AudioMixer.h"
-#include "../core/AudioCommand.h"
+#include "../core/ProcessorCommand.h"
 #include "../core/NodeProcessor.h"
 
 namespace crumble {
@@ -99,8 +99,8 @@ void AudioMixer::onInputConnected(int index) {
             // Register the parameter name and sync the value.
             if (audioProcessor) {
                 // Sync initial value using name-based SET_PARAM
-                crumble::AudioCommand cmd;
-                cmd.type = crumble::AudioCommand::SET_PARAM;
+                crumble::ProcessorCommand cmd;
+                cmd.type = crumble::ProcessorCommand::SET_PARAM;
                 cmd.slotName = name;
                 cmd.value = 0.8f;
                 pushCommand(cmd);

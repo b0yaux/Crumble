@@ -27,8 +27,8 @@ AVSampler::~AVSampler() {
     // sharedLoader being destroyed (as an AudioFileSource member) and the
     // processor being dequeued from activeAudioProcessors.
     if (audioProcessor) {
-        crumble::AudioCommand cmd;
-        cmd.type = crumble::AudioCommand::RELEASE_BUFFER;
+        crumble::ProcessorCommand cmd;
+        cmd.type = crumble::ProcessorCommand::RELEASE_BUFFER;
         pushCommand(cmd);
     }
     audioSource.audioProcessor = nullptr;

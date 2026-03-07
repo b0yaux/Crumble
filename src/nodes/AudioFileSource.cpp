@@ -1,6 +1,6 @@
 #include "ofMain.h"
 #include "AudioFileSource.h"
-#include "../core/AudioCommand.h"
+#include "../core/ProcessorCommand.h"
 #include "../core/NodeProcessor.h"
 #include "../core/Session.h"
 
@@ -46,8 +46,8 @@ public:
         playhead.store(currentPlayhead);
     }
     
-    void handleCommand(const AudioCommand& cmd) override {
-        if (cmd.type == AudioCommand::LOAD_BUFFER) {
+    void handleCommand(const ProcessorCommand& cmd) override {
+        if (cmd.type == ProcessorCommand::LOAD_BUFFER) {
             // Store the lifetime anchor first so the data pointer is never
             // valid without the underlying buffer being kept alive.
             dataOwner   = cmd.dataOwner;
@@ -55,7 +55,7 @@ public:
             totalSamples = cmd.totalSamples;
             channels    = cmd.channels;
             playhead.store(0.0);
-        } else if (cmd.type == AudioCommand::RELEASE_BUFFER) {
+        } else if (cmd.type == ProcessorCommand::RELEASE_BUFFER) {
             // Zero the raw pointer before releasing the owner so there is
             // never a window where data is non-null but the buffer is freed.
             data        = nullptr;
@@ -85,8 +85,8 @@ AudioFileSource::~AudioFileSource() {
     // dataOwner reference in the correct order: the raw pointer is cleared
     // first, then the owning shared_ptr, then the processor is unregistered.
     if (audioProcessor) {
-        crumble::AudioCommand cmd;
-        cmd.type = crumble::AudioCommand::RELEASE_BUFFER;
+        crumble::ProcessorCommand cmd;
+        cmd.type = crumble::ProcessorCommand::RELEASE_BUFFER;
         pushCommand(cmd);
     }
 }
@@ -146,8 +146,8 @@ void AudioFileSource::load(const std::string& p) {
     if (sharedLoader && sharedLoader->loaded()) {
         loadedPath = p;
 
-        crumble::AudioCommand cmd;
-        cmd.type         = crumble::AudioCommand::LOAD_BUFFER;
+        crumble::ProcessorCommand cmd;
+        cmd.type         = crumble::ProcessorCommand::LOAD_BUFFER;
         cmd.nodeId       = nodeId;
         cmd.audioProcessor = audioProcessor;
         cmd.audioData    = sharedLoader->data();

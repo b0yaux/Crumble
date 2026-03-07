@@ -12,7 +12,7 @@
 class Outlet;
 
 namespace crumble {
-    struct AudioCommand;
+    struct ProcessorCommand;
 }
 
 /**
