@@ -501,4 +501,4 @@ void Graph::onScriptChanged(std::string& path) {
 void Graph::onNodeLayerChanged(int& layer) { updateRenderList(); }
 
 Graph* Graph::getParentGraph() const { return graph; }
-Node* Graph::getContainingNode() const { return graph; }
+Node* Graph::getContainingNode() const { return const_cast<Graph*>(this); }
