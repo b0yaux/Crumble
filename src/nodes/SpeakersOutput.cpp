@@ -5,7 +5,7 @@
 
 using namespace crumble;
 
-class SpeakersOutputProcessor : public NodeProcessor {
+class SpeakersOutputProcessor : public AudioProcessor {
 public:
     SpeakersOutputProcessor() {
         isSink = true;
@@ -33,7 +33,7 @@ SpeakersOutput::SpeakersOutput() {
     setupProcessor();
 }
 
-NodeProcessor* SpeakersOutput::createProcessor() {
+AudioProcessor* SpeakersOutput::createAudioProcessor() {
     return new SpeakersOutputProcessor();
 }
 

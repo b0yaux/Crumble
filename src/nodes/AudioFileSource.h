@@ -35,7 +35,7 @@ public:
     double getRelativePosition() const;
     void setRelativePosition(double pct);
 
-    crumble::NodeProcessor* createProcessor() override;
+    crumble::AudioProcessor* createAudioProcessor() override;
     void onParameterChanged(const std::string& paramName) override;
 
 private:

@@ -5,7 +5,7 @@
 
 namespace crumble {
 
-class AudioMixerProcessor : public NodeProcessor {
+class AudioMixerProcessor : public AudioProcessor {
 public:
     void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
                  double cycle, double cycleStep) override {
@@ -56,7 +56,7 @@ AudioMixer::AudioMixer() {
     setupProcessor();
 }
 
-crumble::NodeProcessor* AudioMixer::createProcessor() {
+crumble::AudioProcessor* AudioMixer::createAudioProcessor() {
     return new crumble::AudioMixerProcessor();
 }
 

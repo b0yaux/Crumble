@@ -8,15 +8,12 @@
 namespace crumble {
 
 class NodeProcessor;
+class AudioProcessor;
+class VideoProcessor;
 
 /**
  * AudioCommand: A POD-like structure for wait-free communication.
- * Contains instructions from the UI/Lua thread for the Audio thread.
- *
- * SET_PARAM and SET_PATTERN use slotName (parameter name) instead of index.
- * This eliminates index confusion between different node types.
- * Patterns are stateless (pure cycle->value functions) and therefore
- * fully thread-safe to call from any thread without locking.
+ * Contains instructions from the UI/Lua thread for the background threads.
  */
 struct AudioCommand {
     enum Type {
@@ -38,15 +35,21 @@ struct AudioCommand {
     int targetId = -1;
     float value = 0.0f;
     
-    // Topology and Pointers
+    // Legacy base pointer (keep for compiling compatibility during refactor if needed)
     NodeProcessor* processor = nullptr;
     NodeProcessor* targetProcessor = nullptr;
 
-    // For SET_PARAM and SET_PATTERN: parameter name (not index!)
+    // Type-specific processor pointers
+    AudioProcessor* audioProcessor = nullptr;
+    AudioProcessor* targetAudioProcessor = nullptr;
+    
+    VideoProcessor* videoProcessor = nullptr;
+    VideoProcessor* targetVideoProcessor = nullptr;
+
+    // For SET_PARAM and SET_PATTERN: parameter name
     std::string slotName;
     
-    // For SET_PATTERN: the pattern object evaluated by the audio thread each block.
-    // shared_ptr ref-count is atomic — safe to copy across the thread boundary.
+    // For SET_PATTERN: the pattern object evaluated each block.
     std::shared_ptr<Pattern<float>> pattern;
     
     // For LOAD_BUFFER

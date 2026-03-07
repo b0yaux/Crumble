@@ -18,12 +18,13 @@ make RunRelease     # loads bin/data/config.json
 
 ## Architecture
 
-Crumble uses a **Shadow Processor** architecture to decouple slow UI/Lua logic from the real-time audio thread.
+Crumble uses a **Shadow Processor** architecture to decouple slow UI/Lua logic from the real-time audio and video threads.
 
 ```text
 Session (Root Container: Hardware & Threading)
 ├── Transport (Musical Clock & Phase)
-├── Shadow Processors (Wait-free Audio DSP)
+├── AudioThread: AudioProcessor (Wait-free Audio DSP)
+├── MainThread: VideoProcessor (GPU Compositing)
 ├── Patterns (Stateless logic: cycle -> value shapes)
 ├── Graph (Recursive topology & Node lifecycle)
 │   └── Node (Atomic processing units)
@@ -36,6 +37,9 @@ Session (Root Container: Hardware & Threading)
 
 ### Key Components
 
+- **AudioProcessor**: High-performance DSP worker living on the audio thread, receiving commands via wait-free SPSC queues.
+- **VideoProcessor**: GPU compositor evaluated on the main thread, using independent command queues for frame compositing.
+- **Soft Sync**: Audio and video run naturally in parallel without hard seeks; ofxHapPlayer handles background decoding.
 - **Patterns**: Stateless recipes (`cycle -> value`) used for sample-accurate modulation.
 - **Interpreter**: The Lua runtime that parses and executes live-coding scripts.
 - **AssetRegistry**: A logical mapping layer that handles media discovery, banks, and automatic A/V pairing.

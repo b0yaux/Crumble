@@ -28,7 +28,8 @@ public:
     ofTexture* processVideo(int index = 0) override;
     std::string getDisplayName() const override;
     
-    crumble::NodeProcessor* createProcessor() override;
+    crumble::AudioProcessor* createAudioProcessor() override;
+    crumble::VideoProcessor* createVideoProcessor() override;
     
     // Serialization
     ofJson serialize() const override;

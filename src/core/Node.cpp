@@ -25,46 +25,58 @@ Node::Node() {
 }
 
 Node::~Node() {
-    if (processor && g_session) {
+    if (g_session) {
         crumble::AudioCommand cmd;
         cmd.type = crumble::AudioCommand::REMOVE_NODE;
         cmd.processor = processor;
-        g_session->sendCommand(cmd);
+        cmd.audioProcessor = audioProcessor;
+        cmd.videoProcessor = videoProcessor;
+        g_session->sendCommand(cmd); // Session will route to appropriate queues
     }
 }
 
 void Node::setupProcessor() {
-    if (processor) return;
+    if (processor || audioProcessor || videoProcessor) return;
+    
     processor = createProcessor();
-    if (processor) {
-        processor->nodeId = nodeId;
-        
-        // GENERIC INITIAL SYNC: Loop through all parameters in the group.
-        // Populate valuesMap with initial values (name-based, no indices).
+    audioProcessor = createAudioProcessor();
+    videoProcessor = createVideoProcessor();
+    
+    auto initProcessor = [&](crumble::NodeProcessor* p) {
+        if (!p) return;
+        p->nodeId = nodeId;
         for (int i = 0; i < (int)parameters->size(); i++) {
-            auto& p = parameters->get(i);
+            auto& param = parameters->get(i);
             float val = 0;
             bool supported = false;
             
-            if (p.type() == typeid(ofParameter<float>).name()) {
-                val = p.cast<float>().get();
+            if (param.type() == typeid(ofParameter<float>).name()) {
+                val = param.cast<float>().get();
                 supported = true;
-            } else if (p.type() == typeid(ofParameter<bool>).name()) {
-                val = p.cast<bool>().get() ? 1.0f : 0.0f;
+            } else if (param.type() == typeid(ofParameter<bool>).name()) {
+                val = param.cast<bool>().get() ? 1.0f : 0.0f;
                 supported = true;
-            } else if (p.type() == typeid(ofParameter<int>).name()) {
-                val = (float)p.cast<int>().get();
+            } else if (param.type() == typeid(ofParameter<int>).name()) {
+                val = (float)param.cast<int>().get();
                 supported = true;
             }
             
             if (supported) {
-                processor->valuesMap[p.getName()].store(val);
+                p->valuesMap[param.getName()].store(val);
             }
         }
-        
+    };
+    
+    initProcessor(processor);
+    initProcessor(audioProcessor);
+    initProcessor(videoProcessor);
+    
+    if (processor || audioProcessor || videoProcessor) {
         crumble::AudioCommand cmd;
         cmd.type = crumble::AudioCommand::ADD_NODE;
         cmd.processor = processor;
+        cmd.audioProcessor = audioProcessor;
+        cmd.videoProcessor = videoProcessor;
         pushCommand(cmd);
     }
 }
@@ -73,6 +85,8 @@ void Node::pushCommand(crumble::AudioCommand cmd) {
     if (g_session) {
         cmd.nodeId = nodeId;
         if (!cmd.processor) cmd.processor = processor;
+        if (!cmd.audioProcessor) cmd.audioProcessor = audioProcessor;
+        if (!cmd.videoProcessor) cmd.videoProcessor = videoProcessor;
         g_session->sendCommand(cmd);
     }
 }
@@ -152,7 +166,7 @@ void Node::clearModulator(const std::string& paramName) {
     modulators.erase(paramName);
 
     // Send a null pattern to clear the slot on the audio thread
-    if (processor) {
+    if (processor || audioProcessor || videoProcessor) {
         crumble::AudioCommand cmd;
         cmd.type = crumble::AudioCommand::SET_PATTERN;
         cmd.slotName = paramName;
@@ -168,7 +182,7 @@ std::shared_ptr<Pattern<float>> Node::getPattern(const std::string& paramName) c
 }
 
 void Node::onParameterChanged(const std::string& paramName) {
-    if (!processor) return;
+    if (!processor && !audioProcessor && !videoProcessor) return;
     
     float val = 0;
     bool found = false;

@@ -1,5 +1,67 @@
+#include "ofMain.h"
 #include "VideoMixer.h"
 #include "../core/Graph.h"
+#include "../core/NodeProcessor.h"
+
+class VideoMixerProcessor : public crumble::VideoProcessor {
+public:
+    VideoMixerProcessor() {
+        allocateTextures(1920, 1080); // Default to HD
+    }
+    
+    void processVideo(double cycle, double cycleStep) override {
+        if (!writeTex) return;
+        
+        int numActiveLayers = std::min((int)getParam("numLayers"), 16);
+        float masterOpacity = getParam("masterOpacity");
+        
+        if (!fbo.isAllocated() || fbo.getWidth() != writeTex->getWidth()) {
+            fbo.allocate(writeTex->getWidth(), writeTex->getHeight(), GL_RGBA);
+        }
+
+        fbo.begin();
+        ofClear(0, 0, 0, 0); 
+        ofSetColor(20);
+        ofDrawRectangle(0, 0, fbo.getWidth(), fbo.getHeight()); // Background
+        
+        for (int i = 0; i < numActiveLayers; i++) {
+            if (inputs[i].processor) {
+                float opacity = getParam("opacity_" + std::to_string(i));
+                float blendModeVal = getParam("blend_" + std::to_string(i));
+                float active = getParam("active_" + std::to_string(i));
+                
+                if (active > 0.5f) {
+                    ofTexture* tex = inputs[i].processor->getOutput(inputs[i].fromOutput);
+                    if (tex && tex->isAllocated()) {
+                        BlendMode mode = (BlendMode)(int)blendModeVal;
+                        switch (mode) {
+                            case BlendMode::ADD: ofEnableBlendMode(OF_BLENDMODE_ADD); break;
+                            case BlendMode::MULTIPLY: ofEnableBlendMode(OF_BLENDMODE_MULTIPLY); break;
+                            case BlendMode::ALPHA:
+                            default: ofEnableBlendMode(OF_BLENDMODE_ALPHA); break;
+                        }
+                        
+                        // Get source opacity dynamically from the source processor each frame
+                        float sourceOpacity = inputs[i].processor->getParam("opacity");
+                        ofSetColor(255, opacity * masterOpacity * sourceOpacity * 255);
+                        tex->draw(0, 0, fbo.getWidth(), fbo.getHeight());
+                    }
+                }
+            }
+        }
+        
+        ofDisableBlendMode();
+        fbo.end();
+        
+        // Copy FBO to our shadow texture
+        *writeTex = fbo.getTexture();
+        
+        swapFbo(); 
+    }
+
+private:
+    ofFbo fbo;
+};
 
 VideoMixer::VideoMixer() {
     type = "VideoMixer";
@@ -36,22 +98,10 @@ void VideoMixer::setup(int width, int height) {
     fboHeight = height;
     
     detectGpuLimits();
-    allocateFbo();
 }
 
 void VideoMixer::allocateFbo() {
-    ofFboSettings settings;
-    settings.width = fboWidth;
-    settings.height = fboHeight;
-    settings.internalformat = GL_RGBA;
-    settings.textureTarget = GL_TEXTURE_2D;
-    settings.minFilter = GL_LINEAR;
-    settings.maxFilter = GL_LINEAR;
-    settings.wrapModeHorizontal = GL_CLAMP_TO_EDGE;
-    settings.wrapModeVertical = GL_CLAMP_TO_EDGE;
-    settings.numSamples = 0;
-    
-    outputFbo.allocate(settings);
+    // Moved to VideoMixerProcessor
 }
 
 void VideoMixer::resizeLayerArrays(int newSize) {
@@ -67,6 +117,13 @@ void VideoMixer::resizeLayerArrays(int newSize) {
             parameters->add(layerOpacities[i]);
             parameters->add(layerBlendModes[i]);
             parameters->add(layerActive[i]);
+            
+            // Sync new layer params to VideoMixerProcessor
+            if (videoProcessor) {
+                videoProcessor->valuesMap["opacity_" + std::to_string(i)].store(1.0f);
+                videoProcessor->valuesMap["blend_" + std::to_string(i)].store(0.0f);
+                videoProcessor->valuesMap["active_" + std::to_string(i)].store(1.0f);
+            }
         }
     } else if (newSize < currentSize) {
         // Remove excess layers
@@ -121,6 +178,11 @@ void VideoMixer::removeLayer(int layerIndex) {
 
 void VideoMixer::setLayerCount(int count) {
     numActiveLayers = count; // This will trigger onNumLayersChanged
+    
+    // Sync to VideoMixerProcessor
+    if (videoProcessor) {
+        videoProcessor->valuesMap["numLayers"].store((float)count);
+    }
 }
 
 int VideoMixer::addLayer() {
@@ -230,81 +292,13 @@ bool VideoMixer::isLayerConnected(int layerIndex) const {
     return getLayerSource(layerIndex) != nullptr;
 }
 
-void VideoMixer::update(float dt) {
-    // Ensure FBO is allocated if setup wasn't called or dimensions changed
-    if (!outputFbo.isAllocated() || outputFbo.getWidth() != fboWidth || outputFbo.getHeight() != fboHeight) {
-        if (fboWidth <= 0) fboWidth = 1920;
-        if (fboHeight <= 0) fboHeight = 1080;
-        allocateFbo();
-    }
-
-    if (!graph) return;
-
-    // Derive sources from graph connections (single source of truth)
-    auto inputs = graph->getInputConnections(nodeId);
-    
-    struct RenderLayer {
-        ofTexture* tex;
-        float opacity;
-        int blendMode;
-    };
-    std::vector<RenderLayer> layersToDraw;
-    layersToDraw.reserve(numActiveLayers);
-    
-    for (const auto& conn : inputs) {
-        int i = conn.toInput;
-        if (i < 0 || i >= numActiveLayers || i >= (int)layerActive.size()) continue;
-        if (!layerActive[i]) continue;
-        
-        Node* sourceNode = graph->getNode(conn.fromNode);
-        if (sourceNode) {
-            ofTexture* tex = sourceNode->getVideoOutput();
-            if (tex && tex->isAllocated()) {
-                Control sourceOpCtrl = sourceNode->getControl(*sourceNode->opacity);
-                float sourceOpacity = sourceOpCtrl[0];
-                layersToDraw.push_back({tex, layerOpacities[i] * sourceOpacity, layerBlendModes[i]});
-            }
-        }
-    }
-    
-    // Render
-    outputFbo.begin();
-    ofClear(0, 0, 0, 0); // Clear with 0 alpha to allow for transparency if needed
-    
-    // Draw a dark gray background to ensure the FBO isn't "empty"
-    ofSetColor(20);
-    ofDrawRectangle(0, 0, fboWidth, fboHeight);
-    
-    for (const auto& layer : layersToDraw) {
-        BlendMode mode = (BlendMode)layer.blendMode;
-        
-        switch (mode) {
-            case BlendMode::ADD:
-                ofEnableBlendMode(OF_BLENDMODE_ADD);
-                break;
-            case BlendMode::MULTIPLY:
-                ofEnableBlendMode(OF_BLENDMODE_MULTIPLY);
-                break;
-            case BlendMode::ALPHA:
-            default:
-                ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-                break;
-        }
-        
-        Control masterCtrl = getControl(masterOpacity);
-        float currentMasterOpacity = masterCtrl[0];
-        
-        ofSetColor(255, layer.opacity * currentMasterOpacity * 255);
-        layer.tex->draw(0, 0, fboWidth, fboHeight);
-    }
-    
-    ofDisableBlendMode();
-    outputFbo.end();
+crumble::VideoProcessor* VideoMixer::createVideoProcessor() {
+    return new VideoMixerProcessor();
 }
 
 ofTexture* VideoMixer::processVideo(int index) {
-    if (index != 0) return nullptr;
-    return &outputFbo.getTexture();
+    if (index != 0 || !videoProcessor) return nullptr;
+    return videoProcessor->getOutput(0);
 }
 
 

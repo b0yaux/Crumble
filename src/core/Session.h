@@ -6,6 +6,9 @@
 #include "AudioCommand.h"
 #include "moodycamel/readerwriterqueue.h"
 #include <vector>
+#include <thread>
+#include <atomic>
+#include <memory>
 
 namespace crumble {
     // Wrap moodycamel for easier use in Crumble
@@ -73,10 +76,16 @@ private:
     uint64_t frameCounter = 0;
     ofSoundStream soundStream;
 
-    // The "Air-Gap" Queues
-    crumble::SPSCQueue<crumble::AudioCommand> commandQueue{1024};
-    crumble::SPSCQueue<crumble::NodeProcessor*> releaseQueue{1024};
+    // The "Air-Gap" Queues (Audio Thread)
+    crumble::SPSCQueue<crumble::AudioCommand> audioCommandQueue{1024};
+    crumble::SPSCQueue<crumble::AudioProcessor*> audioReleaseQueue{1024};
+    std::vector<crumble::AudioProcessor*> activeAudioProcessors;
 
-    // Current execution list for the audio thread
-    std::vector<crumble::NodeProcessor*> activeProcessors;
+    // The "Air-Gap" Queues (Video - Evaluated on Main Thread)
+    crumble::SPSCQueue<crumble::AudioCommand> videoCommandQueue{1024};
+    crumble::SPSCQueue<crumble::VideoProcessor*> videoReleaseQueue{1024};
+    std::vector<crumble::VideoProcessor*> activeVideoProcessors;
+    
+    // Legacy support
+    crumble::SPSCQueue<crumble::NodeProcessor*> releaseQueue{1024};
 };

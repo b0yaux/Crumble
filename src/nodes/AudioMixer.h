@@ -14,7 +14,7 @@ public:
     void processAudio(ofSoundBuffer& buffer, int index = 0) override;
     std::string getDisplayName() const override;
 
-    crumble::NodeProcessor* createProcessor() override;
+    crumble::AudioProcessor* createAudioProcessor() override;
     void onParameterChanged(const std::string& paramName) override;
     void onInputConnected(int toInput) override;
     void onInputDisconnected(int toInput) override;

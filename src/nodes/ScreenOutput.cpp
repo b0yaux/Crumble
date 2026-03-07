@@ -1,3 +1,4 @@
+#include "ofMain.h"
 #include "ScreenOutput.h"
 #include "../core/Graph.h"
 
@@ -39,7 +40,8 @@ void ScreenOutput::update(float dt) {
     
     if (!graph) return;
     
-    // Pull input texture from connected node (already updated by graph pull)
+    // Pull input texture from connected node. 
+    // This will hit the background thread's ping-pong FBO lock-free pointer.
     auto inputs = graph->getInputConnections(nodeId);
     if (!inputs.empty()) {
         Node* sourceNode = graph->getNode(inputs[0].fromNode);

@@ -20,6 +20,8 @@ class ofParameterGroup;
 
 namespace crumble {
     class NodeProcessor;
+    class AudioProcessor;
+    class VideoProcessor;
     struct AudioCommand;
 }
 
@@ -62,14 +64,20 @@ public:
     virtual void draw() {}
     
     // Shadow Processor Lifecycle
-    virtual crumble::NodeProcessor* createProcessor() { return nullptr; }
+    virtual crumble::NodeProcessor* createProcessor() { return nullptr; } // Legacy fallback
+    virtual crumble::AudioProcessor* createAudioProcessor() { return nullptr; }
+    virtual crumble::VideoProcessor* createVideoProcessor() { return nullptr; }
+
     void setupProcessor();
     crumble::NodeProcessor* getProcessor() { return processor; }
+    crumble::AudioProcessor* getAudioProcessor() { return audioProcessor; }
+    crumble::VideoProcessor* getVideoProcessor() { return videoProcessor; }
 
-    // The processor pointer is public to allow composite nodes (e.g. AVSampler)
-    // to initialize an inner node's processor without the double-ADD_NODE overhead
-    // of calling setupProcessor() on the inner node.
-    crumble::NodeProcessor* processor = nullptr;
+    // The processor pointers are public to allow composite nodes (e.g. AVSampler)
+    // to initialize an inner node's processor without the double-ADD_NODE overhead.
+    crumble::NodeProcessor* processor = nullptr; // Legacy
+    crumble::AudioProcessor* audioProcessor = nullptr;
+    crumble::VideoProcessor* videoProcessor = nullptr;
 
     // Wait-free messaging helper
     void pushCommand(crumble::AudioCommand cmd);

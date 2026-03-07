@@ -1,4 +1,29 @@
+#include "ofMain.h"
 #include "VideoFileSource.h"
+#include "../core/NodeProcessor.h"
+
+// Shadow processor for the video thread
+class VideoFileProcessor : public crumble::VideoProcessor {
+public:
+    VideoFileProcessor(ofxHapPlayer* p) : playerRef(p) {}
+    
+    void processVideo(double cycle, double cycleStep) override {
+        if (playerRef && playerRef->isLoaded()) {
+            playerRef->update();
+        }
+    }
+    
+    ofTexture* getOutput(int index = 0) override {
+        if (playerRef && playerRef->isLoaded()) {
+            ofTexture* tex = playerRef->getTexture();
+            if (tex && tex->isAllocated()) return tex;
+        }
+        return nullptr;
+    }
+    
+private:
+    ofxHapPlayer* playerRef = nullptr;
+};
 
 VideoFileSource::VideoFileSource() {
     type = "VideoFileSource";
@@ -11,6 +36,10 @@ VideoFileSource::VideoFileSource() {
 
     path.addListener(this, &VideoFileSource::onPathChanged);
     clockMode.addListener(this, &VideoFileSource::onClockModeChanged);
+}
+
+crumble::VideoProcessor* VideoFileSource::createVideoProcessor() {
+    return new VideoFileProcessor(&player);
 }
 
 void VideoFileSource::onClockModeChanged(int& mode) {
@@ -58,29 +87,6 @@ void VideoFileSource::load(const std::string& vidPath) {
         loadedPath = vidPath;
     } else {
         ofLogError("VideoFileSource") << "Failed to load: " << resolvedPath;
-    }
-}
-
-void VideoFileSource::update(float dt) {
-    if (graph) {
-        Control c = getControl(speed);
-        float s = c[0];
-        
-        if (clockMode == VideoFileSource::INTERNAL) {
-            player.setSpeed(s);
-        } else {
-            // In EXTERNAL mode, we don't set speed.
-            // The playhead is exclusively driven by setPosition() or setFrame()
-        }
-    }
-    player.update();
-    
-    // Auto-play safety: ensure playing if it's supposed to be
-    if (clockMode == VideoFileSource::INTERNAL && playing && player.isLoaded() && !player.isPlaying() && !player.isPaused()) {
-        player.play();
-    } else if (clockMode == VideoFileSource::EXTERNAL && player.isLoaded() && !player.isPaused()) {
-        // Enforce pause state for external mode
-        player.setPaused(true);
     }
 }
 

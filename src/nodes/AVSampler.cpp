@@ -13,10 +13,8 @@ AVSampler::AVSampler() {
     parameters->add(playing.set("playing", true));
     parameters->add(position.set("position", 0.0, 0.0, 1.0));
     
-    // Initialize the video source processor separately (it's not part of the audio graph).
-    // The audioSource processor is NOT set up here — AVSampler::createProcessor() creates it
-    // so it gets registered in the audio graph exactly once via Node::setupProcessor().
-    videoSource.setupProcessor();
+    // NOTE: Processors are created via createAudioProcessor() and createVideoProcessor()
+    // when Graph::createNode() calls setupProcessor() -> createAudioProcessor()/createVideoProcessor()
     
     // Performance: Cache direct pointers to child parameters to avoid map lookups
     cachedAudioSpeed = &audioSource.speed;
@@ -31,12 +29,93 @@ AVSampler::AVSampler() {
 }
 
 AVSampler::~AVSampler() {
-    // AVSampler::processor and audioSource.processor are the SAME pointer —
-    // both set in createProcessor(). If we let audioSource's Node::~Node() fire
-    // normally it would send a second REMOVE_NODE for the same processor, causing
-    // a double-free on the audio thread. Null it out here, before the member
-    // destructors run, so audioSource's ~Node() skips the command.
-    audioSource.processor = nullptr;
+    audioSource.audioProcessor = nullptr;
+}
+
+crumble::AudioProcessor* AVSampler::createAudioProcessor() {
+    // Create the AudioFileProcessor via the audioSource factory
+    crumble::AudioProcessor* proc = audioSource.createAudioProcessor();
+    if (proc) {
+        audioSource.audioProcessor = proc;
+        proc->nodeId = audioSource.nodeId;
+
+        // Populate valuesMap from audioSource's parameter group
+        for (int i = 0; i < (int)audioSource.parameters->size(); i++) {
+            auto& p = audioSource.parameters->get(i);
+            float val = 0;
+            bool supported = false;
+
+            if (p.type() == typeid(ofParameter<float>).name()) {
+                val = p.cast<float>().get();
+                supported = true;
+            } else if (p.type() == typeid(ofParameter<bool>).name()) {
+                val = p.cast<bool>().get() ? 1.0f : 0.0f;
+                supported = true;
+            } else if (p.type() == typeid(ofParameter<int>).name()) {
+                val = (float)p.cast<int>().get();
+                supported = true;
+            }
+
+            if (supported) {
+                proc->valuesMap[p.getName()].store(val);
+            }
+        }
+    }
+    return proc;
+}
+
+crumble::VideoProcessor* AVSampler::createVideoProcessor() {
+    // Create the VideoFileProcessor via the videoSource factory
+    crumble::VideoProcessor* proc = videoSource.createVideoProcessor();
+    if (proc) {
+        proc->nodeId = videoSource.nodeId;
+
+        // Populate valuesMap from videoSource's parameter group
+        for (int i = 0; i < (int)videoSource.parameters->size(); i++) {
+            auto& p = videoSource.parameters->get(i);
+            float val = 0;
+            bool supported = false;
+
+            if (p.type() == typeid(ofParameter<float>).name()) {
+                val = p.cast<float>().get();
+                supported = true;
+            } else if (p.type() == typeid(ofParameter<bool>).name()) {
+                val = p.cast<bool>().get() ? 1.0f : 0.0f;
+                supported = true;
+            } else if (p.type() == typeid(ofParameter<int>).name()) {
+                val = (float)p.cast<int>().get();
+                supported = true;
+            }
+
+            if (supported) {
+                proc->valuesMap[p.getName()].store(val);
+            }
+        }
+        
+        // Also copy AVSampler's own parameters (opacity, volume, active)
+        // These are what the VideoMixer needs to read from the source
+        for (int i = 0; i < (int)parameters->size(); i++) {
+            auto& p = parameters->get(i);
+            std::string name = p.getName();
+            if (name == "opacity" || name == "volume" || name == "active") {
+                float val = 0;
+                bool supported = false;
+                
+                if (p.type() == typeid(ofParameter<float>).name()) {
+                    val = p.cast<float>().get();
+                    supported = true;
+                } else if (p.type() == typeid(ofParameter<bool>).name()) {
+                    val = p.cast<bool>().get() ? 1.0f : 0.0f;
+                    supported = true;
+                }
+                
+                if (supported) {
+                    proc->valuesMap[name].store(val);
+                }
+            }
+        }
+    }
+    return proc;
 }
 
 void AVSampler::prepare(const Context& ctx) {
@@ -175,46 +254,12 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
         }
         audioSource.onParameterChanged("playing");
     }
+    
+    // Always propagate to processors for unhandled params (like opacity, volume)
+    Node::onParameterChanged(paramName);
 }
 
 void AVSampler::setMasterPlayhead(double pos) { masterPlayhead = pos; }
-
-crumble::NodeProcessor* AVSampler::createProcessor() {
-    // Create the AudioFileProcessor via the audioSource factory.
-    // We must also store it as audioSource.processor so that audioSource's
-    // helper methods (getRelativePosition, setRelativePosition, load) work correctly.
-    // We do NOT call audioSource.setupProcessor() here to avoid a double ADD_NODE.
-    crumble::NodeProcessor* proc = audioSource.createProcessor();
-    if (!proc) return nullptr;
-
-    // Store in audioSource so its methods can access it
-    audioSource.processor = proc;
-    proc->nodeId = audioSource.nodeId;
-
-    // Populate valuesMap from audioSource's parameter group (name-based, no indices).
-    for (int i = 0; i < (int)audioSource.parameters->size(); i++) {
-        auto& p = audioSource.parameters->get(i);
-        float val = 0;
-        bool supported = false;
-
-        if (p.type() == typeid(ofParameter<float>).name()) {
-            val = p.cast<float>().get();
-            supported = true;
-        } else if (p.type() == typeid(ofParameter<bool>).name()) {
-            val = p.cast<bool>().get() ? 1.0f : 0.0f;
-            supported = true;
-        } else if (p.type() == typeid(ofParameter<int>).name()) {
-            val = (float)p.cast<int>().get();
-            supported = true;
-        }
-
-        if (supported) {
-            proc->valuesMap[p.getName()].store(val);
-        }
-    }
-
-    return proc;
-}
 
 ofJson AVSampler::serialize() const {
     ofJson j;

@@ -6,7 +6,7 @@
 
 namespace crumble {
 
-class AudioFileProcessor : public NodeProcessor {
+class AudioFileProcessor : public AudioProcessor {
 public:
     void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
                  double cycle, double cycleStep) override {
@@ -76,7 +76,7 @@ AudioFileSource::AudioFileSource() {
     // processor directly to avoid a double ADD_NODE / ghost processor leak.
 }
 
-crumble::NodeProcessor* AudioFileSource::createProcessor() {
+crumble::AudioProcessor* AudioFileSource::createAudioProcessor() {
     return new crumble::AudioFileProcessor();
 }
 
@@ -116,7 +116,7 @@ void AudioFileSource::load(const std::string& p) {
         crumble::AudioCommand cmd;
         cmd.type = crumble::AudioCommand::LOAD_BUFFER;
         cmd.nodeId = nodeId;
-        cmd.processor = processor;
+        cmd.audioProcessor = audioProcessor;
         cmd.audioData = sharedLoader->data();
         cmd.totalSamples = sharedLoader->length();
         cmd.channels = sharedLoader->channels();
@@ -135,13 +135,13 @@ void AudioFileSource::onParameterChanged(const std::string& paramName) {
 }
 
 double AudioFileSource::getRelativePosition() const {
-    auto pProc = static_cast<crumble::AudioFileProcessor*>(processor);
+    auto pProc = static_cast<crumble::AudioFileProcessor*>(audioProcessor);
     if (!pProc || !sharedLoader || sharedLoader->length() == 0) return 0.0;
     return pProc->playhead.load() / (double)sharedLoader->length();
 }
 
 void AudioFileSource::setRelativePosition(double pct) {
-    auto pProc = static_cast<crumble::AudioFileProcessor*>(processor);
+    auto pProc = static_cast<crumble::AudioFileProcessor*>(audioProcessor);
     if (!pProc || !sharedLoader || sharedLoader->length() == 0) return;
     pProc->playhead.store(ofClamp(pct, 0.0, 1.0) * (double)sharedLoader->length());
 }

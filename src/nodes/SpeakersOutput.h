@@ -6,7 +6,7 @@ class SpeakersOutput : public Node {
 public:
     SpeakersOutput();
     
-    crumble::NodeProcessor* createProcessor() override;
+    crumble::AudioProcessor* createAudioProcessor() override;
     void onParameterChanged(const std::string& paramName) override;
 
 protected:

@@ -1,5 +1,7 @@
 #pragma once
 #include "ofSoundBuffer.h"
+#include "ofTexture.h"
+#include "ofFbo.h"
 #include <atomic>
 #include <array>
 #include <string>
@@ -10,23 +12,47 @@
 namespace crumble {
 
 /**
- * NodeProcessor: The "Shadow" object living on the Audio Thread.
- *
- * Pattern modulation: patternSlots[N] holds a shared_ptr<Pattern<float>>
- * installed via SET_PATTERN. process() receives the block's start cycle and
- * cycleStep so it can call pat->eval(cycle + i*cycleStep) per sample inline.
- * Patterns are stateless pure functions — no locking needed.
+ * NodeProcessor: The base "Shadow" object living on a background thread.
  */
 class NodeProcessor {
 public:
-    NodeProcessor() {
-        internalBuffer.allocate(1024, 2); 
-    }
+    NodeProcessor() = default;
     virtual ~NodeProcessor() = default;
 
-    // pull() drives the recursive DSP graph traversal.
-    // cycle = absolute musical cycle at start of this block
-    // cycleStep = cycle increment per sample
+    virtual void handleCommand(const AudioCommand& cmd) {}
+
+    // --- Scalar parameter access (SET_PARAM) ---
+    inline float getParam(const std::string& name) const {
+        auto it = valuesMap.find(name);
+        if (it != valuesMap.end()) return it->second.load(std::memory_order_relaxed);
+        return 0.0f;
+    }
+
+    // --- Pattern evaluation (SET_PATTERN) ---
+    inline float evalPattern(const std::string& name, double cycle) const {
+        auto patIt = patternMap.find(name);
+        if (patIt != patternMap.end() && patIt->second) {
+            return patIt->second->eval(cycle);
+        }
+        return getParam(name);
+    }
+
+    std::unordered_map<std::string, std::atomic<float>> valuesMap;
+    std::unordered_map<std::string, std::shared_ptr<Pattern<float>>> patternMap;
+
+    int nodeId = -1;
+};
+
+/**
+ * AudioProcessor: Lives on the Audio Thread.
+ */
+class AudioProcessor : public NodeProcessor {
+public:
+    AudioProcessor() {
+        internalBuffer.allocate(1024, 2); 
+    }
+    virtual ~AudioProcessor() = default;
+
     void pull(ofSoundBuffer& buffer, int index = 0, uint64_t frameCounter = 0,
               double cycle = 0.0, double cycleStep = 0.0) {
         if (lastProcessedFrame == frameCounter && frameCounter != 0) {
@@ -48,10 +74,8 @@ public:
         copyTo(buffer);
     }
 
-    // cycle/cycleStep passed in so processors can evaluate patterns sample-accurately.
     virtual void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
                          double cycle, double cycleStep) {}
-    virtual void handleCommand(const AudioCommand& cmd) {}
 
     void copyTo(ofSoundBuffer& dest) {
         if (dest.size() == internalBuffer.size()) {
@@ -63,7 +87,7 @@ public:
     ofSoundBuffer internalBuffer;
     uint64_t lastProcessedFrame = 0;
 
-    void addInput(NodeProcessor* p, int toInput, int fromOutput) {
+    void addInput(AudioProcessor* p, int toInput, int fromOutput) {
         if (toInput >= 0 && toInput < 16) {
             inputs[toInput] = {p, fromOutput};
         }
@@ -76,40 +100,74 @@ public:
     }
 
     struct Input {
-        NodeProcessor* processor = nullptr;
+        AudioProcessor* processor = nullptr;
         int fromOutput = 0;
     };
     std::array<Input, 16> inputs;
 
-    // --- Scalar parameter access (SET_PARAM) ---
-    // Name-based storage: valuesMap[name] stores the parameter value.
-    // No more index confusion — keys are parameter names directly.
-    inline float getParam(const std::string& name) const {
-        auto it = valuesMap.find(name);
-        if (it != valuesMap.end()) return it->second.load(std::memory_order_relaxed);
-        return 0.0f;
-    }
-
-    // --- Pattern evaluation (SET_PATTERN) ---
-    // Evaluate the pattern installed for a parameter, at the given cycle position.
-    // Falls back to the scalar value if no pattern is installed.
-    inline float evalPattern(const std::string& name, double cycle) const {
-        auto patIt = patternMap.find(name);
-        if (patIt != patternMap.end() && patIt->second) {
-            return patIt->second->eval(cycle);
-        }
-        return getParam(name);
-    }
-
-    // Direct parameter value storage (name-based, no indices)
-    std::unordered_map<std::string, std::atomic<float>> valuesMap;
-
-    // Pattern storage (name-based, no indices)
-    std::unordered_map<std::string, std::shared_ptr<Pattern<float>>> patternMap;
-
-    int nodeId = -1;
-
     bool isSink = false;
+};
+
+/**
+ * VideoProcessor: Lives on the Video Thread with a Shared OpenGL Context.
+ */
+class VideoProcessor : public NodeProcessor {
+public:
+    VideoProcessor() = default;
+    virtual ~VideoProcessor() = default;
+
+    // Called by the Video Thread to generate the frame
+    virtual void processVideo(double cycle, double cycleStep) {}
+    
+    // Thread-safe fetch of the latest texture for the main thread
+    virtual ofTexture* getOutput(int index = 0) { 
+        return readyTex.load(std::memory_order_acquire);
+    }
+
+    void addInput(VideoProcessor* p, int toInput, int fromOutput) {
+        if (toInput >= 0 && toInput < 16) {
+            inputs[toInput] = {p, fromOutput};
+        }
+    }
+
+    void removeInput(int toInput) {
+        if (toInput >= 0 && toInput < 16) {
+            inputs[toInput] = {nullptr, 0};
+        }
+    }
+
+    struct Input {
+        VideoProcessor* processor = nullptr;
+        int fromOutput = 0;
+    };
+    std::array<Input, 16> inputs;
+    
+    // Ping-Pong FBO pair for lock-free read/write
+    ofTexture tex_A;
+    ofTexture tex_B;
+    std::atomic<ofTexture*> readyTex { nullptr };
+    ofTexture* writeTex = nullptr;
+    
+    // Raw GL FBOs allocated lazily on the Video Thread
+    unsigned int fbo_A = 0;
+    unsigned int fbo_B = 0;
+    unsigned int writeFbo = 0;
+
+    void allocateTextures(int width, int height) {
+        // Called on MAIN thread during initialization
+        // Textures are shared across OpenGL contexts
+        tex_A.allocate(width, height, GL_RGBA);
+        tex_B.allocate(width, height, GL_RGBA);
+        
+        readyTex.store(&tex_A, std::memory_order_release);
+        writeTex = &tex_B;
+    }
+
+    void swapFbo() {
+        ofTexture* oldReady = readyTex.exchange(writeTex, std::memory_order_acq_rel);
+        writeTex = oldReady;
+        writeFbo = (writeTex == &tex_A) ? fbo_A : fbo_B;
+    }
 };
 
 } // namespace crumble
