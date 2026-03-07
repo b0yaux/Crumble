@@ -37,14 +37,11 @@ Session (Root Container: Hardware & Threading)
 
 ### Key Components
 
-- **AudioProcessor**: High-performance DSP worker living on the audio thread, receiving commands via wait-free SPSC queues.
-- **VideoProcessor**: GPU compositor evaluated on the main thread, using independent command queues for frame compositing.
-- **Soft Sync**: Audio and video run naturally in parallel without hard seeks; ofxHapPlayer handles background decoding.
 - **Patterns**: Stateless recipes (`cycle -> value`) used for sample-accurate modulation.
 - **Interpreter**: The Lua runtime that parses and executes live-coding scripts.
 - **AssetRegistry**: A logical mapping layer that handles media discovery, banks, and automatic A/V pairing.
-- **Shadow Processors**: High-performance worker objects that live on the audio thread, receiving parameter changes via wait-free SPSC queues.
 - **AssetCache**: A global registry that deduplicates media files and caches RAM buffers for efficiency.
+- **Shadow Processors**: Internal high-performance workers that decouple C++ processing from Lua, using wait-free SPSC queues.
 
 ## Data Types & Flows
 
@@ -150,7 +147,7 @@ sub.script = "scripts/inner.lua" -- Populates the sub-graph reactively
 | **Audio** | `AudioFileSource` | RAM-cached sample player |
 | | `AudioMixer` | Multi-channel summation |
 | | `SpeakersOutput` | Hardware audio sink |
-| **AV** | `AVSampler` | Unified audio+video player with Soft Sync |
+| **AV** | `AVSampler` | Unified audio+video player with parallel playback |
 
 ## Robustness
 
