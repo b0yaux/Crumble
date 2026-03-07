@@ -11,7 +11,7 @@ public:
     void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
                  double cycle, double cycleStep) override {
         // Use name-based lookup — no more index confusion!
-        if (!data || totalSamples == 0 || getParam("playing") < 0.5f) return;
+        if (!data || totalSamples == 0 || getParam("playing") < 0.5f || getParam("active") < 0.5f) return;
 
         bool loop = getParam("loop") > 0.5f;
 

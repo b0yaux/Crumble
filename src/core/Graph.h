@@ -19,6 +19,7 @@ struct Connection {
     int toNode;
     int fromOutput;
     int toInput;
+    bool stale = false; // Added for pruning
 };
 
 /**
@@ -42,6 +43,8 @@ public:
     Node* createNode(const std::string& type, const std::string& name = "");
     void removeNode(int nodeId);
     void clear();
+    void markConnectionsStale();
+    void pruneStaleConnections();
 
     Node* getNode(int nodeId) {
         auto it = nodes.find(nodeId);

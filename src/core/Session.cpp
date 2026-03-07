@@ -52,7 +52,13 @@ void Session::audioOut(ofSoundBuffer& buffer) {
 
         switch (cmd.type) {
             case crumble::AudioCommand::ADD_NODE:
-                if (ap) activeAudioProcessors.push_back(ap);
+                if (ap) {
+                    // Prevent duplicate entries
+                    if (std::find(activeAudioProcessors.begin(), activeAudioProcessors.end(), ap) 
+                        == activeAudioProcessors.end()) {
+                        activeAudioProcessors.push_back(ap);
+                    }
+                }
                 break;
 
             case crumble::AudioCommand::REMOVE_NODE:
@@ -75,20 +81,27 @@ void Session::audioOut(ofSoundBuffer& buffer) {
             case crumble::AudioCommand::SET_PATTERN:
                 if (alive(ap) && !cmd.slotName.empty()) {
                     if (cmd.pattern) {
+                        ofLogNotice("Session") << "SET_PATTERN: nodeId=" << ap->nodeId << " slot=" << cmd.slotName;
                         ap->patternMap[cmd.slotName] = cmd.pattern;
                     } else {
                         ap->patternMap.erase(cmd.slotName);
                     }
+                } else {
+                    ofLogWarning("Session") << "SET_PATTERN: failed alive check or empty slot - nodeId=" << (ap ? ap->nodeId : -1) << " slot=" << cmd.slotName;
                 }
                 break;
 
             case crumble::AudioCommand::CONNECT_NODES:
+                ofLogNotice("Session") << "CONNECT_NODES: targetNodeId=" << (cmd.targetAudioProcessor ? cmd.targetAudioProcessor->nodeId : -1) 
+                     << " fromNodeId=" << (ap ? ap->nodeId : -1) << " toInput=" << cmd.toInput;
                 if (cmd.targetAudioProcessor) {
                     cmd.targetAudioProcessor->addInput(ap, cmd.toInput, cmd.fromOutput);
                 }
                 break;
 
             case crumble::AudioCommand::DISCONNECT_NODES:
+                ofLogNotice("Session") << "DISCONNECT_NODES: targetNodeId=" << (cmd.targetAudioProcessor ? cmd.targetAudioProcessor->nodeId : -1) 
+                     << " toInput=" << cmd.toInput;
                 if (cmd.targetAudioProcessor) {
                     cmd.targetAudioProcessor->removeInput(cmd.toInput);
                 }
@@ -115,6 +128,11 @@ void Session::audioOut(ofSoundBuffer& buffer) {
     double cycleStep  = transport.getCyclesPerSample(buffer.getSampleRate());
 
     // 5. Wait-Free DSP Traversal
+    static int lastProcessorCount = 0;
+    if ((int)activeAudioProcessors.size() != lastProcessorCount) {
+        ofLogNotice("Session") << "Audio Processors: " << activeAudioProcessors.size();
+        lastProcessorCount = activeAudioProcessors.size();
+    }
     for (auto* ap : activeAudioProcessors) {
         if (ap->isSink) {
             ap->pull(buffer, 0, frameCounter, blockCycle, cycleStep);
@@ -154,7 +172,12 @@ void Session::update(float dt) {
         
         switch (cmd.type) {
             case crumble::AudioCommand::ADD_NODE:
-                if (vp) activeVideoProcessors.push_back(vp);
+                if (vp) {
+                    if (std::find(activeVideoProcessors.begin(), activeVideoProcessors.end(), vp)
+                        == activeVideoProcessors.end()) {
+                        activeVideoProcessors.push_back(vp);
+                    }
+                }
                 break;
 
             case crumble::AudioCommand::REMOVE_NODE:
@@ -175,6 +198,7 @@ void Session::update(float dt) {
                 break;
 
             case crumble::AudioCommand::SET_PATTERN:
+                ofLogNotice("Session") << "Video SET_PATTERN: nodeId=" << (vp ? vp->nodeId : -1) << " slot=" << cmd.slotName;
                 if (alive(vp) && !cmd.slotName.empty()) {
                     if (cmd.pattern) {
                         vp->patternMap[cmd.slotName] = cmd.pattern;
@@ -215,6 +239,7 @@ void Session::update(float dt) {
     double blockCycle = transport.cycle;
     double cycleStep = 0.0; // Pattern interp on video thread is K-rate (once per frame)
     for (auto* vp : activeVideoProcessors) {
+        vp->currentCycle = blockCycle; // Update cycle for pattern-aware getParam()
         vp->processVideo(blockCycle, cycleStep);
     }
 
@@ -264,11 +289,17 @@ void Session::endScript() {
     for (const auto& [id, node] : graph.getNodes()) {
         nodeIds.push_back(id);
     }
+    int removedCount = 0;
     for (int nodeId : nodeIds) {
         if (auto node = graph.getNode(nodeId)) {
-            if (!node->touched) graph.removeNode(nodeId);
+            if (!node->touched) {
+                ofLogNotice("Session") << "Removing untouted node: " << node->name << " (id=" << nodeId << ")";
+                graph.removeNode(nodeId);
+                removedCount++;
+            }
         }
     }
+    ofLogNotice("Session") << "endScript: removed " << removedCount << " nodes, remaining: " << graph.getNodeCount();
 }
 
 void Session::touchNode(int nodeId) {

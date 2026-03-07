@@ -50,6 +50,15 @@ bool Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
         return false;
     }
 
+    // Check if this exact connection already exists to prevent stacking
+    for (auto& conn : connections) {
+        if (conn.fromNode == fromNode && conn.toNode == toNode && 
+            conn.fromOutput == fromOutput && conn.toInput == toInput) {
+            conn.stale = false; // Mark as active
+            return true; 
+        }
+    }
+
     disconnect(toNode, toInput);
 
     Connection conn;
@@ -57,6 +66,7 @@ bool Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
     conn.toNode = toNode;
     conn.fromOutput = fromOutput;
     conn.toInput = toInput;
+    conn.stale = false; 
     
     connections.push_back(conn);
 
@@ -94,6 +104,29 @@ bool Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
     executionDirty = true;
     updateConnectionCache();
     return true;
+}
+
+void Graph::markConnectionsStale() {
+    std::lock_guard<std::recursive_mutex> lock(audioMutex);
+    for (auto& conn : connections) {
+        conn.stale = true;
+    }
+}
+
+void Graph::pruneStaleConnections() {
+    std::lock_guard<std::recursive_mutex> lock(audioMutex);
+    std::vector<std::pair<int, int>> toRemove;
+    for (const auto& conn : connections) {
+        if (conn.stale) {
+            toRemove.push_back({conn.toNode, conn.toInput});
+        }
+    }
+    
+    ofLogNotice("Graph") << "pruneStaleConnections: removing " << toRemove.size() << " stale connections";
+    for (auto& pair : toRemove) {
+        ofLogNotice("Graph") << "  disconnecting toNode=" << pair.first << " toInput=" << pair.second;
+        disconnect(pair.first, pair.second);
+    }
 }
 
 void Graph::disconnect(int toNode, int toInput) {
@@ -336,6 +369,17 @@ void Graph::registerNodeType(const std::string& type, NodeCreator creator) {
 }
 
 Node* Graph::createNode(const std::string& type, const std::string& name) {
+    // 1. Check for existing node with same name and type for idempotency
+    if (!name.empty()) {
+        std::lock_guard<std::recursive_mutex> lock(audioMutex);
+        for (auto& [id, node] : nodes) {
+            if (node && node->name == name && node->type == type) {
+                return node.get(); // Reuse existing node
+            }
+        }
+    }
+
+    // 2. Create new node if not found
     auto it = Graph::nodeTypes.find(type);
     if (it == Graph::nodeTypes.end()) return nullptr;
     auto node = it->second();

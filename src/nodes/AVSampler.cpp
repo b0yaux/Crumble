@@ -170,6 +170,14 @@ void AVSampler::update(float dt) {
     masterPlayhead = audioSource.getRelativePosition();
 }
 
+void AVSampler::setupProcessor() {
+    // Crucial: Children must share the SAME ID as parent for shadow worker routing
+    audioSource.nodeId = nodeId;
+    videoSource.nodeId = nodeId;
+    
+    Node::setupProcessor();
+}
+
 void AVSampler::processAudio(ofSoundBuffer& buffer, int index) {
     // DSP is handled by the internal audioSource's processor
 }
@@ -215,19 +223,26 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
         }
     } 
     else if (paramName == "speed") {
+        ofLogNotice("AVSampler") << "onParameterChanged: speed - propagating to children";
         if (cachedAudioSpeed) cachedAudioSpeed->set(speed.get());
         if (cachedVideoSpeed) cachedVideoSpeed->set(speed.get());
-        // Sync pattern to audioSource first (stores in audioSource.modulators),
-        // then propagate via onParameterChanged (sends SET_PARAM + SET_PATTERN).
+        
         auto pat = getPattern("speed");
+        ofLogNotice("AVSampler") << "  pattern for speed: " << (pat ? pat->getSignature() : "null");
         audioSource.modulate("speed", pat);
         audioSource.onParameterChanged("speed");
         videoSource.modulate("speed", pat);
+        videoSource.onParameterChanged("speed");
     } else if (paramName == "volume") {
         if (cachedAudioVolume) cachedAudioVolume->set(volume->get());
         auto pat = getPattern("volume");
         audioSource.modulate("volume", pat);
         audioSource.onParameterChanged("volume");
+    } 
+    else if (paramName == "opacity") {
+        auto pat = getPattern("opacity");
+        videoSource.modulate("opacity", pat);
+        videoSource.onParameterChanged("opacity");
     } else if (paramName == "loop") {
         if (cachedAudioLoop) cachedAudioLoop->set(loop.get());
         if (cachedVideoLoop) cachedVideoLoop->set(loop.get());

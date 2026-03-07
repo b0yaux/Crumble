@@ -38,7 +38,18 @@ bool Interpreter::runScript(const std::string& path) {
     s_currentSession = session;
     GraphContext rootContext(&session->getGraph());
     
+    // Mark all existing nodes as untouched for cleanup tracking
+    session->beginScript();
+    
+    // Reset auto-indexing and connections for idempotency
+    lua.doString("_autoIndices = {}");
+    session->getGraph().markConnectionsStale();
+    
     bool success = lua.doScript(path, true);
+    
+    // Clean up nodes that weren't touched (not re-created in script)
+    session->endScript();
+    session->getGraph().pruneStaleConnections();
     
     s_currentSession = nullptr;
     return success;
@@ -126,6 +137,7 @@ void Interpreter::bindSessionAPI() {
     lua_register(L, "_get", lua_getParam);
     lua_register(L, "_set", lua_setParam);
     lua_register(L, "_setGen", lua_setGenerator);
+    lua_register(L, "_setActive", lua_setActive);
     lua_register(L, "_clear", lua_clear);
     lua_register(L, "_listDir", lua_listDirectory);
     lua_register(L, "_exists", lua_fileExists);
@@ -159,15 +171,15 @@ void Interpreter::bindSessionAPI() {
                     _connect(self.id, toId, fromOut or 0, toIn or 0)
                     return self
                 end
-            elseif k == "off" then return function(self) self.active = false return self end
-            elseif k == "on" then return function(self) self.active = true return self end
-            elseif k == "mute" then return function(self) self.active = false return self end
-            elseif k == "unmute" then return function(self) self.active = true return self end
+            elseif k == "off" then return function(self) _setActive(self.id, false) return self end
+            elseif k == "on" then return function(self) _setActive(self.id, true) return self end
+            elseif k == "mute" then return function(self) _setActive(self.id, false) return self end
+            elseif k == "unmute" then return function(self) _setActive(self.id, true) return self end
             else return _get(t.id, k) end
         end
 
         _G._allNodes = {}
-        local _autoIndices = {}
+        _G._autoIndices = {}
         
         function getBank(name) return _getBank(name) end
         
@@ -188,7 +200,7 @@ void Interpreter::bindSessionAPI() {
         function clear() 
             _clear() 
             _G._allNodes = {} 
-            _autoIndices = {} 
+            _G._autoIndices = {} 
         end
 
         function connect(src, dst, outIdx, inIdx)
@@ -209,14 +221,32 @@ void Interpreter::bindSessionAPI() {
             if sId and dId then
                 local targetIn = inIdx
                 if not targetIn then
-                    _autoIndices[dId] = (_autoIndices[dId] or -1) + 1
-                    targetIn = _autoIndices[dId]
+                    _G._autoIndices[dId] = (_G._autoIndices[dId] or -1) + 1
+                    targetIn = _G._autoIndices[dId]
                 end
+                print("CONNECT: " .. tostring(sId) .. " -> " .. tostring(dId) .. " toInput=" .. tostring(targetIn))
                 _connect(sId, dId, outIdx or 0, targetIn)
-                return targetIn -- Return the index used!
+                return targetIn
             end
             return -1
         end
+
+        -- Pattern functions
+        local function makeGen(t)
+            t._isGen = true
+            return setmetatable(t, { __mul = function(a, b) local r={type="mul", a=a, b=b}; r._isGen=true; return r end,
+                                  __add = function(a, b) local r={type="add", a=a, b=b}; r._isGen=true; return r end })
+        end
+        
+        function osc(freq) return makeGen({type="osc", val=freq or 1.0}) end
+        function ramp(freq) return makeGen({type="ramp", val=freq or 1.0}) end
+        function seq(steps) return makeGen({type="seq", val=steps or "1"}) end
+        function noise(seed) return makeGen({type="noise", val=seed or 0}) end
+        function fast(n, p) return makeGen({type="fast", n=n, p=p}) end
+        function slow(n, p) return makeGen({type="slow", n=n, p=p}) end
+        function shift(o, p) return makeGen({type="shift", o=o, p=p}) end
+        function scale(l, h, p) return makeGen({type="scale", l=l, h=h, p=p}) end
+        function snap(s, p) return makeGen({type="snap", s=s, p=p}) end
     )";
     lua.doString(helper);
 }
@@ -267,6 +297,8 @@ int Interpreter::lua_connect(lua_State* L) {
     if (lua_gettop(L) >= 3 && !lua_isnil(L, 3)) fromOut = (int)luaL_checkinteger(L, 3);
     if (lua_gettop(L) >= 4 && !lua_isnil(L, 4)) toIn = (int)luaL_checkinteger(L, 4);
     Graph* graph = getCurrentGraph();
+    if (auto node = graph->getNode(fromNode)) node->touched = true;
+    if (auto node = graph->getNode(toNode)) node->touched = true;
     graph->connect(fromNode, toNode, fromOut, toIn);
     return 0;
 }
@@ -278,6 +310,7 @@ int Interpreter::lua_getParam(lua_State* L) {
     Graph* graph = getCurrentGraph();
     Node* node = graph->getNode(nodeIdx);
     if (!node) return 0;
+    node->touched = true;
     if (node->parameters->contains(paramName)) {
         auto& p = node->parameters->get(paramName);
         if (p.type() == typeid(ofParameter<float>).name()) lua_pushnumber(L, p.cast<float>().get());
@@ -302,6 +335,7 @@ int Interpreter::lua_setParam(lua_State* L) {
     Graph* graph = getCurrentGraph();
     Node* node = graph->getNode(nodeIdx);
     if (!node) return 0;
+    node->touched = true;
     node->clearModulator(paramName);
     if (node->parameters->contains(paramName)) {
         auto& p = node->parameters->get(paramName);
@@ -321,6 +355,19 @@ int Interpreter::lua_setParam(lua_State* L) {
 int Interpreter::lua_clear(lua_State* L) {
     if (!s_currentSession) return 0;
     getCurrentGraph()->clear();
+    return 0;
+}
+
+int Interpreter::lua_setActive(lua_State* L) {
+    if (!s_currentSession) return 0;
+    if (lua_isnil(L, 1)) return 0;
+    int nodeIdx = (int)luaL_checkinteger(L, 1);
+    bool active = lua_isboolean(L, 2) ? lua_toboolean(L, 2) : true;
+    Graph* graph = getCurrentGraph();
+    Node* node = graph->getNode(nodeIdx);
+    if (!node) return 0;
+    node->active->set(active);
+    node->onParameterChanged("active");
     return 0;
 }
 
@@ -381,9 +428,17 @@ int Interpreter::lua_setGenerator(lua_State* L) {
     std::string paramName = luaL_checkstring(L, 2);
     Graph* graph = getCurrentGraph();
     Node* node = graph->getNode(nodeIdx);
-    if (!node) return 0;
+    if (!node) {
+        ofLogWarning("Interpreter") << "lua_setGenerator: node not found " << nodeIdx;
+        return 0;
+    }
+    node->touched = true;
     auto pat = parsePattern(L, 3);
-    if (pat) node->modulate(paramName, pat);
+    ofLogNotice("Interpreter") << "lua_setGenerator: node=" << node->name << " param=" << paramName << " pattern=" << (pat ? pat->getSignature() : "null");
+    if (pat) {
+        node->modulate(paramName, pat);
+        node->onParameterChanged(paramName);  // Force pattern to be sent to audio thread
+    }
     return 0;
 }
 

@@ -3,32 +3,33 @@
 #include "../core/Graph.h"
 #include "../core/NodeProcessor.h"
 
-class VideoMixerProcessor : public crumble::VideoProcessor {
+namespace crumble {
+
+class VideoMixerProcessor : public VideoProcessor {
 public:
-    VideoMixerProcessor() {
-        allocateTextures(1920, 1080); // Default to HD
-    }
-    
     void processVideo(double cycle, double cycleStep) override {
         if (!writeTex) return;
         
         int numActiveLayers = std::min((int)getParam("numLayers"), 16);
         float masterOpacity = getParam("masterOpacity");
         
-        if (!fbo.isAllocated() || fbo.getWidth() != writeTex->getWidth()) {
-            fbo.allocate(writeTex->getWidth(), writeTex->getHeight(), GL_RGBA);
+        // Use ping-pong FBOs to avoid clearing the texture being read by ScreenOutput
+        ofFbo& currentFbo = (writeTex == &tex_A) ? fboA : fboB;
+        
+        if (!currentFbo.isAllocated() || currentFbo.getWidth() != writeTex->getWidth()) {
+            currentFbo.allocate(writeTex->getWidth(), writeTex->getHeight(), GL_RGBA);
         }
 
-        fbo.begin();
+        currentFbo.begin();
         ofClear(0, 0, 0, 0); 
         ofSetColor(20);
-        ofDrawRectangle(0, 0, fbo.getWidth(), fbo.getHeight()); // Background
+        ofDrawRectangle(0, 0, currentFbo.getWidth(), currentFbo.getHeight()); // Background
         
         for (int i = 0; i < numActiveLayers; i++) {
             if (inputs[i].processor) {
-                float opacity = getParam("opacity_" + std::to_string(i));
-                float blendModeVal = getParam("blend_" + std::to_string(i));
-                float active = getParam("active_" + std::to_string(i));
+                float opacity = evalPattern("opacity_" + std::to_string(i), cycle);
+                float blendModeVal = evalPattern("blend_" + std::to_string(i), cycle);
+                float active = evalPattern("active_" + std::to_string(i), cycle);
                 
                 if (active > 0.5f) {
                     ofTexture* tex = inputs[i].processor->getOutput(inputs[i].fromOutput);
@@ -41,27 +42,34 @@ public:
                             default: ofEnableBlendMode(OF_BLENDMODE_ALPHA); break;
                         }
                         
-                        // Get source opacity dynamically from the source processor each frame
+                        // Get source metadata dynamically from the source processor each frame
                         float sourceOpacity = inputs[i].processor->getParam("opacity");
-                        ofSetColor(255, opacity * masterOpacity * sourceOpacity * 255);
-                        tex->draw(0, 0, fbo.getWidth(), fbo.getHeight());
+                        float sourceActive = inputs[i].processor->getParam("active");
+                        
+                        if (sourceActive > 0.5f) {
+                            ofSetColor(255, opacity * masterOpacity * sourceOpacity * 255);
+                            tex->draw(0, 0, currentFbo.getWidth(), currentFbo.getHeight());
+                        }
                     }
                 }
             }
         }
         
         ofDisableBlendMode();
-        fbo.end();
+        currentFbo.end();
         
-        // Copy FBO to our shadow texture
-        *writeTex = fbo.getTexture();
+        // Copy FBO texture reference to our shadow texture
+        *writeTex = currentFbo.getTexture();
         
         swapFbo(); 
     }
 
 private:
-    ofFbo fbo;
+    ofFbo fboA;
+    ofFbo fboB;
 };
+
+} // namespace crumble
 
 VideoMixer::VideoMixer() {
     type = "VideoMixer";
@@ -293,7 +301,9 @@ bool VideoMixer::isLayerConnected(int layerIndex) const {
 }
 
 crumble::VideoProcessor* VideoMixer::createVideoProcessor() {
-    return new VideoMixerProcessor();
+    auto proc = new crumble::VideoMixerProcessor();
+    proc->allocateTextures(fboWidth, fboHeight);
+    return proc;
 }
 
 ofTexture* VideoMixer::processVideo(int index) {

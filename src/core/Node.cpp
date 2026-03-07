@@ -158,6 +158,7 @@ Node* Node::getInputNode(int slot) const {
 
 void Node::modulate(const std::string& paramName, std::shared_ptr<Pattern<float>> pat) {
     std::lock_guard<std::recursive_mutex> lock(modMutex);
+    ofLogNotice("Node") << "modulate: " << name << " param=" << paramName << " pattern=" << (pat ? pat->getSignature() : "null");
     modulators[paramName] = pat;
 }
 
@@ -182,7 +183,10 @@ std::shared_ptr<Pattern<float>> Node::getPattern(const std::string& paramName) c
 }
 
 void Node::onParameterChanged(const std::string& paramName) {
-    if (!processor && !audioProcessor && !videoProcessor) return;
+    if (!processor && !audioProcessor && !videoProcessor) {
+        ofLogWarning("Node") << "onParameterChanged: no processor for node " << name << " param " << paramName;
+        return;
+    }
     
     float val = 0;
     bool found = false;
@@ -205,6 +209,8 @@ void Node::onParameterChanged(const std::string& paramName) {
     }
     
     if (found) {
+        ofLogNotice("Node") << "onParameterChanged: " << name << " param=" << paramName << " value=" << val;
+        
         crumble::AudioCommand cmd;
         cmd.type = crumble::AudioCommand::SET_PARAM;
         cmd.slotName = paramName;
@@ -217,6 +223,7 @@ void Node::onParameterChanged(const std::string& paramName) {
             std::lock_guard<std::recursive_mutex> lock(modMutex);
             auto it = modulators.find(paramName);
             if (it != modulators.end()) {
+                ofLogNotice("Node") << "onParameterChanged: " << name << " sending pattern for " << paramName;
                 crumble::AudioCommand patCmd;
                 patCmd.type = crumble::AudioCommand::SET_PATTERN;
                 patCmd.slotName = paramName;

@@ -9,7 +9,6 @@ class AudioMixerProcessor : public AudioProcessor {
 public:
     void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
                  double cycle, double cycleStep) override {
-        // Use name-based lookup — no more index confusion!
         float masterGain = getParam("masterGain");
         
         for (int i = 0; i < 16; i++) {
@@ -23,14 +22,19 @@ public:
                 // Pass cycle/cycleStep down the graph
                 input.processor->pull(sumBuf, input.fromOutput, frameCounter, cycle, cycleStep);
                 
-                // Direct name-based lookup
-                float gain = getParam("gain_" + std::to_string(i));
+                std::string gainParam = "gain_" + std::to_string(i);
 
                 float* pSum = sumBuf.getBuffer().data();
                 float* pOut = buffer.getBuffer().data();
+                int numChannels = buffer.getNumChannels();
                 
-                for (size_t k = 0; k < buffer.size(); k++) {
-                    pOut[k] += pSum[k] * gain;
+                for (size_t f = 0; f < buffer.getNumFrames(); f++) {
+                    double sampleCycle = cycle + f * cycleStep;
+                    float gain = evalPattern(gainParam, sampleCycle);
+                    
+                    for (int c = 0; c < numChannels; c++) {
+                        pOut[f * numChannels + c] += pSum[f * numChannels + c] * gain;
+                    }
                 }
             }
         }
@@ -82,7 +86,7 @@ void AudioMixer::onInputConnected(int index) {
             inputGains.push_back(p);
             
             // Register the parameter name and sync the value.
-            if (processor) {
+            if (audioProcessor) {
                 // Sync initial value using name-based SET_PARAM
                 crumble::AudioCommand cmd;
                 cmd.type = crumble::AudioCommand::SET_PARAM;

@@ -21,26 +21,42 @@ public:
 
     virtual void handleCommand(const AudioCommand& cmd) {}
 
-    // --- Scalar parameter access (SET_PARAM) ---
-    inline float getParam(const std::string& name) const {
-        auto it = valuesMap.find(name);
-        if (it != valuesMap.end()) return it->second.load(std::memory_order_relaxed);
-        return 0.0f;
-    }
-
     // --- Pattern evaluation (SET_PATTERN) ---
-    inline float evalPattern(const std::string& name, double cycle) const {
+    inline float evalPattern(const std::string& name, double cycle) {
         auto patIt = patternMap.find(name);
         if (patIt != patternMap.end() && patIt->second) {
             return patIt->second->eval(cycle);
         }
-        return getParam(name);
+        
+        // Fallback to static value
+        auto it = valuesMap.find(name);
+        if (it != valuesMap.end()) {
+            return it->second.load(std::memory_order_relaxed);
+        }
+        return 0.0f;
+    }
+
+    // --- Scalar parameter access (SET_PARAM) ---
+    inline float getParam(const std::string& name) {
+        // 1. Try patterns first using current internal cycle
+        auto patIt = patternMap.find(name);
+        if (patIt != patternMap.end() && patIt->second) {
+            return patIt->second->eval(currentCycle);
+        }
+
+        // 2. Fallback to static value
+        auto it = valuesMap.find(name);
+        if (it != valuesMap.end()) {
+            return it->second.load(std::memory_order_relaxed);
+        }
+        return 0.0f;
     }
 
     std::unordered_map<std::string, std::atomic<float>> valuesMap;
     std::unordered_map<std::string, std::shared_ptr<Pattern<float>>> patternMap;
 
     int nodeId = -1;
+    double currentCycle = 0.0; // Track cycle for getParam fallback
 };
 
 /**
@@ -59,6 +75,8 @@ public:
             copyTo(buffer);
             return;
         }
+        
+        currentCycle = cycle; // Update cycle for pattern-aware getParam()
         
         if (internalBuffer.getNumFrames() != buffer.getNumFrames() || 
             internalBuffer.getNumChannels() != buffer.getNumChannels()) {

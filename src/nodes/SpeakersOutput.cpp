@@ -13,16 +13,20 @@ public:
     
     void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
                  double cycle, double cycleStep) override {
-        float masterVol = getParam("masterVolume");
-        
         if (inputs[0].processor) {
             inputs[0].processor->pull(buffer, inputs[0].fromOutput, frameCounter, cycle, cycleStep);
         } else {
             buffer.set(0);
         }
         
-        if (masterVol != 1.0f) {
-            buffer *= masterVol;
+        float* pOut = buffer.getBuffer().data();
+        int numChannels = buffer.getNumChannels();
+        for (size_t f = 0; f < buffer.getNumFrames(); f++) {
+            double sampleCycle = cycle + f * cycleStep;
+            float masterVol = evalPattern("masterVolume", sampleCycle);
+            for (int c = 0; c < numChannels; c++) {
+                pOut[f * numChannels + c] *= masterVol;
+            }
         }
     }
 };

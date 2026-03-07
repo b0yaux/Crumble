@@ -9,11 +9,16 @@ public:
     
     void processVideo(double cycle, double cycleStep) override {
         if (playerRef && playerRef->isLoaded()) {
+            // Evaluate speed pattern each frame for video
+            float actualSpeed = getParam("speed");
+            playerRef->setSpeed(actualSpeed);
             playerRef->update();
         }
     }
     
     ofTexture* getOutput(int index = 0) override {
+        if (getParam("active") < 0.5f) return nullptr;
+        
         if (playerRef && playerRef->isLoaded()) {
             ofTexture* tex = playerRef->getTexture();
             if (tex && tex->isAllocated()) return tex;

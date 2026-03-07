@@ -68,7 +68,7 @@ public:
     virtual crumble::AudioProcessor* createAudioProcessor() { return nullptr; }
     virtual crumble::VideoProcessor* createVideoProcessor() { return nullptr; }
 
-    void setupProcessor();
+    virtual void setupProcessor();
     crumble::NodeProcessor* getProcessor() { return processor; }
     crumble::AudioProcessor* getAudioProcessor() { return audioProcessor; }
     crumble::VideoProcessor* getVideoProcessor() { return videoProcessor; }

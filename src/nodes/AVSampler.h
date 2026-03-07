@@ -24,6 +24,7 @@ public:
     
     void prepare(const Context& ctx) override;
     void update(float dt) override;
+    void setupProcessor() override;
     void processAudio(ofSoundBuffer& buffer, int index = 0) override;
     ofTexture* processVideo(int index = 0) override;
     std::string getDisplayName() const override;
