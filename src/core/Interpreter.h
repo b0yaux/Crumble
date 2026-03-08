@@ -24,6 +24,9 @@ public:
 
     void setup(Session* session);
     
+    // Add a directory to Lua's package.path for require() support
+    void addScriptPath(const std::string& dir);
+    
     // Execute a script to build or modify the current session
     bool runScript(const std::string& path);
     

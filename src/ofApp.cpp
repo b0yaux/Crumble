@@ -2,30 +2,58 @@
 #include "core/Registry.h"
 #include "core/Config.h"
 
+void ofApp::setCommandLineConfig(const std::string& configPath,
+                                  const std::string& scriptOverride,
+                                  const std::string& windowTitle) {
+    m_configPath = configPath;
+    m_scriptOverride = scriptOverride;
+    m_windowTitle = windowTitle;
+}
+
 void ofApp::setup(){
     ofSetFrameRate(60);
     ofSetVerticalSync(true);
     ofBackground(20);
+    if (!m_windowTitle.empty()) {
+        ofSetWindowTitle(m_windowTitle);
+    }
     
-    // 0. Load config
-    ConfigManager::get().load("config.json");
+    ConfigManager::get().load(m_configPath);
     const auto& config = ConfigManager::get().getConfig();
     
-    // 1. Register node capabilities
     crumble::registerNodes(session);
     interpreter.setup(&session);
     
-    // 2. Initial load from entry script
-    if (!config.entryScript.empty() && ofFile::doesFileExist(config.entryScript)) {
-        interpreter.runScript(config.entryScript);
+    std::string scriptToRun = m_scriptOverride.empty() 
+                              ? config.entryScript 
+                              : m_scriptOverride;
+    
+    std::string absScriptPath;
+    if (!scriptToRun.empty()) {
+        if (ofFilePath::isAbsolute(scriptToRun)) {
+            absScriptPath = scriptToRun;
+        } else if (ofFile::doesFileExist(scriptToRun)) {
+            absScriptPath = ofFilePath::getAbsolutePath(scriptToRun);
+        } else if (ofFile::doesFileExist(ofToDataPath(scriptToRun))) {
+            absScriptPath = ofToDataPath(scriptToRun);
+        }
+        
+        if (!absScriptPath.empty() && ofFile::doesFileExist(absScriptPath)) {
+            std::string scriptDir = ofFilePath::getEnclosingDirectory(absScriptPath);
+            interpreter.addScriptPath(scriptDir);
+            interpreter.runScript(absScriptPath);
+            
+            fileWatcher.watch(scriptDir, true);
+        } else {
+            ofLogWarning("ofApp") << "Script not found: " << scriptToRun;
+        }
     } else {
-        ofLogWarning("ofApp") << "No entry script configured. Set entryScript in config.json.";
+        ofLogWarning("ofApp") << "No entry script configured. Set entryScript in config.json or use -s flag.";
     }
     
-    // 3. Initialize background file watcher
-    fileWatcher.watch(ofToDataPath("config.json"));
-    fileWatcher.watch(ofToDataPath("scripts"), true); // Watch scripts directory recursively
-    fileWatcher.start(500); // Poll background thread every 500ms
+    fileWatcher.watch(m_configPath);
+    fileWatcher.watch(ofToDataPath("scripts"), true);
+    fileWatcher.start(500);
     
     graphUI.setup();
 }
@@ -61,6 +89,7 @@ void ofApp::checkLiveReload() {
         // If entryScript changed, reload it
         if (newConfig.entryScript != oldEntryScript && !newConfig.entryScript.empty()) {
             ofLogNotice("ofApp") << "Entry script changed, loading: " << newConfig.entryScript;
+            session.getGraph().clear();
             interpreter.runScript(newConfig.entryScript);
         }
     } else if (scriptsChanged) {

@@ -12,7 +12,7 @@ connect(vmix, screen)
 local amix = addNode("AudioMixer", "amix")
 local speakers = addNode("SpeakersOutput", "speakers")
 connect(amix, speakers)
-speakers.volume = 1.0
+speakers.volume = 0.1
 
 -- 2. Data-driven loading from AssetRegistry
 local bankName = "superstratum_video-data"

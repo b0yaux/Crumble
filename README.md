@@ -10,6 +10,33 @@ make
 make RunRelease     # loads bin/data/config.json
 ```
 
+### Command-Line Options
+
+```bash
+./Crumble                              # Default: config.json → entryScript
+./Crumble -s scripts/drums.lua         # Override script
+./Crumble -c drums.json                # Use different config file
+./Crumble -t "Drums" -s drums.lua      # Set window title + script
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-c, --config` | Config file path | `config.json` |
+| `-s, --script` | Override entry script | (from config) |
+| `-t, --title` | Window title | (none) |
+
+### Multi-Instance
+
+Run multiple Crumble instances with different scripts:
+
+```bash
+# Terminal 1
+./Crumble -s scripts/drums.lua -t "Drums"
+
+# Terminal 2
+./Crumble -s scripts/melody.lua -t "Melody"
+```
+
 ## How It Works
 
 - **Node**: A single processing unit (video player, mixer, output).
@@ -143,11 +170,58 @@ smp.cutoff = scale(200, 2000, osc(0.25))
 > To modulate at beat rate in 4/4, use `fast(4, osc(1.0))` or simply `osc(4.0)`.
 
 ### Subgraph Composition
-Create a subgraph by adding a `Graph` node and setting its `script` parameter:
+Graphs are recursive: a `Graph` node can contain its own nested graph, loaded from a script.
 ```lua
 local sub = addNode("Graph", "mySubgraph")
 sub.script = "scripts/inner.lua" -- Populates the sub-graph reactively
 ```
+
+#### Inlet/Outlet Boundary Nodes
+Subgraphs use special boundary nodes to connect to their parent:
+```lua
+-- scripts/inner.lua
+local inlet = addNode("Inlet", "in")      -- Receives from parent
+local proc = addNode("Filter", "filter")
+local outlet = addNode("Outlet", "out")   -- Exposes to parent
+
+connect(inlet, proc)
+connect(proc, outlet)
+```
+
+In the parent graph, connect to the subgraph as if it were any other node:
+```lua
+local src = addNode("AudioFileSource", "src")
+local sub = addNode("Graph", "sub")
+sub.script = "scripts/inner.lua"
+connect(src, sub)  -- Routes through Inlet/Outlet boundaries
+```
+
+### Module System
+Lua's `require()` is available for code organization:
+```lua
+-- scripts/utils.lua
+local M = {}
+M.makeMixer = function(name)
+    return addNode("AudioMixer", name)
+end
+return M
+
+-- scripts/main.lua
+local utils = require("utils")
+local mix = utils.makeMixer("mainMix")
+```
+
+> **Note:** All required modules share the same global namespace. Node names must be unique across all loaded modules.
+
+### Live Reload Behavior
+
+| Trigger | Behavior |
+|---------|----------|
+| `.lua` file saved | Hot-reload: existing nodes keep state, new nodes created, removed nodes deleted |
+| `entryScript` changed in `config.json` | Full reset: graph cleared, new script starts fresh |
+| `scripts/main.json` saved | Load saved graph state from JSON |
+
+This enables stable live-coding: editing the current script preserves playback state, while switching to a different script provides a clean slate.
 
 ## Node Reference
 

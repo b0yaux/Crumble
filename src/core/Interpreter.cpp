@@ -32,6 +32,17 @@ void Interpreter::setup(Session* s) {
     bindSessionAPI();
 }
 
+void Interpreter::addScriptPath(const std::string& dir) {
+    std::string normalizedDir = dir;
+    if (!normalizedDir.empty() && normalizedDir.back() != '/') {
+        normalizedDir += '/';
+    }
+    
+    std::string pathSetup = "package.path = '" + normalizedDir + "?.lua;' .. package.path";
+    lua.doString(pathSetup);
+    ofLogNotice("Interpreter") << "Added to package.path: " << normalizedDir;
+}
+
 bool Interpreter::runScript(const std::string& path) {
     if (!session) return false;
     

@@ -28,10 +28,13 @@ public:
         waitForThread(true);
     }
 
-    // Add a file or directory to monitor
+    // Add a file or directory to monitor.
+    // Handles both absolute paths and relative paths (resolved via ofToDataPath).
     void watch(const std::string& path, bool recursive = false) {
         std::lock_guard<std::mutex> lock(mutex);
-        std::string absolutePath = ofToDataPath(path);
+        std::string absolutePath = ofFilePath::isAbsolute(path) 
+                                    ? path 
+                                    : ofToDataPath(path);
         watchedRoots[absolutePath] = recursive;
         
         // Initial scan to populate file times
