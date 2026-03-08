@@ -219,7 +219,7 @@ local mix = utils.makeMixer("mainMix")
 |---------|----------|
 | `.lua` file saved | Hot-reload: existing nodes keep state, new nodes created, removed nodes deleted |
 | `entryScript` changed in `config.json` | Full reset: graph cleared, new script starts fresh |
-| `scripts/main.json` saved | Load saved graph state from JSON |
+| `config.json` saved | Reload configuration |
 
 This enables stable live-coding: editing the current script preserves playback state, while switching to a different script provides a clean slate.
 

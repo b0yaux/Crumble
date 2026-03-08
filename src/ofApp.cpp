@@ -67,14 +67,11 @@ void ofApp::checkLiveReload() {
     
     bool configChanged = false;
     bool scriptsChanged = false;
-    bool jsonChanged = false;
     
     for (const auto& path : changed) {
         std::string absPath = path; // fileWatcher already returns absolute paths
         if (absPath == ofToDataPath("config.json")) {
             configChanged = true;
-        } else if (absPath == ofToDataPath("scripts/main.json")) {
-            jsonChanged = true;
         } else if (ofFilePath::getFileExt(absPath) == "lua") {
             scriptsChanged = true;
         }
@@ -102,9 +99,6 @@ void ofApp::checkLiveReload() {
     } else if (scriptsChanged) {
         ofLogNotice("ofApp") << "Live-reloading: " << m_activeScriptPath;
         interpreter.runScript(m_activeScriptPath);
-    } else if (jsonChanged) {
-        ofLogNotice("ofApp") << "Live-reloading JSON: scripts/main.json";
-        session.load("scripts/main.json");
     }
 }
 
@@ -128,7 +122,7 @@ void ofApp::keyPressed(int key){
         showGui = !showGui;
         graphUI.setVisible(showGui);
     }
-    if (key == 's' && ofGetKeyPressed(OF_KEY_COMMAND)) session.save("scripts/main.json");
+    if (key == 's' && ofGetKeyPressed(OF_KEY_COMMAND)) session.save("main.json");
     if (key == 'r' && ofGetKeyPressed(OF_KEY_COMMAND)) {
         ofLogNotice("ofApp") << "Reloading config...";
         std::string oldEntryScript = ConfigManager::get().getConfig().entryScript;
