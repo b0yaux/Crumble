@@ -90,14 +90,16 @@ void Session::audioOut(ofSoundBuffer& buffer) {
                     auto it = std::find(activeAudioProcessors.begin(), activeAudioProcessors.end(), ap);
                     if (it != activeAudioProcessors.end()) {
                         activeAudioProcessors.erase(it);
+                        
+                        // Also remove from endpoint list if it was registered as one
+                        auto eit = std::find(audioEndpoints.begin(), audioEndpoints.end(), ap);
+                        if (eit != audioEndpoints.end()) {
+                            audioEndpoints.erase(eit);
+                        }
+                        
+                        ap->patternMap.clear();
+                        audioReleaseQueue.enqueue(ap);
                     }
-                    // Also remove from endpoint list if it was registered as one
-                    auto eit = std::find(audioEndpoints.begin(), audioEndpoints.end(), ap);
-                    if (eit != audioEndpoints.end()) {
-                        audioEndpoints.erase(eit);
-                    }
-                    ap->patternMap.clear();
-                    audioReleaseQueue.enqueue(ap);
                 }
                 break;
 
@@ -203,18 +205,19 @@ void Session::registerAudioEndpoint(crumble::AudioProcessor* ap) {
 }
 
 void Session::sendCommand(const crumble::ProcessorCommand& cmd) {
-    if (cmd.audioProcessor) {
+    bool hasAudio = cmd.audioProcessor || cmd.targetAudioProcessor;
+    bool hasVideo = cmd.videoProcessor || cmd.targetVideoProcessor;
+    
+    if (hasAudio) {
         if (!audioCommandQueue.enqueue(cmd)) {
             ofLogError("Session") << "Audio Command Queue Overflow!";
         }
     }
-    if (cmd.videoProcessor) {
+    if (hasVideo) {
         if (!videoCommandQueue.enqueue(cmd)) {
             ofLogError("Session") << "Video Command Queue Overflow!";
         }
     }
-    
-
 }
 
 void Session::update(float dt) {
@@ -244,9 +247,9 @@ void Session::update(float dt) {
                     auto it = std::find(activeVideoProcessors.begin(), activeVideoProcessors.end(), vp);
                     if (it != activeVideoProcessors.end()) {
                         activeVideoProcessors.erase(it);
+                        vp->patternMap.clear();
+                        videoReleaseQueue.enqueue(vp);
                     }
-                    vp->patternMap.clear();
-                    videoReleaseQueue.enqueue(vp);
                 }
                 break;
 
@@ -294,11 +297,17 @@ void Session::update(float dt) {
     }
 
     // 2. Clean up released processors
+    // processors are dequeued and deleted. These are already removed from 
+    // the active lists by the shadow threads (audioOut/update).
     crumble::AudioProcessor* releasedAudio = nullptr;
-    while (audioReleaseQueue.try_dequeue(releasedAudio)) delete releasedAudio;
+    while (audioReleaseQueue.try_dequeue(releasedAudio)) {
+        delete releasedAudio;
+    }
 
     crumble::VideoProcessor* releasedVideo = nullptr;
-    while (videoReleaseQueue.try_dequeue(releasedVideo)) delete releasedVideo;
+    while (videoReleaseQueue.try_dequeue(releasedVideo)) {
+        delete releasedVideo;
+    }
 
     // 3. Evaluate Video Processors (Shadow Graph)
     double blockCycle = transport.cycle;

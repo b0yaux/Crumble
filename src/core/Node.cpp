@@ -81,9 +81,12 @@ void Node::setupProcessor() {
 
 void Node::pushCommand(crumble::ProcessorCommand cmd) {
     if (g_session) {
-        cmd.nodeId = nodeId;
+        // Only set defaults if they haven't been explicitly set by the caller.
+        // This allows Graphs to send commands on behalf of their child nodes.
+        if (cmd.nodeId == -1) cmd.nodeId = nodeId;
         if (!cmd.audioProcessor) cmd.audioProcessor = audioProcessor;
         if (!cmd.videoProcessor) cmd.videoProcessor = videoProcessor;
+        
         g_session->sendCommand(cmd);
     }
 }

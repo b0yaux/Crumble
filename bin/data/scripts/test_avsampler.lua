@@ -35,7 +35,7 @@ s1:on()
 s2:on()
 
 -- 4. Mixer state
-amix.volume = 0.1
+amix.volume = 0.5
 vmix.blend_0, vmix.blend_1 = 0, 1
 
 -- Custom logic & data persistence check

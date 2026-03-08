@@ -10,7 +10,7 @@ public:
     void processVideo(double cycle, double cycleStep) override {
         if (!writeTex) return;
         
-        int numActiveLayers = std::min((int)getParam("numLayers"), 16);
+        int numActiveLayers = std::min((int)getParam("numLayers"), MAX_INPUTS);
         float masterOpacity = getParam("masterOpacity");
         
         // Use ping-pong FBOs to avoid clearing the texture being read by ScreenOutput
@@ -26,7 +26,7 @@ public:
         ofDrawRectangle(0, 0, currentFbo.getWidth(), currentFbo.getHeight()); // Background
         
         for (int i = 0; i < numActiveLayers; i++) {
-            if (inputs[i].processor) {
+            if (i < MAX_INPUTS && inputs[i].processor) {
                 float opacity = evalPattern("opacity_" + std::to_string(i), cycle);
                 float blendModeVal = evalPattern("blend_" + std::to_string(i), cycle);
                 float active = evalPattern("active_" + std::to_string(i), cycle);

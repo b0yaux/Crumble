@@ -2,7 +2,7 @@
 -- Entry point: loaded via config.json entryScript
 -- Uses registry-based asset loading with AVSampler for A/V sync
 
-clear()
+--clear()
 
 -- 1. Setup Core Graph
 local vmix = addNode("VideoMixer", "vmix")
@@ -17,7 +17,7 @@ speakers.volume = 1.0
 -- 2. Data-driven loading from AssetRegistry
 local bankName = "superstratum_video-data"
 local assets = getBank(bankName)
-local maxClips = math.min(#assets, 19)
+local maxClips = math.min(#assets, 64)
 
 -- 3. Create AVSampler nodes for unified A/V playback
 for i = 1, maxClips do

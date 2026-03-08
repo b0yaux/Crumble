@@ -16,6 +16,8 @@ namespace crumble {
  */
 class NodeProcessor {
 public:
+    static constexpr int MAX_INPUTS = 128;
+    
     NodeProcessor() = default;
     virtual ~NodeProcessor() = default;
 
@@ -106,13 +108,13 @@ public:
     uint64_t lastProcessedFrame = 0;
 
     void addInput(AudioProcessor* p, int toInput, int fromOutput) {
-        if (toInput >= 0 && toInput < 16) {
+        if (toInput >= 0 && toInput < MAX_INPUTS) {
             inputs[toInput] = {p, fromOutput};
         }
     }
 
     void removeInput(int toInput) {
-        if (toInput >= 0 && toInput < 16) {
+        if (toInput >= 0 && toInput < MAX_INPUTS) {
             inputs[toInput] = {nullptr, 0};
         }
     }
@@ -121,7 +123,7 @@ public:
         AudioProcessor* processor = nullptr;
         int fromOutput = 0;
     };
-    std::array<Input, 16> inputs;
+    std::array<Input, MAX_INPUTS> inputs;
 };
 
 /**
@@ -141,13 +143,13 @@ public:
     }
 
     void addInput(VideoProcessor* p, int toInput, int fromOutput) {
-        if (toInput >= 0 && toInput < 16) {
+        if (toInput >= 0 && toInput < MAX_INPUTS) {
             inputs[toInput] = {p, fromOutput};
         }
     }
 
     void removeInput(int toInput) {
-        if (toInput >= 0 && toInput < 16) {
+        if (toInput >= 0 && toInput < MAX_INPUTS) {
             inputs[toInput] = {nullptr, 0};
         }
     }
@@ -156,7 +158,7 @@ public:
         VideoProcessor* processor = nullptr;
         int fromOutput = 0;
     };
-    std::array<Input, 16> inputs;
+    std::array<Input, MAX_INPUTS> inputs;
     
     // Ping-Pong FBO pair for lock-free read/write
     ofTexture tex_A;

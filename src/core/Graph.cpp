@@ -91,6 +91,8 @@ bool Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
         cmd.type = crumble::ProcessorCommand::CONNECT_NODES;
         cmd.targetAudioProcessor = to->getAudioProcessor();
         cmd.audioProcessor = from ? from->getAudioProcessor() : nullptr;
+        cmd.nodeId = fromNode;
+        cmd.targetId = toNode;
         cmd.toInput = toInput;
         cmd.fromOutput = fromOutput;
         pushCommand(cmd);
@@ -100,6 +102,8 @@ bool Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
         videoCmd.type = crumble::ProcessorCommand::CONNECT_NODES;
         videoCmd.targetVideoProcessor = to->getVideoProcessor();
         videoCmd.videoProcessor = from ? from->getVideoProcessor() : nullptr;
+        videoCmd.nodeId = fromNode;
+        videoCmd.targetId = toNode;
         videoCmd.toInput = toInput;
         videoCmd.fromOutput = fromOutput;
         pushCommand(videoCmd);
@@ -143,6 +147,7 @@ void Graph::disconnect(int toNode, int toInput) {
         crumble::ProcessorCommand cmd;
         cmd.type = crumble::ProcessorCommand::DISCONNECT_NODES;
         cmd.targetAudioProcessor = to->getAudioProcessor();
+        cmd.targetId = toNode;
         cmd.toInput = toInput;
         pushCommand(cmd);
         
@@ -150,6 +155,7 @@ void Graph::disconnect(int toNode, int toInput) {
         crumble::ProcessorCommand videoCmd;
         videoCmd.type = crumble::ProcessorCommand::DISCONNECT_NODES;
         videoCmd.targetVideoProcessor = to->getVideoProcessor();
+        videoCmd.targetId = toNode;
         videoCmd.toInput = toInput;
         pushCommand(videoCmd);
     }
@@ -177,7 +183,8 @@ void Graph::compactInputIndices(int toNode, int removedInput) {
 }
 
 void Graph::removeNode(int nodeId) {
-    if (nodes.find(nodeId) == nodes.end()) return;
+    auto it = nodes.find(nodeId);
+    if (it == nodes.end()) return;
     
     std::unique_ptr<Node> nodeToDestroy;
     bool wasDrawable = false;
@@ -185,27 +192,30 @@ void Graph::removeNode(int nodeId) {
     {
         std::lock_guard<std::recursive_mutex> lock(audioMutex);
         
-        outletRegistry.erase(nodeId);
-
-        connections.erase(
-            std::remove_if(connections.begin(), connections.end(),
-                [nodeId](const Connection& c) {
-                    return c.fromNode == nodeId || c.toNode == nodeId;
-                }),
-            connections.end()
-        );
-        
-        auto it = nodes.find(nodeId);
-        if (it != nodes.end()) {
-            nodeToDestroy = std::move(it->second);
-            wasDrawable = nodeToDestroy->canDraw;
-            nodes.erase(it);
+        // 1. Identify all connections being severed (incoming and outgoing)
+        std::vector<std::pair<int, int>> toDisconnect;
+        for (const auto& conn : connections) {
+            if (conn.fromNode == nodeId || conn.toNode == nodeId) {
+                toDisconnect.push_back({conn.toNode, conn.toInput});
+            }
         }
+
+        // 2. Sever them. disconnect() handles both shadow and main thread state.
+        for (const auto& pair : toDisconnect) {
+            disconnect(pair.first, pair.second);
+        }
+
+        outletRegistry.erase(nodeId);
+        
+        nodeToDestroy = std::move(it->second);
+        wasDrawable = nodeToDestroy->canDraw;
+        nodes.erase(it);
         
         executionDirty = true;
         updateConnectionCache();
     }
     
+    // Deleting the node triggers ~Node(), which sends REMOVE_NODE
     nodeToDestroy.reset(); 
     if (wasDrawable) updateRenderList();
 }
@@ -214,6 +224,30 @@ void Graph::clear() {
     std::unordered_map<int, std::unique_ptr<Node>> nodesToDestroy;
     {
         std::lock_guard<std::recursive_mutex> lock(audioMutex);
+        
+        // 1. Identify all connections and sever them on the shadow thread.
+        // This is CRITICAL to prevent dangling pointers in the shadow processor inputs.
+        for (const auto& conn : connections) {
+            Node* to = getNode(conn.toNode);
+            if (to) {
+                // Wait-free Shadow Disconnection (Audio)
+                crumble::ProcessorCommand cmd;
+                cmd.type = crumble::ProcessorCommand::DISCONNECT_NODES;
+                cmd.targetAudioProcessor = to->getAudioProcessor();
+                cmd.targetId = conn.toNode;
+                cmd.toInput = conn.toInput;
+                pushCommand(cmd);
+                
+                // Wait-free Shadow Disconnection (Video)
+                crumble::ProcessorCommand videoCmd;
+                videoCmd.type = crumble::ProcessorCommand::DISCONNECT_NODES;
+                videoCmd.targetVideoProcessor = to->getVideoProcessor();
+                videoCmd.targetId = conn.toNode;
+                videoCmd.toInput = conn.toInput;
+                pushCommand(videoCmd);
+            }
+        }
+        
         nodesToDestroy = std::move(nodes);
         connections.clear();
         cachedInputs.clear();
