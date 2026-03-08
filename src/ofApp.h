@@ -41,4 +41,7 @@ private:
     std::string m_configPath = "config.json";
     std::string m_scriptOverride;
     std::string m_windowTitle;
+    
+    // Active script path (for live-reload)
+    std::string m_activeScriptPath;
 };

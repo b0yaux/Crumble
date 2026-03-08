@@ -39,6 +39,7 @@ void ofApp::setup(){
         }
         
         if (!absScriptPath.empty() && ofFile::doesFileExist(absScriptPath)) {
+            m_activeScriptPath = absScriptPath;
             std::string scriptDir = ofFilePath::getEnclosingDirectory(absScriptPath);
             interpreter.addScriptPath(scriptDir);
             interpreter.runScript(absScriptPath);
@@ -90,11 +91,17 @@ void ofApp::checkLiveReload() {
         if (newConfig.entryScript != oldEntryScript && !newConfig.entryScript.empty()) {
             ofLogNotice("ofApp") << "Entry script changed, loading: " << newConfig.entryScript;
             session.getGraph().clear();
-            interpreter.runScript(newConfig.entryScript);
+            
+            // Resolve path and update active script
+            std::string absPath = ofFilePath::isAbsolute(newConfig.entryScript)
+                                  ? newConfig.entryScript
+                                  : ofToDataPath(newConfig.entryScript);
+            m_activeScriptPath = absPath;
+            interpreter.runScript(absPath);
         }
     } else if (scriptsChanged) {
-        ofLogNotice("ofApp") << "Live-reloading: " << config.entryScript;
-        interpreter.runScript(config.entryScript);
+        ofLogNotice("ofApp") << "Live-reloading: " << m_activeScriptPath;
+        interpreter.runScript(m_activeScriptPath);
     } else if (jsonChanged) {
         ofLogNotice("ofApp") << "Live-reloading JSON: scripts/main.json";
         session.load("scripts/main.json");
