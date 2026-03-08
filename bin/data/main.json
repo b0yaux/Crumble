@@ -1,0 +1,176 @@
+{
+  "connections": [
+    {
+      "from": 0,
+      "fromOutput": 0,
+      "to": 2,
+      "toInput": 0
+    },
+    {
+      "from": 1,
+      "fromOutput": 0,
+      "to": 2,
+      "toInput": 1
+    },
+    {
+      "from": 0,
+      "fromOutput": 0,
+      "to": 3,
+      "toInput": 0
+    },
+    {
+      "from": 1,
+      "fromOutput": 0,
+      "to": 3,
+      "toInput": 1
+    },
+    {
+      "from": 2,
+      "fromOutput": 0,
+      "to": 4,
+      "toInput": 0
+    },
+    {
+      "from": 3,
+      "fromOutput": 0,
+      "to": 5,
+      "toInput": 0
+    }
+  ],
+  "internal_params": {
+    "parameters": {
+      "active": "1",
+      "drawLayer": "0",
+      "opacity": "1",
+      "script": "",
+      "volume": "1"
+    }
+  },
+  "nodes": [
+    {
+      "id": 5,
+      "name": "screen",
+      "params": {
+        "parameters": {
+          "active": "1",
+          "autoFullscreen": "1",
+          "drawLayer": "0",
+          "enabled": "1",
+          "height": "812",
+          "opacity": "1",
+          "volume": "1",
+          "width": "450",
+          "x": "0",
+          "y": "0"
+        }
+      },
+      "type": "ScreenOutput"
+    },
+    {
+      "id": 4,
+      "name": "speakers",
+      "params": {
+        "parameters": {
+          "active": "1",
+          "drawLayer": "0",
+          "masterVolume": "1",
+          "opacity": "1",
+          "volume": "1"
+        }
+      },
+      "type": "SpeakersOutput"
+    },
+    {
+      "id": 3,
+      "name": "vmix",
+      "params": {
+        "layerActive": [
+          true,
+          true
+        ],
+        "layerBlendModes": [
+          0,
+          1
+        ],
+        "layerOpacities": [
+          1.0,
+          1.0
+        ],
+        "parameters": {
+          "active": "1",
+          "active_0": "1",
+          "active_1": "1",
+          "blend_0": "0",
+          "blend_1": "1",
+          "drawLayer": "0",
+          "masterOpacity": "1",
+          "numLayers": "2",
+          "opacity": "1",
+          "opacity_0": "1",
+          "opacity_1": "1",
+          "volume": "1"
+        }
+      },
+      "type": "VideoMixer"
+    },
+    {
+      "id": 2,
+      "name": "amix",
+      "params": {
+        "numActiveInputs": 0,
+        "parameters": {
+          "active": "1",
+          "drawLayer": "0",
+          "gain_0": "0.8",
+          "gain_1": "0.8",
+          "masterGain": "1",
+          "opacity": "1",
+          "volume": "0.5"
+        }
+      },
+      "type": "AudioMixer"
+    },
+    {
+      "id": 1,
+      "name": "s2",
+      "params": {
+        "parameters": {
+          "active": "1",
+          "audioPath": "/Users/jaufre/works/superstratum_video-data/birds-1-65iyZE-msMk_clip_2.wav",
+          "drawLayer": "0",
+          "loop": "1",
+          "opacity": "1",
+          "path": "superstratum_video-data:50",
+          "playing": "1",
+          "position": "0.9895",
+          "speed": "1",
+          "videoPath": "/Users/jaufre/works/superstratum_video-data/birds-1-65iyZE-msMk_clip_2.mov",
+          "volume": "1"
+        }
+      },
+      "type": "AVSampler"
+    },
+    {
+      "id": 0,
+      "name": "s1",
+      "params": {
+        "parameters": {
+          "active": "1",
+          "audioPath": "/Users/jaufre/works/superstratum_video-data/T24893H38478E3749T1402A38427P44038E-MLX-bzDuSUQ_clip_54.wav",
+          "drawLayer": "0",
+          "loop": "1",
+          "opacity": "1",
+          "path": "superstratum_video-data:4",
+          "playing": "1",
+          "position": "0.015595",
+          "speed": "1",
+          "videoPath": "/Users/jaufre/works/superstratum_video-data/T24893H38478E3749T1402A38427P44038E-MLX-bzDuSUQ_clip_54.mov",
+          "volume": "1"
+        }
+      },
+      "type": "AVSampler"
+    }
+  ],
+  "type": "Graph",
+  "version": "1.0"
+}
