@@ -23,6 +23,7 @@ void AssetRegistry::processDirectory(const std::string& path, const std::string&
     if (!dir.exists()) return;
 
     dir.listDir();
+    dir.sort();
     
     // Determine the name of this bank if not provided
     std::string currentBank = bankName;
