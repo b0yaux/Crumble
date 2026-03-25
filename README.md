@@ -107,39 +107,46 @@ end
 
 ## Lua API
 
+### Declarative Construction
+Crumble supports a modern, table-based declarative syntax. You can initialize a node and all its parameters in a single block.
+
+```lua
+-- Declarative Syntax (Recommended)
+local smp = sampler("s1", { 
+    path = "drums:0", 
+    gain = osc(0.5):scale(0.5, 1.0) 
+})
+
+-- Method Chaining
+local v = videomix("mix"):opacity(0.8):on()
+
+-- Full Chained Pipeline
+local a = audiomix("mix"):gain(0.5):connect(audioout)
+```
+
 ### Graph Construction & Routing
 Crumble supports **Auto-Indexing** and **Table Routing** for concise graph setup.
 ```lua
-local sampler = addNode("AVSampler", "s1")
-local vmix = addNode("VideoMixer", "vmix")
-local amix = addNode("AudioMixer", "amix")
-
 -- Route one source to multiple mixers. 
 -- connect() finds the next free slot and returns the layer index.
-local layer = connect(sampler, {vmix, amix})
+local layer = smp:connect({v, a})
 
-vmix["opacity_" .. layer] = 0.5
-amix["gain_" .. layer] = 0.5
+v["opacity_" .. layer] = 0.5
+a["gain_" .. layer] = 0.5
 ```
 
+
 ### Sequencing & Modulation
-Crumble features a stateless, sample-accurate math engine. You can compose complex modulators using functional operators or **Hydra-style Method Chaining**:
+Crumble features a stateless, sample-accurate math engine. You can compose complex modulators using functional operators or method chaining:
 
 ```lua
-local smp = addNode("AVSampler")
-
--- Fluent API (Chaining): Scale a 0-1 LFO to a specific range
-smp.gain = osc(0.25):scale(0.2, 0.8)
-
 -- Composition: Mix a sequence with an LFO
 smp.speed = seq("1 2 4") * osc(0.5)
 
 -- Time Warping: Play a sequence at double speed
 smp.speed = seq("1 0.5 2 0.25"):fast(2)
-
--- Unified A/V Sync (Chained Setters)
-smp:gain(osc(1)):opacity(osc(1))
 ```
+
 
 #### Pattern Library
 
@@ -185,31 +192,29 @@ The global `Time` table provides real-time access to the transport:
 | `Time.tempo`| BPM | Current beats-per-minute |
 
 ### Subgraph Composition
-Graphs are recursive: a `Graph` node can contain its own nested graph, loaded from a script.
+Graphs are recursive: a `sub` node can contain its own nested graph, loaded from a script.
 ```lua
-local sub = addNode("Graph", "mySubgraph")
-sub.script = "scripts/inner.lua" -- Populates the sub-graph reactively
+local g = sub("drums", { script = "inner.lua" })
 ```
 
 #### Inlet/Outlet Boundary Nodes
 Subgraphs use special boundary nodes to connect to their parent:
 ```lua
 -- scripts/inner.lua
-local inlet = addNode("Inlet", "in")      -- Receives from parent
-local proc = addNode("Filter", "filter")
-local outlet = addNode("Outlet", "out")   -- Exposes to parent
+local inNode = inlet("in")         -- Receives from parent
+local s = sampler("s1")
+local outNode = outlet("out")      -- Exposes to parent
 
-connect(inlet, proc)
-connect(proc, outlet)
+connect(inNode, s)
+connect(s, outNode)
 ```
 
 In the parent graph, connect to the subgraph as if it were any other node:
 ```lua
-local src = addNode("AudioFileSource", "src")
-local sub = addNode("Graph", "sub")
-sub.script = "scripts/inner.lua"
-connect(src, sub)  -- Routes through Inlet/Outlet boundaries
+local g = sub("s", { script = "inner.lua" })
+connect(sampler("src"), g)  -- Routes through boundary nodes
 ```
+
 
 ### Module System
 Lua's `require()` is available for code organization:

@@ -227,13 +227,19 @@ void Interpreter::bindSessionAPI() {
         
         function getBank(name) return _getBank(name) end
         
+        _G._autoNames = {}
         local function addNodeInternal(t, n)
-            local id = _addNode(t, n or "")
+            local nodeName = n
+            if not nodeName or nodeName == "" then
+                _G._autoNames[t] = (_G._autoNames[t] or 0) + 1
+                nodeName = t:lower() .. _G._autoNames[t]
+            end
+            local id = _addNode(t, nodeName)
             if id then
-                local node = { id = id, type = t, name = n or "" }
+                local node = { id = id, type = t, name = nodeName }
                 setmetatable(node, NodeMeta)
                 _G._allNodes[id] = node
-                if n and n ~= "" then _G[n] = node end
+                _G[nodeName] = node
                 return node
             end
             return nil
@@ -255,6 +261,7 @@ void Interpreter::bindSessionAPI() {
             _clear() 
             _G._allNodes = {} 
             _G._autoIndices = {} 
+            _G._autoNames = {}
         end
 
         function connect(src, dst, outIdx, inIdx)
