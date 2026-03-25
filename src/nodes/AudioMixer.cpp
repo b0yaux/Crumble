@@ -7,7 +7,11 @@ namespace crumble {
 
 class AudioMixerProcessor : public AudioProcessor {
 public:
+    ControlSlot* masterGainSlot = nullptr;
+    std::array<ControlSlot*, MAX_INPUTS> inputGainSlots = {nullptr};
+
     AudioMixerProcessor() {
+        masterGainSlot = getControlPtr(crumble::hashString("gain"));
         // Pre-allocate to the default buffer size (256 frames, stereo) so the
         // size check in process() is a no-op in the common case.  The guard
         // below still handles any session that uses a non-default buffer size.
@@ -16,9 +20,15 @@ public:
         sumBuf.set(0);
     }
 
+    void addInput(AudioProcessor* p, int toInput, int fromOutput) override {
+        AudioProcessor::addInput(p, toInput, fromOutput);
+        std::string name = "gain_" + std::to_string(toInput);
+        inputGainSlots[toInput] = getControlPtr(crumble::hashString(name.c_str()));
+    }
+
     void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
                  double cycle, double cycleStep) override {
-        float masterGain = getParam("gain");
+        float masterGain = evalSlot(masterGainSlot, cycle);
         
         for (int i = 0; i < MAX_INPUTS; i++) {
             auto& input = inputs[i];
@@ -34,15 +44,13 @@ public:
                 // Pass cycle/cycleStep down the graph
                 input.processor->pull(sumBuf, input.fromOutput, frameCounter, cycle, cycleStep);
                 
-                std::string gainParam = "gain_" + std::to_string(i);
-
                 float* pSum = sumBuf.getBuffer().data();
                 float* pOut = buffer.getBuffer().data();
                 int numChannels = buffer.getNumChannels();
                 
                 for (size_t f = 0; f < buffer.getNumFrames(); f++) {
                     double sampleCycle = cycle + f * cycleStep;
-                    float gain = evalPattern(gainParam, sampleCycle);
+                    float gain = evalSlot(inputGainSlots[i], sampleCycle);
                     
                     for (int c = 0; c < numChannels; c++) {
                         pOut[f * numChannels + c] += pSum[f * numChannels + c] * gain;
@@ -100,7 +108,7 @@ void AudioMixer::onInputConnected(int index) {
                 // Sync initial value using name-based SET_PARAM
                 crumble::ProcessorCommand cmd;
                 cmd.type = crumble::ProcessorCommand::SET_PARAM;
-                cmd.slotName = name;
+                cmd.paramHash = crumble::hashString(name.c_str());
                 cmd.value = 0.8f;
                 pushCommand(cmd);
             }

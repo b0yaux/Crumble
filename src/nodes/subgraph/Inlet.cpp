@@ -1,6 +1,27 @@
 #include "Inlet.h"
 #include "ofMain.h"
-#include "../../core/Graph.h"
+#include "../../core/NodeProcessor.h"
+
+class InletAudioProcessor : public crumble::AudioProcessor {
+public:
+    void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter, double cycle, double cycleStep) override {
+        if (inputs[0].processor) {
+            inputs[0].processor->pull(buffer, inputs[0].fromOutput, frameCounter, cycle, cycleStep);
+        } else {
+            buffer.set(0);
+        }
+    }
+};
+
+class InletVideoProcessor : public crumble::VideoProcessor {
+public:
+    ofTexture* getOutput(int index = 0) override {
+        if (inputs[0].processor) {
+            return inputs[0].processor->getOutput(inputs[0].fromOutput);
+        }
+        return nullptr;
+    }
+};
 
 Inlet::Inlet() {
     type = "Inlet";
@@ -8,66 +29,8 @@ Inlet::Inlet() {
     parameters->add(inletIndex.set("inletIndex", 0, 0, 16));
 }
 
-ofTexture* Inlet::processVideo(int idx) {
-    if (!graph) return nullptr;
-    
-    Graph* childGraph = dynamic_cast<Graph*>(graph);
-    if (!childGraph) return nullptr;
-    
-    Node* containingNode = childGraph->getContainingNode();
-    if (!containingNode) return nullptr;
-    
-    Graph* parentGraph = childGraph->getParentGraph();
-    if (!parentGraph) return nullptr;
-    
-    auto inputs = parentGraph->getInputConnections(containingNode->nodeId);
-    for (const auto& conn : inputs) {
-        if (conn.toInput == inletIndex) {
-            Node* source = parentGraph->getNode(conn.fromNode);
-            if (source) return source->getVideoOutput(conn.fromOutput);
-        }
-    }
-    
-    return nullptr;
-}
-
-void Inlet::processAudio(ofSoundBuffer& buffer, int idx) {
-    if (!graph) {
-        buffer.set(0);
-        return;
-    }
-    
-    Graph* childGraph = dynamic_cast<Graph*>(graph);
-    if (!childGraph) {
-        buffer.set(0);
-        return;
-    }
-    
-    Node* containingNode = childGraph->getContainingNode();
-    if (!containingNode) {
-        buffer.set(0);
-        return;
-    }
-    
-    Graph* parentGraph = childGraph->getParentGraph();
-    if (!parentGraph) {
-        buffer.set(0);
-        return;
-    }
-    
-    auto inputs = parentGraph->getInputConnections(containingNode->nodeId);
-    for (const auto& conn : inputs) {
-        if (conn.toInput == inletIndex) {
-            Node* source = parentGraph->getNode(conn.fromNode);
-            if (source) {
-                source->pullAudio(buffer, conn.fromOutput);
-                return;
-            }
-        }
-    }
-    
-    buffer.set(0);
-}
+crumble::AudioProcessor* Inlet::createAudioProcessor() { return new InletAudioProcessor(); }
+crumble::VideoProcessor* Inlet::createVideoProcessor() { return new InletVideoProcessor(); }
 
 std::string Inlet::getDisplayName() const {
     return "In " + std::to_string(inletIndex);

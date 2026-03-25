@@ -5,12 +5,20 @@
 // Shadow processor for the video thread
 class VideoFileProcessor : public crumble::VideoProcessor {
 public:
-    VideoFileProcessor(ofxHapPlayer* p) : playerRef(p), lastSpeed(1.0f) {}
+    crumble::ControlSlot* speedSlot = nullptr;
+    crumble::ControlSlot* playingSlot = nullptr;
+    crumble::ControlSlot* activeSlot = nullptr;
+
+    VideoFileProcessor(ofxHapPlayer* p) : playerRef(p), lastSpeed(1.0f) {
+        speedSlot = getControlPtr(crumble::hashString("speed"));
+        playingSlot = getControlPtr(crumble::hashString("playing"));
+        activeSlot = getControlPtr(crumble::hashString("active"));
+    }
 
     void processVideo(double cycle, double cycleStep) override {
         if (!playerRef || !playerRef->isLoaded()) return;
 
-        float newSpeed = getParam("speed");
+        float newSpeed = evalSlot(speedSlot, cycle);
 
         // Only call into the player when the speed value actually changes.
         // Every setSpeed() call notifies the AudioThread unconditionally, and
@@ -25,7 +33,7 @@ public:
             } else {
                 // Only un-pause for speed recovery if the node is actually meant to
                 // be playing; don't override an explicit playing=false pause.
-                if (lastSpeed == 0.0f && getParam("playing") > 0.5f) {
+                if (lastSpeed == 0.0f && evalSlot(playingSlot, cycle) > 0.5f) {
                     playerRef->setPaused(false);
                 }
                 playerRef->setSpeed(newSpeed);
@@ -37,7 +45,7 @@ public:
     }
     
     ofTexture* getOutput(int index = 0) override {
-        if (getParam("active") < 0.5f) return nullptr;
+        if (evalSlot(activeSlot, currentCycle) < 0.5f) return nullptr;
         
         if (playerRef && playerRef->isLoaded()) {
             ofTexture* tex = playerRef->getTexture();

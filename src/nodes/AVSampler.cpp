@@ -60,7 +60,9 @@ crumble::AudioProcessor* AVSampler::createAudioProcessor() {
             }
 
             if (supported) {
-                proc->valuesMap[p.getName()].store(val);
+                if (auto* slot = proc->getControlPtr(crumble::hashString(p.getName().c_str()))) {
+                    slot->value.store(val, std::memory_order_relaxed);
+                }
             }
         }
     }
@@ -91,7 +93,9 @@ crumble::VideoProcessor* AVSampler::createVideoProcessor() {
             }
 
             if (supported) {
-                proc->valuesMap[p.getName()].store(val);
+                if (auto* slot = proc->getControlPtr(crumble::hashString(p.getName().c_str()))) {
+                    slot->value.store(val, std::memory_order_relaxed);
+                }
             }
         }
         
@@ -113,7 +117,9 @@ crumble::VideoProcessor* AVSampler::createVideoProcessor() {
                 }
                 
                 if (supported) {
-                    proc->valuesMap[name].store(val);
+                    if (auto* slot = proc->getControlPtr(crumble::hashString(name.c_str()))) {
+                        slot->value.store(val, std::memory_order_relaxed);
+                    }
                 }
             }
         }

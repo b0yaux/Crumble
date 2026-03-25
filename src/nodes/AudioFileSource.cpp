@@ -7,12 +7,26 @@ namespace crumble {
 
 class AudioFileProcessor : public AudioProcessor {
 public:
+    ControlSlot* playingSlot = nullptr;
+    ControlSlot* activeSlot = nullptr;
+    ControlSlot* loopSlot = nullptr;
+    ControlSlot* speedSlot = nullptr;
+    ControlSlot* gainSlot = nullptr;
+
+    AudioFileProcessor() {
+        playingSlot = getControlPtr(crumble::hashString("playing"));
+        activeSlot = getControlPtr(crumble::hashString("active"));
+        loopSlot = getControlPtr(crumble::hashString("loop"));
+        speedSlot = getControlPtr(crumble::hashString("speed"));
+        gainSlot = getControlPtr(crumble::hashString("gain"));
+    }
+
     void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
                  double cycle, double cycleStep) override {
         // Use name-based lookup — no more index confusion!
-        if (!data || totalSamples == 0 || getParam("playing") < 0.5f || getParam("active") < 0.5f) return;
+        if (!data || totalSamples == 0 || evalSlot(playingSlot, cycle) < 0.5f || evalSlot(activeSlot, cycle) < 0.5f) return;
 
-        bool loop = getParam("loop") > 0.5f;
+        bool loop = evalSlot(loopSlot, cycle) > 0.5f;
 
         double currentPlayhead = playhead.load();
 
@@ -20,8 +34,8 @@ public:
             double sampleCycle = cycle + i * cycleStep;
 
             // Evaluate speed and gain by name — falls back to scalar if no pattern installed
-            float speed = evalPattern("speed", sampleCycle);
-            float gain  = evalPattern("gain", sampleCycle);
+            float speed = evalSlot(speedSlot, sampleCycle);
+            float gain  = evalSlot(gainSlot, sampleCycle);
 
             size_t frameIndex = (size_t)currentPlayhead;
             if (frameIndex < totalSamples) {

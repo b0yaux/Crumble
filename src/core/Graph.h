@@ -79,6 +79,10 @@ public:
     Graph* getParentGraph() const;
     Node* getContainingNode() const;
 
+    // --- Routing overrides ---
+    Node* getTargetNode(int toInput) override;
+    Node* getSourceNode(int fromOutput) override;
+
     // --- Factory Support ---
     static void registerNodeType(const std::string& type, NodeCreator creator);
     static void setScriptExecutor(ScriptExecutor executor) { s_scriptExecutor = executor; }

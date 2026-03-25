@@ -1,6 +1,7 @@
 #include <deque>
 #include "Graph.h"
 #include "../nodes/subgraph/Outlet.h"
+#include "../nodes/subgraph/Inlet.h"
 #include "Session.h"
 #include "Transport.h"
 #include "AssetRegistry.h"
@@ -44,6 +45,24 @@ void Graph::prepare(const Context& ctx) {
     }
 }
 
+Node* Graph::getTargetNode(int toInput) {
+    for (auto& [id, n] : nodes) {
+        if (auto* inlet = dynamic_cast<Inlet*>(n.get())) {
+            if (inlet->inletIndex == toInput) return n.get();
+        }
+    }
+    return this;
+}
+
+Node* Graph::getSourceNode(int fromOutput) {
+    for (auto& [id, n] : nodes) {
+        if (auto* outlet = dynamic_cast<Outlet*>(n.get())) {
+            if (outlet->outletIndex == fromOutput) return n.get();
+        }
+    }
+    return this;
+}
+
 bool Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
     if (fromNode == toNode) return false; 
     
@@ -85,13 +104,16 @@ bool Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
         to->setInputNode(toInput, from);
         to->onInputConnected(toInput);
         
+        Node* actualTo = to->getTargetNode(toInput);
+        Node* actualFrom = from ? from->getSourceNode(fromOutput) : nullptr;
+        
         // Wait-free Shadow Connection (Audio)
         crumble::ProcessorCommand cmd;
         cmd.type = crumble::ProcessorCommand::CONNECT_NODES;
-        cmd.targetAudioProcessor = to->getAudioProcessor();
-        cmd.audioProcessor = from ? from->getAudioProcessor() : nullptr;
-        cmd.nodeId = fromNode;
-        cmd.targetId = toNode;
+        cmd.targetAudioProcessor = actualTo->getAudioProcessor();
+        cmd.audioProcessor = actualFrom ? actualFrom->getAudioProcessor() : nullptr;
+        cmd.nodeId = actualFrom ? actualFrom->nodeId : -1;
+        cmd.targetId = actualTo->nodeId;
         cmd.toInput = toInput;
         cmd.fromOutput = fromOutput;
         pushCommand(cmd);
@@ -99,10 +121,10 @@ bool Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
         // Wait-free Shadow Connection (Video)
         crumble::ProcessorCommand videoCmd;
         videoCmd.type = crumble::ProcessorCommand::CONNECT_NODES;
-        videoCmd.targetVideoProcessor = to->getVideoProcessor();
-        videoCmd.videoProcessor = from ? from->getVideoProcessor() : nullptr;
-        videoCmd.nodeId = fromNode;
-        videoCmd.targetId = toNode;
+        videoCmd.targetVideoProcessor = actualTo->getVideoProcessor();
+        videoCmd.videoProcessor = actualFrom ? actualFrom->getVideoProcessor() : nullptr;
+        videoCmd.nodeId = actualFrom ? actualFrom->nodeId : -1;
+        videoCmd.targetId = actualTo->nodeId;
         videoCmd.toInput = toInput;
         videoCmd.fromOutput = fromOutput;
         pushCommand(videoCmd);
@@ -142,19 +164,21 @@ void Graph::disconnect(int toNode, int toInput) {
     if (to) {
         to->setInputNode(toInput, nullptr);
         
+        Node* actualTo = to->getTargetNode(toInput);
+        
         // Wait-free Shadow Disconnection (Audio)
         crumble::ProcessorCommand cmd;
         cmd.type = crumble::ProcessorCommand::DISCONNECT_NODES;
-        cmd.targetAudioProcessor = to->getAudioProcessor();
-        cmd.targetId = toNode;
+        cmd.targetAudioProcessor = actualTo->getAudioProcessor();
+        cmd.targetId = actualTo->nodeId;
         cmd.toInput = toInput;
         pushCommand(cmd);
         
         // Wait-free Shadow Disconnection (Video)
         crumble::ProcessorCommand videoCmd;
         videoCmd.type = crumble::ProcessorCommand::DISCONNECT_NODES;
-        videoCmd.targetVideoProcessor = to->getVideoProcessor();
-        videoCmd.targetId = toNode;
+        videoCmd.targetVideoProcessor = actualTo->getVideoProcessor();
+        videoCmd.targetId = actualTo->nodeId;
         videoCmd.toInput = toInput;
         pushCommand(videoCmd);
     }
@@ -229,19 +253,21 @@ void Graph::clear() {
         for (const auto& conn : connections) {
             Node* to = getNode(conn.toNode);
             if (to) {
+                Node* actualTo = to->getTargetNode(conn.toInput);
+                
                 // Wait-free Shadow Disconnection (Audio)
                 crumble::ProcessorCommand cmd;
                 cmd.type = crumble::ProcessorCommand::DISCONNECT_NODES;
-                cmd.targetAudioProcessor = to->getAudioProcessor();
-                cmd.targetId = conn.toNode;
+                cmd.targetAudioProcessor = actualTo->getAudioProcessor();
+                cmd.targetId = actualTo->nodeId;
                 cmd.toInput = conn.toInput;
                 pushCommand(cmd);
                 
                 // Wait-free Shadow Disconnection (Video)
                 crumble::ProcessorCommand videoCmd;
                 videoCmd.type = crumble::ProcessorCommand::DISCONNECT_NODES;
-                videoCmd.targetVideoProcessor = to->getVideoProcessor();
-                videoCmd.targetId = conn.toNode;
+                videoCmd.targetVideoProcessor = actualTo->getVideoProcessor();
+                videoCmd.targetId = actualTo->nodeId;
                 videoCmd.toInput = conn.toInput;
                 pushCommand(videoCmd);
             }

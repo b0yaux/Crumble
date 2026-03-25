@@ -38,9 +38,11 @@ Session::~Session() {
     crumble::VideoProcessor* vp = nullptr;
     while (videoReleaseQueue.try_dequeue(vp)) delete vp;
 
-    // 5. Drain patterns that were displaced from the audio thread.
-    std::shared_ptr<Pattern<float>> pat;
-    while (patternReleaseQueue.try_dequeue(pat)) pat.reset();
+    // 5. Drain commands with displaced patterns
+    crumble::ProcessorCommand garbageCmd;
+    while (commandGarbageQueue.try_dequeue(garbageCmd)) {
+        // garbageCmd goes out of scope, destroying displacedPattern
+    }
 
     g_session = nullptr;
 }
@@ -92,35 +94,25 @@ void Session::audioOut(ofSoundBuffer& buffer) {
                             audioEndpoints.erase(eit);
                         }
                         
-                        ap->patternMap.clear();
                         audioReleaseQueue.enqueue(ap);
                     }
                 }
                 break;
 
             case crumble::ProcessorCommand::SET_PARAM:
-                if (alive(ap) && ap->nodeId == cmd.nodeId && !cmd.slotName.empty()) {
-                    ap->valuesMap[cmd.slotName].store(cmd.value, std::memory_order_relaxed);
+                if (alive(ap) && ap->nodeId == cmd.nodeId) {
+                    // Update static value directly without disturbing pattern
+                    if (auto* slot = ap->getControlPtr(cmd.paramHash)) {
+                        slot->value.store(cmd.value, std::memory_order_relaxed);
+                    }
                 }
                 break;
 
             case crumble::ProcessorCommand::SET_PATTERN:
-                if (alive(ap) && ap->nodeId == cmd.nodeId && !cmd.slotName.empty()) {
-                    if (cmd.pattern) {
-                        // Move any displaced pattern to the release queue so its
-                        // destructor runs on the main thread, not the audio thread.
-                        auto it = ap->patternMap.find(cmd.slotName);
-                        if (it != ap->patternMap.end() && it->second) {
-                            patternReleaseQueue.enqueue(std::move(it->second));
-                        }
-                        ap->patternMap[cmd.slotName] = cmd.pattern;
-                    } else {
-                        auto it = ap->patternMap.find(cmd.slotName);
-                        if (it != ap->patternMap.end() && it->second) {
-                            patternReleaseQueue.enqueue(std::move(it->second));
-                        }
-                        ap->patternMap.erase(cmd.slotName);
-                    }
+                if (alive(ap) && ap->nodeId == cmd.nodeId) {
+                    ap->setControl(cmd.paramHash, cmd.value, cmd.pattern, cmd.displacedPattern);
+                    // Move the command to the garbage queue so displacedPattern is destroyed on the main thread
+                    commandGarbageQueue.enqueue(std::move(cmd));
                 }
                 break;
 
@@ -243,25 +235,22 @@ void Session::update(float dt) {
             case crumble::ProcessorCommand::REMOVE_NODE:
                 if (vp) {
                     if (activeVideoProcessors.erase(vp) > 0) {
-                        vp->patternMap.clear();
                         videoReleaseQueue.enqueue(vp);
                     }
                 }
                 break;
 
             case crumble::ProcessorCommand::SET_PARAM:
-                if (alive(vp) && vp->nodeId == cmd.nodeId && !cmd.slotName.empty()) {
-                    vp->valuesMap[cmd.slotName].store(cmd.value, std::memory_order_relaxed);
+                if (alive(vp) && vp->nodeId == cmd.nodeId) {
+                    if (auto* slot = vp->getControlPtr(cmd.paramHash)) {
+                        slot->value.store(cmd.value, std::memory_order_relaxed);
+                    }
                 }
                 break;
 
             case crumble::ProcessorCommand::SET_PATTERN:
-                if (alive(vp) && vp->nodeId == cmd.nodeId && !cmd.slotName.empty()) {
-                    if (cmd.pattern) {
-                        vp->patternMap[cmd.slotName] = cmd.pattern;
-                    } else {
-                        vp->patternMap.erase(cmd.slotName);
-                    }
+                if (alive(vp) && vp->nodeId == cmd.nodeId) {
+                    vp->setControl(cmd.paramHash, cmd.value, cmd.pattern, cmd.displacedPattern);
                 }
                 break;
 
@@ -299,11 +288,10 @@ void Session::update(float dt) {
         delete releasedAudio;
     }
 
-    // Drain patterns displaced from the audio thread — destructors run here
-    // on the main thread, never inside the real-time callback.
-    std::shared_ptr<Pattern<float>> releasedPattern;
-    while (patternReleaseQueue.try_dequeue(releasedPattern)) {
-        releasedPattern.reset();
+    // Drain displaced patterns — destructors run here on the main thread
+    crumble::ProcessorCommand garbageCmdUpd;
+    while (commandGarbageQueue.try_dequeue(garbageCmdUpd)) {
+        // Goes out of scope
     }
 
     crumble::VideoProcessor* releasedVideo = nullptr;

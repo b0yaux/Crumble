@@ -7,7 +7,10 @@ using namespace crumble;
 
 class SpeakersOutputProcessor : public AudioProcessor {
 public:
+    ControlSlot* masterGainSlot = nullptr;
+
     SpeakersOutputProcessor() {
+        masterGainSlot = getControlPtr(crumble::hashString("gain"));
     }
     
     void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
@@ -22,7 +25,7 @@ public:
         int numChannels = buffer.getNumChannels();
         for (size_t f = 0; f < buffer.getNumFrames(); f++) {
             double sampleCycle = cycle + f * cycleStep;
-            float masterVol = evalPattern("gain", sampleCycle);
+            float masterVol = evalSlot(masterGainSlot, sampleCycle);
             for (int c = 0; c < numChannels; c++) {
                 pOut[f * numChannels + c] *= masterVol;
             }

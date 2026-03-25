@@ -14,6 +14,12 @@ namespace crumble {
 /**
  * NodeProcessor: The base "Shadow" object living on a background thread.
  */
+struct ControlSlot {
+    uint32_t hash = 0;
+    std::atomic<float> value {0.0f};
+    std::shared_ptr<Pattern<float>> pattern;
+};
+
 class NodeProcessor {
 public:
     static constexpr int MAX_INPUTS = 128;
@@ -24,38 +30,45 @@ public:
     virtual void handleCommand(const ProcessorCommand& cmd) {}
 
     // --- Pattern evaluation (SET_PATTERN) ---
-    inline float evalPattern(const std::string& name, double cycle) {
-        auto patIt = patternMap.find(name);
-        if (patIt != patternMap.end() && patIt->second) {
-            return patIt->second->eval(cycle);
-        }
-        
-        // Fallback to static value
-        auto it = valuesMap.find(name);
-        if (it != valuesMap.end()) {
-            return it->second.load(std::memory_order_relaxed);
-        }
-        return 0.0f;
+    inline float evalSlot(ControlSlot* slot, double cycle) {
+        if (!slot) return 0.0f;
+        if (slot->pattern) return slot->pattern->eval(cycle);
+        return slot->value.load(std::memory_order_relaxed);
+    }
+    
+    inline float evalPattern(uint32_t hash, double cycle) {
+        return evalSlot(getControlPtr(hash), cycle);
     }
 
     // --- Scalar parameter access (SET_PARAM) ---
-    inline float getParam(const std::string& name) {
-        // 1. Try patterns first using current internal cycle
-        auto patIt = patternMap.find(name);
-        if (patIt != patternMap.end() && patIt->second) {
-            return patIt->second->eval(currentCycle);
-        }
-
-        // 2. Fallback to static value
-        auto it = valuesMap.find(name);
-        if (it != valuesMap.end()) {
-            return it->second.load(std::memory_order_relaxed);
-        }
-        return 0.0f;
+    inline float getParam(uint32_t hash) {
+        return evalPattern(hash, currentCycle);
     }
 
-    std::unordered_map<std::string, std::atomic<float>> valuesMap;
-    std::unordered_map<std::string, std::shared_ptr<Pattern<float>>> patternMap;
+    std::array<ControlSlot, 256> controls;
+    int numControls = 0;
+
+    ControlSlot* getControlPtr(uint32_t hash) {
+        for (int i = 0; i < numControls; i++) {
+            if (controls[i].hash == hash) return &controls[i];
+        }
+        if (numControls < 256) {
+            controls[numControls].hash = hash;
+            return &controls[numControls++];
+        }
+        return nullptr;
+    }
+
+    void setControl(uint32_t hash, float val, std::shared_ptr<Pattern<float>> pat, std::shared_ptr<Pattern<float>>& displacedOut) {
+        ControlSlot* slot = getControlPtr(hash);
+        if (slot) {
+            slot->value.store(val, std::memory_order_relaxed);
+            if (slot->pattern != pat) {
+                displacedOut = std::move(slot->pattern);
+                slot->pattern = pat;
+            }
+        }
+    }
 
     int nodeId = -1;
     double currentCycle = 0.0; // Track cycle for getParam fallback
@@ -107,13 +120,13 @@ public:
     ofSoundBuffer internalBuffer;
     uint64_t lastProcessedFrame = 0;
 
-    void addInput(AudioProcessor* p, int toInput, int fromOutput) {
+    virtual void addInput(AudioProcessor* p, int toInput, int fromOutput) {
         if (toInput >= 0 && toInput < MAX_INPUTS) {
             inputs[toInput] = {p, fromOutput};
         }
     }
 
-    void removeInput(int toInput) {
+    virtual void removeInput(int toInput) {
         if (toInput >= 0 && toInput < MAX_INPUTS) {
             inputs[toInput] = {nullptr, 0};
         }
@@ -147,13 +160,13 @@ public:
         return readyTex;
     }
 
-    void addInput(VideoProcessor* p, int toInput, int fromOutput) {
+    virtual void addInput(VideoProcessor* p, int toInput, int fromOutput) {
         if (toInput >= 0 && toInput < MAX_INPUTS) {
             inputs[toInput] = {p, fromOutput};
         }
     }
 
-    void removeInput(int toInput) {
+    virtual void removeInput(int toInput) {
         if (toInput >= 0 && toInput < MAX_INPUTS) {
             inputs[toInput] = {nullptr, 0};
         }

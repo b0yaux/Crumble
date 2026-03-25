@@ -69,6 +69,10 @@ public:
     virtual crumble::AudioProcessor* createAudioProcessor() { return nullptr; }
     virtual crumble::VideoProcessor* createVideoProcessor() { return nullptr; }
 
+    // For routing connections. Subgraphs override this to return their internal Inlet/Outlet nodes.
+    virtual Node* getTargetNode(int toInput) { return this; }
+    virtual Node* getSourceNode(int fromOutput) { return this; }
+
     virtual void setupProcessor();
     crumble::AudioProcessor* getAudioProcessor() { return audioProcessor; }
     crumble::VideoProcessor* getVideoProcessor() { return videoProcessor; }

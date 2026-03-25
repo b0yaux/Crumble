@@ -62,7 +62,9 @@ void Node::setupProcessor() {
             }
 
             if (supported) {
-                p->valuesMap[param.getName()].store(val);
+                if (auto* slot = p->getControlPtr(crumble::hashString(param.getName().c_str()))) {
+                    slot->value.store(val, std::memory_order_relaxed);
+                }
             }
         }
     };
@@ -169,7 +171,7 @@ void Node::clearModulator(const std::string& paramName) {
     if (audioProcessor || videoProcessor) {
         crumble::ProcessorCommand cmd;
         cmd.type = crumble::ProcessorCommand::SET_PATTERN;
-        cmd.slotName = paramName;
+        cmd.paramHash = crumble::hashString(paramName.c_str());
         cmd.pattern = nullptr;
         pushCommand(cmd);
     }
@@ -212,7 +214,7 @@ void Node::onParameterChanged(const std::string& paramName) {
     if (found) {
         crumble::ProcessorCommand cmd;
         cmd.type = crumble::ProcessorCommand::SET_PARAM;
-        cmd.slotName = paramName;
+        cmd.paramHash = crumble::hashString(paramName.c_str());
         cmd.value = val;
         pushCommand(cmd);
 
@@ -222,7 +224,7 @@ void Node::onParameterChanged(const std::string& paramName) {
             if (it != modulators.end()) {
                 crumble::ProcessorCommand patCmd;
                 patCmd.type = crumble::ProcessorCommand::SET_PATTERN;
-                patCmd.slotName = paramName;
+                patCmd.paramHash = crumble::hashString(paramName.c_str());
                 patCmd.pattern = it->second;
                 pushCommand(patCmd);
             }

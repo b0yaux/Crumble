@@ -85,9 +85,9 @@ private:
     // The "Air-Gap" Queues (Audio Thread)
     crumble::SPSCQueue<crumble::ProcessorCommand> audioCommandQueue{1024};
     crumble::SPSCQueue<crumble::AudioProcessor*> audioReleaseQueue{1024};
-    // Patterns displaced from the audio thread are enqueued here so their
-    // destructors run on the main thread, not inside the real-time callback.
-    crumble::SPSCQueue<std::shared_ptr<Pattern<float>>> patternReleaseQueue{256};
+    // Commands containing displaced patterns from the audio thread are enqueued here
+    // so their destructors run on the main thread, not inside the real-time callback.
+    crumble::SPSCQueue<crumble::ProcessorCommand> commandGarbageQueue{1024};
     // unordered_set makes the alive() O(1) check inside audioOut() constant-time
     // regardless of how many processors are registered.
     std::unordered_set<crumble::AudioProcessor*> activeAudioProcessors;

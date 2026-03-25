@@ -1,6 +1,27 @@
 #include "Outlet.h"
 #include "ofMain.h"
-#include "../../core/Graph.h"
+#include "../../core/NodeProcessor.h"
+
+class OutletAudioProcessor : public crumble::AudioProcessor {
+public:
+    void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter, double cycle, double cycleStep) override {
+        if (inputs[0].processor) {
+            inputs[0].processor->pull(buffer, inputs[0].fromOutput, frameCounter, cycle, cycleStep);
+        } else {
+            buffer.set(0);
+        }
+    }
+};
+
+class OutletVideoProcessor : public crumble::VideoProcessor {
+public:
+    ofTexture* getOutput(int index = 0) override {
+        if (inputs[0].processor) {
+            return inputs[0].processor->getOutput(inputs[0].fromOutput);
+        }
+        return nullptr;
+    }
+};
 
 Outlet::Outlet() {
     type = "Outlet";
@@ -8,48 +29,8 @@ Outlet::Outlet() {
     parameters->add(outletIndex.set("outletIndex", 0, 0, 16));
 }
 
-ofTexture* Outlet::processVideo(int idx) {
-    if (!graph) return nullptr;
-    
-    Graph* childGraph = dynamic_cast<Graph*>(graph);
-    if (!childGraph) return nullptr;
-    
-    auto inputs = childGraph->getInputConnections(nodeId);
-    for (const auto& conn : inputs) {
-        if (conn.toInput == 0) {
-            Node* source = childGraph->getNode(conn.fromNode);
-            if (source) return source->getVideoOutput(conn.fromOutput);
-        }
-    }
-    
-    return nullptr;
-}
-
-void Outlet::processAudio(ofSoundBuffer& buffer, int idx) {
-    if (!graph) {
-        buffer.set(0);
-        return;
-    }
-    
-    Graph* childGraph = dynamic_cast<Graph*>(graph);
-    if (!childGraph) {
-        buffer.set(0);
-        return;
-    }
-    
-    auto inputs = childGraph->getInputConnections(nodeId);
-    for (const auto& conn : inputs) {
-        if (conn.toInput == 0) {
-            Node* source = childGraph->getNode(conn.fromNode);
-            if (source) {
-                source->pullAudio(buffer, conn.fromOutput);
-                return;
-            }
-        }
-    }
-    
-    buffer.set(0);
-}
+crumble::AudioProcessor* Outlet::createAudioProcessor() { return new OutletAudioProcessor(); }
+crumble::VideoProcessor* Outlet::createVideoProcessor() { return new OutletVideoProcessor(); }
 
 std::string Outlet::getDisplayName() const {
     return "Out " + std::to_string(outletIndex);

@@ -15,8 +15,8 @@ class Outlet : public Node {
 public:
     Outlet();
     
-    ofTexture* processVideo(int index = 0) override;
-    void processAudio(ofSoundBuffer& buffer, int index = 0) override;
+    crumble::AudioProcessor* createAudioProcessor() override;
+    crumble::VideoProcessor* createVideoProcessor() override;
     
     // The index of this outlet (0, 1, 2, ...)
     ofParameter<int> outletIndex;

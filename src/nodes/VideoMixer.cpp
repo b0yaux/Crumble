@@ -7,6 +7,25 @@ namespace crumble {
 
 class VideoMixerProcessor : public VideoProcessor {
 public:
+    ControlSlot* numLayersSlot = nullptr;
+    ControlSlot* masterOpacitySlot = nullptr;
+    std::array<ControlSlot*, MAX_INPUTS> opacitySlots = {nullptr};
+    std::array<ControlSlot*, MAX_INPUTS> blendSlots = {nullptr};
+    std::array<ControlSlot*, MAX_INPUTS> activeSlots = {nullptr};
+
+    VideoMixerProcessor() {
+        numLayersSlot = getControlPtr(crumble::hashString("numLayers"));
+        masterOpacitySlot = getControlPtr(crumble::hashString("opacity"));
+    }
+
+    void addInput(VideoProcessor* p, int toInput, int fromOutput) override {
+        VideoProcessor::addInput(p, toInput, fromOutput);
+        std::string prefix = std::to_string(toInput);
+        opacitySlots[toInput] = getControlPtr(crumble::hashString(("opacity_" + prefix).c_str()));
+        blendSlots[toInput] = getControlPtr(crumble::hashString(("blend_" + prefix).c_str()));
+        activeSlots[toInput] = getControlPtr(crumble::hashString(("active_" + prefix).c_str()));
+    }
+
     void processVideo(double cycle, double cycleStep) override {
         if (!writeTex) {
             static bool loggedOnce = false;
@@ -17,8 +36,8 @@ public:
             return;
         }
         
-        int numActiveLayers = std::min((int)getParam("numLayers"), MAX_INPUTS);
-        float masterOpacity = getParam("opacity");
+        int numActiveLayers = std::min((int)evalSlot(numLayersSlot, cycle), MAX_INPUTS);
+        float masterOpacity = evalSlot(masterOpacitySlot, cycle);
         
         // Use ping-pong FBOs to avoid clearing the texture being read by ScreenOutput
         ofFbo& currentFbo = (writeTex == &tex_A) ? fboA : fboB;
@@ -32,9 +51,9 @@ public:
         
         for (int i = 0; i < numActiveLayers; i++) {
             if (i < MAX_INPUTS && inputs[i].processor) {
-                float opacity = evalPattern("opacity_" + std::to_string(i), cycle);
-                float blendModeVal = evalPattern("blend_" + std::to_string(i), cycle);
-                float active = evalPattern("active_" + std::to_string(i), cycle);
+                float opacity = evalSlot(opacitySlots[i], cycle);
+                float blendModeVal = evalSlot(blendSlots[i], cycle);
+                float active = evalSlot(activeSlots[i], cycle);
                 
                 if (active > 0.5f) {
                     ofTexture* tex = inputs[i].processor->getOutput(inputs[i].fromOutput);
@@ -49,8 +68,8 @@ public:
                         }
                         
                         // Get source metadata dynamically from the source processor each frame
-                        float sourceOpacity = inputs[i].processor->getParam("opacity");
-                        float sourceActive = inputs[i].processor->getParam("active");
+                        float sourceOpacity = inputs[i].processor->getParam(crumble::hashString("opacity"));
+                        float sourceActive = inputs[i].processor->getParam(crumble::hashString("active"));
                         
                         if (sourceActive > 0.5f) {
                             ofSetColor(255, opacity * masterOpacity * sourceOpacity * 255);
@@ -132,9 +151,9 @@ void VideoMixer::resizeLayerArrays(int newSize) {
             
             // Sync new layer params to VideoMixerProcessor
             if (videoProcessor) {
-                videoProcessor->valuesMap["opacity_" + std::to_string(i)].store(1.0f);
-                videoProcessor->valuesMap["blend_" + std::to_string(i)].store(0.0f);
-                videoProcessor->valuesMap["active_" + std::to_string(i)].store(1.0f);
+                if (auto* slot = videoProcessor->getControlPtr(crumble::hashString(("opacity_" + std::to_string(i)).c_str()))) slot->value.store(1.0f, std::memory_order_relaxed);
+                if (auto* slot = videoProcessor->getControlPtr(crumble::hashString(("blend_" + std::to_string(i)).c_str()))) slot->value.store(0.0f, std::memory_order_relaxed);
+                if (auto* slot = videoProcessor->getControlPtr(crumble::hashString(("active_" + std::to_string(i)).c_str()))) slot->value.store(1.0f, std::memory_order_relaxed);
             }
         }
     } else if (newSize < currentSize) {
@@ -193,7 +212,7 @@ void VideoMixer::setLayerCount(int count) {
     
     // Sync to VideoMixerProcessor
     if (videoProcessor) {
-        videoProcessor->valuesMap["numLayers"].store((float)count);
+        if (auto* slot = videoProcessor->getControlPtr(crumble::hashString("numLayers"))) slot->value.store((float)count, std::memory_order_relaxed);
     }
 }
 
