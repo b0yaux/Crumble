@@ -41,6 +41,7 @@ void ScreenOutput::update(float dt) {
     // Pull input texture from connected node via Node abstraction
     // (avoids coupling to Graph.h)
     Node* sourceNode = getInputNode(0);
+    
     if (sourceNode) {
         inputTexture = sourceNode->getVideoOutput(0);
         Control sourceOpCtrl = sourceNode->getControl(*sourceNode->opacity);

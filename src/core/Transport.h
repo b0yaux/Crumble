@@ -3,7 +3,7 @@
 
 class Transport {
 public:
-    Transport() : bpm(120.0f), beatsPerBar(4), absoluteTime(0.0), cycle(0.0), isPlaying(true) {}
+    Transport() : bpm(120.0f), beatsPerBar(4), absoluteTime(0.0), bars(0.0), cycle(0.0), isPlaying(true) {}
 
     // Core timing update (called from audio thread each block)
     void update(float dt);
@@ -12,6 +12,7 @@ public:
     float  bpm;           // Beats per minute
     int    beatsPerBar;   // Time signature numerator (default 4 — change for 3/4, 5/4, etc.)
     double absoluteTime;  // Total running time in seconds
+    double bars;          // Monotonically increasing bar count (absoluteTime * barsPerSecond)
     double cycle;         // Current bar phase [0.0, 1.0) — wraps once per bar
 
     bool isPlaying;
@@ -23,10 +24,15 @@ public:
         return barsPerSecond / (double)sampleRate;
     }
 
+    // Returns the monotonic bar position at a specific sample offset.
+    double getBarsAtSample(int sampleIndex, int sampleRate) const {
+        return bars + (sampleIndex * getCyclesPerSample(sampleRate));
+    }
+
     // Returns the bar phase at a specific sample offset within the current block.
     double getCycleAtSample(int sampleIndex, int sampleRate) const {
-        double exactCycle = cycle + (sampleIndex * getCyclesPerSample(sampleRate));
-        double c = std::fmod(exactCycle, 1.0);
+        double exactBars = getBarsAtSample(sampleIndex, sampleRate);
+        double c = std::fmod(exactBars, 1.0);
         if (c < 0) c += 1.0;
         return c;
     }

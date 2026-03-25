@@ -7,7 +7,6 @@
 #include "Config.h"
 #include "ProcessorCommand.h"
 #include "NodeProcessor.h"
-#include "../nodes/subgraph/Outlet.h"
 
 // Static node type registry - shared by all Graph instances
 std::map<std::string, Graph::NodeCreator> Graph::nodeTypes;

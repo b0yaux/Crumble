@@ -107,8 +107,16 @@ void Interpreter::update(const Transport& t) {
     lua_pushnumber(L, t.absoluteTime);
     lua_settable(L, -3);
     
+    lua_pushstring(L, "abs");
+    lua_pushnumber(L, t.absoluteTime);
+    lua_settable(L, -3);
+    
     lua_pushstring(L, "cycle");
     lua_pushnumber(L, t.cycle);
+    lua_settable(L, -3);
+    
+    lua_pushstring(L, "bars");
+    lua_pushnumber(L, t.bars);
     lua_settable(L, -3);
     
     lua_pushstring(L, "tempo");
@@ -150,14 +158,17 @@ void Interpreter::bindSessionAPI() {
     lua_register(L, "_setGen", lua_setGenerator);
     lua_register(L, "_setActive", lua_setActive);
     lua_register(L, "_clear", lua_clear);
-    lua_register(L, "_listDir", lua_listDirectory);
-    lua_register(L, "_exists", lua_fileExists);
     lua_register(L, "_resolve", lua_resolvePath);
     lua_register(L, "_getBank", lua_getBank);
+    lua_register(L, "_setTempo", lua_setTempo);
     
     std::string helper = R"(
         session = {}
         local NodeMeta = {}
+        
+        function bpm(v) _setTempo(v) end
+        function cpm(v) _setTempo(v * 4) end
+        function cps(v) _setTempo(v * 240) end
         
         function NodeMeta:__newindex(key, value)
             if key == "id" or key == "type" or key == "name" then
@@ -186,7 +197,15 @@ void Interpreter::bindSessionAPI() {
             elseif k == "on" then return function(self) _setActive(self.id, true) return self end
             elseif k == "mute" then return function(self) _setActive(self.id, false) return self end
             elseif k == "unmute" then return function(self) _setActive(self.id, true) return self end
-            else return _get(t.id, k) end
+            else 
+                -- Chainable Setter: s:gain(0.5) returns s
+                return function(self, val)
+                    if val == nil then return _get(self.id, k) end
+                    if type(val) == "table" and val._isGen then _setGen(self.id, k, val)
+                    else _set(self.id, k, val) end
+                    return self
+                end
+            end
         end
 
         _G._allNodes = {}
@@ -244,14 +263,29 @@ void Interpreter::bindSessionAPI() {
         -- Pattern functions
         local function makeGen(t)
             t._isGen = true
-            return setmetatable(t, { __mul = function(a, b) local r={type="mul", a=a, b=b}; r._isGen=true; return r end,
-                                  __add = function(a, b) local r={type="add", a=a, b=b}; r._isGen=true; return r end })
+            local GenMeta = {
+                __mul = function(a, b) local r={type="mul", a=a, b=b}; return makeGen(r) end,
+                __add = function(a, b) local r={type="add", a=a, b=b}; return makeGen(r) end,
+                __index = {
+                    fast = function(self, n) return makeGen({type="fast", n=n, p=self}) end,
+                    slow = function(self, n) return makeGen({type="slow", n=n, p=self}) end,
+                    shift = function(self, o) return makeGen({type="shift", o=o, p=self}) end,
+                    scale = function(self, l, h) return makeGen({type="scale", l=l, h=h, p=self}) end,
+                    snap = function(self, s) return makeGen({type="snap", s=s, p=self}) end
+                }
+            }
+            return setmetatable(t, GenMeta)
         end
         
         function osc(freq) return makeGen({type="osc", val=freq or 1.0}) end
         function ramp(freq) return makeGen({type="ramp", val=freq or 1.0}) end
         function seq(steps) return makeGen({type="seq", val=steps or "1"}) end
-        function noise(seed) return makeGen({type="noise", val=seed or 0}) end
+        function noise(f, s) return makeGen({type="noise", f=f or 1.0, s=s or 0}) end
+        function rand(s) 
+            local x = (s or 0) * 1103515245 + 12345
+            x = (math.floor(x / 65536) % 32768) / 32768.0
+            return x
+        end
         function fast(n, p) return makeGen({type="fast", n=n, p=p}) end
         function slow(n, p) return makeGen({type="slow", n=n, p=p}) end
         function shift(o, p) return makeGen({type="shift", o=o, p=p}) end
@@ -473,9 +507,13 @@ std::shared_ptr<Pattern<float>> parsePattern(lua_State* L, int index) {
             float f = (float)lua_tonumber(L, -1);
             lua_pop(L, 1); return std::make_shared<patterns::Ramp>(f);
         } else if (genType == "noise") {
-            lua_getfield(L, index, "val");
+            lua_getfield(L, index, "f");
+            float f = (float)lua_tonumber(L, -1);
+            lua_pop(L, 1);
+            lua_getfield(L, index, "s");
             float s = (float)lua_tonumber(L, -1);
-            lua_pop(L, 1); return std::make_shared<patterns::Noise>(s);
+            lua_pop(L, 1);
+            return std::make_shared<patterns::Noise>(f, s);
         } else if (genType == "mul") {
             lua_getfield(L, index, "a"); auto pa = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
             lua_getfield(L, index, "b"); auto pb = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
@@ -508,4 +546,10 @@ std::shared_ptr<Pattern<float>> parsePattern(lua_State* L, int index) {
         }
     }
     return nullptr;
+}
+
+int Interpreter::lua_setTempo(lua_State* L) {
+    if (!s_currentSession) return 0;
+    s_currentSession->getTransport().bpm = (float)luaL_checknumber(L, 1);
+    return 0;
 }

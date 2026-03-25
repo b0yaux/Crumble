@@ -22,7 +22,7 @@ public:
         int numChannels = buffer.getNumChannels();
         for (size_t f = 0; f < buffer.getNumFrames(); f++) {
             double sampleCycle = cycle + f * cycleStep;
-            float masterVol = evalPattern("masterVolume", sampleCycle);
+            float masterVol = evalPattern("gain", sampleCycle);
             for (int c = 0; c < numChannels; c++) {
                 pOut[f * numChannels + c] *= masterVol;
             }
@@ -32,7 +32,6 @@ public:
 
 SpeakersOutput::SpeakersOutput() {
     type = "SpeakersOutput";
-    parameters->add(masterVolume.set("masterVolume", 1.0, 0.0, 1.0));
     // NOTE: setupProcessor() is NOT called here.
     // Graph::createNode() calls it after nodeId is assigned.
 }

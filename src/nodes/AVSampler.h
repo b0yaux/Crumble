@@ -7,13 +7,13 @@
  * AVSampler - Unified audio/visual sampler with synchronized playback.
  * 
  * Owns internal AudioFileSource and VideoFileSource instances with a shared
- * master playhead. All parameters (speed, loop, volume) are synchronized
+ * master playhead. All parameters (speed, loop, gain) are synchronized
  * across both sources.
  * 
  * Provides:
  * - Unified speed control (affects both audio and video equally)
  * - Unified loop control
- * - Audio volume control
+ * - Audio gain control
  * - Master playhead management (ensures A/V sync)
  * - Flexibility to load different audio/video independently via live-scripting
  */
@@ -64,7 +64,7 @@ private:
     // Master playhead (in samples, converted as needed for each source)
     double masterPlayhead = 0.0;
     std::string loadedAudioPath, loadedVideoPath;
-    double lastSyncPos = -1.0;
+    double lastSyncedAudioPos = -1.0;
     
     // Performance state for Sync
     bool isInternalChange = false;

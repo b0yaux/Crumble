@@ -74,18 +74,26 @@ namespace patterns {
     };
 
     /**
-     * Noise: Stateless deterministic hash noise.
+     * Noise: Smooth deterministic gradient noise.
      */
     class Noise : public Pattern<float> {
     public:
-        Noise(float seed = 0.0f) : s(seed) {}
+        Noise(float frequency = 1.0f, float seed = 0.0f) : f(frequency), s(seed) {}
         float eval(double cycle) override {
-            double x = std::sin(cycle + s) * 43758.5453123;
+            double x = cycle * f + s;
+            int x0 = (int)std::floor(x);
+            int x1 = x0 + 1;
+            float t = (float)(x - x0);
+            float st = t * t * (3.0f - 2.0f * t); // Smoothstep
+            return (1.0f - st) * hash(x0) + st * hash(x1);
+        }
+        std::string getSignature() const override { return "noise:" + std::to_string(f) + "," + std::to_string(s); }
+    private:
+        float hash(int i) {
+            double x = std::sin(i * 12.9898 + s * 78.233) * 43758.5453123;
             return (float)(x - std::floor(x));
         }
-        std::string getSignature() const override { return "noise:" + std::to_string(s); }
-    private:
-        float s;
+        float f, s;
     };
 
     /**

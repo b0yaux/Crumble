@@ -127,19 +127,24 @@ public:
 };
 
 /**
- * VideoProcessor: Lives on the Video Thread with a Shared OpenGL Context.
+ * VideoProcessor: Evaluated on the Main Thread alongside ScreenOutput.
+ *
+ * Both processVideo() (called from Session::update) and getOutput() (called
+ * from ScreenOutput::update) run on the same thread, so no atomic ops or
+ * locking are needed. The ping-pong double-buffer ensures the texture being
+ * read by ScreenOutput is never the one currently being written.
  */
 class VideoProcessor : public NodeProcessor {
 public:
     VideoProcessor() = default;
     virtual ~VideoProcessor() = default;
 
-    // Called by the Video Thread to generate the frame
+    // Called by Session::update() to generate the frame (main thread)
     virtual void processVideo(double cycle, double cycleStep) {}
     
-    // Thread-safe fetch of the latest texture for the main thread
+    // Called by ScreenOutput::update() to fetch the latest texture (main thread)
     virtual ofTexture* getOutput(int index = 0) { 
-        return readyTex.load(std::memory_order_acquire);
+        return readyTex;
     }
 
     void addInput(VideoProcessor* p, int toInput, int fromOutput) {
@@ -160,25 +165,23 @@ public:
     };
     std::array<Input, MAX_INPUTS> inputs;
     
-    // Ping-Pong FBO pair for lock-free read/write
+    // Ping-pong double-buffer: writeTex is written by processVideo(),
+    // readyTex is read by getOutput(). Swapped each frame via swapFbo().
+    // Both pointers live on the main thread — no atomics required.
     ofTexture tex_A;
     ofTexture tex_B;
-    std::atomic<ofTexture*> readyTex { nullptr };
+    ofTexture* readyTex = nullptr;
     ofTexture* writeTex = nullptr;
     
     void allocateTextures(int width, int height) {
-        // Called on MAIN thread during initialization
-        // Textures are shared across OpenGL contexts
         tex_A.allocate(width, height, GL_RGBA);
         tex_B.allocate(width, height, GL_RGBA);
-        
-        readyTex.store(&tex_A, std::memory_order_release);
+        readyTex = &tex_A;
         writeTex = &tex_B;
     }
 
     void swapFbo() {
-        ofTexture* oldReady = readyTex.exchange(writeTex, std::memory_order_acq_rel);
-        writeTex = oldReady;
+        std::swap(readyTex, writeTex);
     }
 };
 

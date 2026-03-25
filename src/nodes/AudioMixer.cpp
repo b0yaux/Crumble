@@ -18,9 +18,9 @@ public:
 
     void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
                  double cycle, double cycleStep) override {
-        float masterGain = getParam("masterGain");
+        float masterGain = getParam("gain");
         
-        for (int i = 0; i < 16; i++) {
+        for (int i = 0; i < MAX_INPUTS; i++) {
             auto& input = inputs[i];
             if (input.processor) {
                 // Only reallocate when the host changes buffer geometry (rare).
@@ -67,7 +67,6 @@ private:
 
 AudioMixer::AudioMixer() {
     type = "AudioMixer";
-    parameters->add(masterGain.set("masterGain", 1.0, 0.0, 4.0));
     numActiveInputs = 0;
 }
 

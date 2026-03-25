@@ -123,21 +123,22 @@ amix["gain_" .. layer] = 0.5
 ```
 
 ### Sequencing & Modulation
-Crumble features a stateless, sample-accurate math engine. You can compose complex modulators using functional operators:
+Crumble features a stateless, sample-accurate math engine. You can compose complex modulators using functional operators or **Hydra-style Method Chaining**:
+
 ```lua
 local smp = addNode("AVSampler")
+
+-- Fluent API (Chaining): Scale a 0-1 LFO to a specific range
+smp.gain = osc(0.25):scale(0.2, 0.8)
 
 -- Composition: Mix a sequence with an LFO
 smp.speed = seq("1 2 4") * osc(0.5)
 
 -- Time Warping: Play a sequence at double speed
-smp.speed = fast(2, seq("1 0.5 2 0.25"))
+smp.speed = seq("1 0.5 2 0.25"):fast(2)
 
--- Generative Logic: Quantize a sine wave into 4 discrete steps
-smp.volume = snap(4, osc(1.0))
-
--- Mapping: Scale a 0-1 LFO to a specific range (e.g. 200Hz to 2000Hz)
-smp.cutoff = scale(200, 2000, osc(0.25))
+-- Unified A/V Sync (Chained Setters)
+smp:gain(osc(1)):opacity(osc(1))
 ```
 
 #### Pattern Library
@@ -146,28 +147,42 @@ smp.cutoff = scale(200, 2000, osc(0.25))
 |----------|-------------|
 | `osc(f)` | Sine wave (frequency in cycles-per-bar) |
 | `ramp(f)` | Sawtooth (0.0 to 1.0, frequency in cycles-per-bar) |
-| `noise(s)`| Deterministic stochastic noise (optional seed) |
+| `noise(f, s)`| Smooth dynamic modulation (freq, seed) |
+| `rand(s)` | Static deterministic random number (seed) |
 | `seq("...")`| Discrete step sequencer |
-| `fast(n, p)`| Speed up pattern `p` by factor `n` |
-| `slow(n, p)`| Slow down pattern `p` by factor `n` (1/n speed) |
-| `shift(o, p)`| Offset phase by `o` (0.0 to 1.0) |
-| `scale(l, h, p)`| Map pattern range to [low, high] |
-| `snap(s, p)`| Quantize output into `s` steps |
-| `p1 * p2` | Multiply two patterns (Amplitude Modulation) |
-| `p1 + p2` | Add two patterns (Offset/Mixing) |
+
+#### Chaining Methods
+
+| Method | Description |
+|--------|-------------|
+| `.fast(n)`| Speed up pattern by factor `n` |
+| `.slow(n)`| Slow down pattern by factor `n` (1/n speed) |
+| `.shift(o)`| Offset phase by `o` (0.0 to 1.0) |
+| `.scale(l, h)`| Map pattern range to [low, high] |
+| `.snap(s)`| Quantize output into `s` steps |
 
 > **Timing contract:** All pattern frequencies are in **cycles per bar**.
-> `Transport.cycle` advances at `bpm / beatsPerBar` beats-per-second, wrapping
-> once per bar. The default is `beatsPerBar = 4` (common time). Change it for
-> other time signatures:
->
-> | `beatsPerBar` | Time sig | Bar length at 120 BPM | `osc(1.0)` rate |
-> |---|---|---|---|
-> | 4 (default) | 4/4 | 2.0 s | 0.5 Hz |
-> | 3 | 3/4 | 1.5 s | 0.67 Hz |
-> | 5 | 5/4 | 2.5 s | 0.4 Hz |
->
-> To modulate at beat rate in 4/4, use `fast(4, osc(1.0))` or simply `osc(4.0)`.
+> Patterns use **Monotonic Phase**: they do NOT reset at bar boundaries,
+> enabling ultra-slow modulations (e.g. `osc(0.01)` completes over 100 bars).
+
+### Tempo & Clock
+
+Control the master transport from Lua using standard live-coding aliases. By default, **1 Cycle = 4 Beats**.
+
+| Function | Unit | Formula | Example |
+|----------|------|---------|---------|
+| `bpm(x)` | Beats Per Minute | `BPM = x` | `bpm(120)` |
+| `cpm(x)` | Cycles Per Minute | `BPM = x * 4` | `cpm(30)` |
+| `cps(x)` | Cycles Per Second | `BPM = x * 240` | `cps(0.5)` |
+
+The global `Time` table provides real-time access to the transport:
+
+| Key | Unit | Description |
+|-----|------|-------------|
+| `Time.abs` | Seconds | Absolute running time |
+| `Time.bars`| Cycles | Total bars elapsed (monotonic) |
+| `Time.cycle`| 0.0–1.0 | Current bar phase (wrapped) |
+| `Time.tempo`| BPM | Current beats-per-minute |
 
 ### Subgraph Composition
 Graphs are recursive: a `Graph` node can contain its own nested graph, loaded from a script.
@@ -224,6 +239,15 @@ local mix = utils.makeMixer("mainMix")
 This enables stable live-coding: editing the current script preserves playback state, while switching to a different script provides a clean slate.
 
 ## Node Reference
+
+All nodes inherit these base parameters:
+
+| Parameter | Type | Range | Description |
+|-----------|------|-------|-------------|
+| `gain` | float | 0.0–4.0 | Amplitude scalar (audio). Follows Tidal/Strudel/ChucK convention. Values above 1.0 boost above unity. |
+| `opacity` | float | 0.0–1.0 | Transparency scalar (video). Follows Hydra convention. |
+| `active` | bool | — | On/off bypass. When `false`, audio outputs silence and video outputs `nil`. |
+| `drawLayer` | int | -100–100 | Render order for drawable nodes (e.g. ScreenOutput). |
 
 | Category | Type | Description |
 |----------|------|-------------|

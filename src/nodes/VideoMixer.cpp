@@ -8,10 +8,17 @@ namespace crumble {
 class VideoMixerProcessor : public VideoProcessor {
 public:
     void processVideo(double cycle, double cycleStep) override {
-        if (!writeTex) return;
+        if (!writeTex) {
+            static bool loggedOnce = false;
+            if (!loggedOnce) {
+                ofLogWarning("VideoMixerProcessor") << "writeTex is null!";
+                loggedOnce = true;
+            }
+            return;
+        }
         
         int numActiveLayers = std::min((int)getParam("numLayers"), MAX_INPUTS);
-        float masterOpacity = getParam("masterOpacity");
+        float masterOpacity = getParam("opacity");
         
         // Use ping-pong FBOs to avoid clearing the texture being read by ScreenOutput
         ofFbo& currentFbo = (writeTex == &tex_A) ? fboA : fboB;
@@ -21,9 +28,7 @@ public:
         }
 
         currentFbo.begin();
-        ofClear(0, 0, 0, 0); 
-        ofSetColor(20);
-        ofDrawRectangle(0, 0, currentFbo.getWidth(), currentFbo.getHeight()); // Background
+        ofClear(0, 0, 0, 255); // Use opaque black for better additive blending visibility
         
         for (int i = 0; i < numActiveLayers; i++) {
             if (i < MAX_INPUTS && inputs[i].processor) {
@@ -33,6 +38,7 @@ public:
                 
                 if (active > 0.5f) {
                     ofTexture* tex = inputs[i].processor->getOutput(inputs[i].fromOutput);
+                    
                     if (tex && tex->isAllocated()) {
                         BlendMode mode = (BlendMode)(int)blendModeVal;
                         switch (mode) {
@@ -50,6 +56,7 @@ public:
                             ofSetColor(255, opacity * masterOpacity * sourceOpacity * 255);
                             tex->draw(0, 0, currentFbo.getWidth(), currentFbo.getHeight());
                         }
+
                     }
                 }
             }
@@ -76,7 +83,6 @@ VideoMixer::VideoMixer() {
     
     // Add parameters
     parameters->add(numActiveLayers.set("numLayers", 2, 1, 128));
-    parameters->add(masterOpacity.set("masterOpacity", 1.0, 0.0, 1.0));
     
     // Add listener to react immediately to layer count changes
     numActiveLayers.addListener(this, &VideoMixer::onNumLayersChanged);
@@ -301,6 +307,10 @@ bool VideoMixer::isLayerConnected(int layerIndex) const {
 crumble::VideoProcessor* VideoMixer::createVideoProcessor() {
     auto proc = new crumble::VideoMixerProcessor();
     proc->allocateTextures(fboWidth, fboHeight);
+    
+    ofLogNotice("VideoMixer") << "createVideoProcessor: allocated textures " << fboWidth << "x" << fboHeight
+                              << " writeTex=" << (proc->writeTex ? "valid" : "null");
+    
     return proc;
 }
 
@@ -342,8 +352,8 @@ void VideoMixer::deserialize(const ofJson& json) {
         setLayerCount(numActiveLayers);
     }
     
-    if (j.contains("masterOpacity")) {
-        masterOpacity = getSafeJson<float>(j, "masterOpacity", masterOpacity.get());
+    if (j.contains("opacity")) {
+        opacity->set(getSafeJson<float>(j, "opacity", opacity->get()));
     }
     
     // 3. Deserialize ofParameters (covers numLayers, and any named opacity_n if they match)

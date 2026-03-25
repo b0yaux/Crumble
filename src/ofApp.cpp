@@ -13,7 +13,7 @@ void ofApp::setCommandLineConfig(const std::string& configPath,
 void ofApp::setup(){
     ofSetFrameRate(60);
     ofSetVerticalSync(true);
-    ofBackground(20);
+    ofBackground(0);
     if (!m_windowTitle.empty()) {
         ofSetWindowTitle(m_windowTitle);
     }
@@ -109,7 +109,7 @@ void ofApp::update(){
 }
 
 void ofApp::draw(){
-    ofBackground(20);
+    ofBackground(0);
     session.draw();
     
     if (showGui) {

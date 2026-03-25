@@ -19,9 +19,9 @@ public:
         for (size_t i = 0; i < buffer.getNumFrames(); i++) {
             double sampleCycle = cycle + i * cycleStep;
 
-            // Evaluate speed and volume by name — falls back to scalar if no pattern installed
+            // Evaluate speed and gain by name — falls back to scalar if no pattern installed
             float speed = evalPattern("speed", sampleCycle);
-            float gain  = evalPattern("volume", sampleCycle);
+            float gain  = evalPattern("gain", sampleCycle);
 
             size_t frameIndex = (size_t)currentPlayhead;
             if (frameIndex < totalSamples) {

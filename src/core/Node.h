@@ -88,7 +88,7 @@ public:
     // However, to satisfy forward declarations, we might need a middle ground.
     // For now, let's keep them as pointers to ensure the header compiles.
     std::shared_ptr<ofParameter<int>> drawLayer;
-    std::shared_ptr<ofParameter<float>> volume;
+    std::shared_ptr<ofParameter<float>> gain;
     std::shared_ptr<ofParameter<float>> opacity;
     std::shared_ptr<ofParameter<bool>> active; 
     

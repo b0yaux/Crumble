@@ -38,6 +38,10 @@ Session::~Session() {
     crumble::VideoProcessor* vp = nullptr;
     while (videoReleaseQueue.try_dequeue(vp)) delete vp;
 
+    // 5. Drain patterns that were displaced from the audio thread.
+    std::shared_ptr<Pattern<float>> pat;
+    while (patternReleaseQueue.try_dequeue(pat)) pat.reset();
+
     g_session = nullptr;
 }
 
@@ -65,11 +69,9 @@ void Session::audioOut(ofSoundBuffer& buffer) {
     // 1. Process all pending commands (Wait-Free)
     crumble::ProcessorCommand cmd;
     while (audioCommandQueue.try_dequeue(cmd)) {
-        // Helper: is this processor still alive?
+        // Helper: is this processor still alive? O(1) with unordered_set.
         auto alive = [&](crumble::AudioProcessor* p) -> bool {
-            if (!p) return false;
-            return std::find(activeAudioProcessors.begin(), activeAudioProcessors.end(), p)
-                   != activeAudioProcessors.end();
+            return p && activeAudioProcessors.count(p) > 0;
         };
 
         crumble::AudioProcessor* ap = cmd.audioProcessor;
@@ -77,20 +79,13 @@ void Session::audioOut(ofSoundBuffer& buffer) {
         switch (cmd.type) {
             case crumble::ProcessorCommand::ADD_NODE:
                 if (ap) {
-                    // Prevent duplicate entries
-                    if (std::find(activeAudioProcessors.begin(), activeAudioProcessors.end(), ap) 
-                        == activeAudioProcessors.end()) {
-                        activeAudioProcessors.push_back(ap);
-                    }
+                    activeAudioProcessors.insert(ap);
                 }
                 break;
 
             case crumble::ProcessorCommand::REMOVE_NODE:
                 if (ap) {
-                    auto it = std::find(activeAudioProcessors.begin(), activeAudioProcessors.end(), ap);
-                    if (it != activeAudioProcessors.end()) {
-                        activeAudioProcessors.erase(it);
-                        
+                    if (activeAudioProcessors.erase(ap) > 0) {
                         // Also remove from endpoint list if it was registered as one
                         auto eit = std::find(audioEndpoints.begin(), audioEndpoints.end(), ap);
                         if (eit != audioEndpoints.end()) {
@@ -112,13 +107,20 @@ void Session::audioOut(ofSoundBuffer& buffer) {
             case crumble::ProcessorCommand::SET_PATTERN:
                 if (alive(ap) && ap->nodeId == cmd.nodeId && !cmd.slotName.empty()) {
                     if (cmd.pattern) {
-                        ofLogNotice("Session") << "SET_PATTERN: nodeId=" << ap->nodeId << " slot=" << cmd.slotName;
+                        // Move any displaced pattern to the release queue so its
+                        // destructor runs on the main thread, not the audio thread.
+                        auto it = ap->patternMap.find(cmd.slotName);
+                        if (it != ap->patternMap.end() && it->second) {
+                            patternReleaseQueue.enqueue(std::move(it->second));
+                        }
                         ap->patternMap[cmd.slotName] = cmd.pattern;
                     } else {
+                        auto it = ap->patternMap.find(cmd.slotName);
+                        if (it != ap->patternMap.end() && it->second) {
+                            patternReleaseQueue.enqueue(std::move(it->second));
+                        }
                         ap->patternMap.erase(cmd.slotName);
                     }
-                } else {
-                    // This is now expected during script-swaps; no need to log a warning
                 }
                 break;
 
@@ -176,9 +178,9 @@ void Session::audioOut(ofSoundBuffer& buffer) {
     // 3. Clear buffer initially
     buffer.set(0);
 
-    // 4. Compute cycle timing for this block
-    double blockCycle = transport.cycle;
-    double cycleStep  = transport.getCyclesPerSample(buffer.getSampleRate());
+    // 4. Compute cycle timing for this block (monotonically increasing bars)
+    double blockBars = transport.bars;
+    double barsStep  = transport.getCyclesPerSample(buffer.getSampleRate());
 
     // 5. Wait-Free DSP Traversal — pull from every registered audio endpoint.
     // Endpoints register themselves via REGISTER_ENDPOINT (e.g. SpeakersOutput).
@@ -190,7 +192,7 @@ void Session::audioOut(ofSoundBuffer& buffer) {
         lastProcessorCount = activeAudioProcessors.size();
     }
     for (auto* ep : audioEndpoints) {
-        ep->pull(buffer, 0, frameCounter, blockCycle, cycleStep);
+        ep->pull(buffer, 0, frameCounter, blockBars, barsStep);
     }
 }
 
@@ -224,10 +226,9 @@ void Session::update(float dt) {
     // 1. Process Video Commands (on Main Thread)
     crumble::ProcessorCommand cmd;
     while (videoCommandQueue.try_dequeue(cmd)) {
+        // Helper: is this processor still alive? O(1) with unordered_set.
         auto alive = [&](crumble::VideoProcessor* p) -> bool {
-            if (!p) return false;
-            return std::find(activeVideoProcessors.begin(), activeVideoProcessors.end(), p)
-                   != activeVideoProcessors.end();
+            return p && activeVideoProcessors.count(p) > 0;
         };
 
         crumble::VideoProcessor* vp = cmd.videoProcessor;
@@ -235,18 +236,13 @@ void Session::update(float dt) {
         switch (cmd.type) {
             case crumble::ProcessorCommand::ADD_NODE:
                 if (vp) {
-                    if (std::find(activeVideoProcessors.begin(), activeVideoProcessors.end(), vp)
-                        == activeVideoProcessors.end()) {
-                        activeVideoProcessors.push_back(vp);
-                    }
+                    activeVideoProcessors.insert(vp);
                 }
                 break;
 
             case crumble::ProcessorCommand::REMOVE_NODE:
                 if (vp) {
-                    auto it = std::find(activeVideoProcessors.begin(), activeVideoProcessors.end(), vp);
-                    if (it != activeVideoProcessors.end()) {
-                        activeVideoProcessors.erase(it);
+                    if (activeVideoProcessors.erase(vp) > 0) {
                         vp->patternMap.clear();
                         videoReleaseQueue.enqueue(vp);
                     }
@@ -261,7 +257,6 @@ void Session::update(float dt) {
 
             case crumble::ProcessorCommand::SET_PATTERN:
                 if (alive(vp) && vp->nodeId == cmd.nodeId && !cmd.slotName.empty()) {
-                    ofLogNotice("Session") << "Video SET_PATTERN: nodeId=" << vp->nodeId << " slot=" << cmd.slotName;
                     if (cmd.pattern) {
                         vp->patternMap[cmd.slotName] = cmd.pattern;
                     } else {
@@ -304,22 +299,36 @@ void Session::update(float dt) {
         delete releasedAudio;
     }
 
+    // Drain patterns displaced from the audio thread — destructors run here
+    // on the main thread, never inside the real-time callback.
+    std::shared_ptr<Pattern<float>> releasedPattern;
+    while (patternReleaseQueue.try_dequeue(releasedPattern)) {
+        releasedPattern.reset();
+    }
+
     crumble::VideoProcessor* releasedVideo = nullptr;
     while (videoReleaseQueue.try_dequeue(releasedVideo)) {
         delete releasedVideo;
     }
 
     // 3. Evaluate Video Processors (Shadow Graph)
-    double blockCycle = transport.cycle;
-    double cycleStep = 0.0; // Pattern interp on video thread is K-rate (once per frame)
+    double blockBars = transport.bars;
+    double barsStep = 0.0; // Pattern interp on video thread is K-rate (once per frame)
+    
+    static int lastVideoProcessorCount = 0;
+    if ((int)activeVideoProcessors.size() != lastVideoProcessorCount) {
+        ofLogNotice("Session") << "Shadow video processors registered: " << activeVideoProcessors.size();
+        lastVideoProcessorCount = activeVideoProcessors.size();
+    }
+    
     for (auto* vp : activeVideoProcessors) {
-        vp->currentCycle = blockCycle; // Update cycle for pattern-aware getParam()
-        vp->processVideo(blockCycle, cycleStep);
+        vp->currentCycle = blockBars; // Update cycle for pattern-aware getParam()
+        vp->processVideo(blockBars, barsStep);
     }
 
     // 4. Update UI Graph
     Context ctx;
-    ctx.cycle = transport.cycle;
+    ctx.cycle = blockBars;
     ctx.cycleStep = 0; 
     ctx.frames = 1;
     ctx.dt = dt;

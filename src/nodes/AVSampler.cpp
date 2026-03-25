@@ -17,7 +17,7 @@ AVSampler::AVSampler() {
     // NOTE: Processors are created via createAudioProcessor() and createVideoProcessor()
     // when Graph::createNode() calls setupProcessor() -> createAudioProcessor()/createVideoProcessor()
     
-    lastSyncPos = -1.0;
+    lastSyncedAudioPos = -1.0;
 }
 
 AVSampler::~AVSampler() {
@@ -95,12 +95,12 @@ crumble::VideoProcessor* AVSampler::createVideoProcessor() {
             }
         }
         
-        // Also copy AVSampler's own parameters (opacity, volume, active)
+        // Also copy AVSampler's own parameters (opacity, gain, active)
         // These are what the VideoMixer needs to read from the source
         for (int i = 0; i < (int)parameters->size(); i++) {
             auto& p = parameters->get(i);
             std::string name = p.getName();
-            if (name == "opacity" || name == "volume" || name == "active") {
+            if (name == "opacity" || name == "gain" || name == "active") {
                 float val = 0;
                 bool supported = false;
                 
@@ -148,17 +148,16 @@ void AVSampler::update(float dt) {
     if (!audioPath.get().empty() && !videoPath.get().empty()) {
         double audioPos = audioSource.getRelativePosition();
         
-        // PASSIVE SYNC (Soft Sync)
-        // We rely on the fact that AudioFileSource and VideoFileSource share the same 
-        // internal 'speed' multiplier, so they run parallel to each other naturally.
-        // Calling setPosition() on a HAP player forces its internal demuxer to flush 
-        // its background decoding queue, which causes severe I/O and CPU stalls if 
-        // done every frame across many layers.
-        // We only force a "Hard Sync" jump if the drift exceeds our tolerance threshold.
-        const double DRIFT_TOLERANCE = 0.05; // 5% divergence
-        if (std::abs(audioPos - lastSyncPos) > DRIFT_TOLERANCE) {
+        // PASSIVE SYNC (rate-limited hard sync)
+        // Rather than reading the video clock (which would require flushing the HAP
+        // demuxer queue and cause I/O stalls), we throttle forced setPosition() calls
+        // by only firing when the audio playhead has travelled more than DRIFT_TOLERANCE
+        // since the last forced sync. This keeps video roughly chasing audio at coarse
+        // granularity without stalling the main thread every frame.
+        const double DRIFT_TOLERANCE = 0.05; // fire setPosition() after each 5% of audio travel
+        if (std::abs(audioPos - lastSyncedAudioPos) > DRIFT_TOLERANCE) {
             videoSource.setPosition((float)audioPos);
-            lastSyncPos = audioPos;
+            lastSyncedAudioPos = audioPos;
         }
 
         // Internal change guard used to prevent recursion
@@ -242,21 +241,19 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
     }
 
     if (paramName == "speed") {
-        ofLogNotice("AVSampler") << "onParameterChanged: speed - propagating to children";
         audioSource.speed.set(speed.get());
         videoSource.speed.set(speed.get());
         
         auto pat = getPattern("speed");
-        ofLogNotice("AVSampler") << "  pattern for speed: " << (pat ? pat->getSignature() : "null");
         audioSource.modulate("speed", pat);
         audioSource.onParameterChanged("speed");
         videoSource.modulate("speed", pat);
         videoSource.onParameterChanged("speed");
-    } else if (paramName == "volume") {
-        audioSource.volume->set(volume->get());
-        auto pat = getPattern("volume");
-        audioSource.modulate("volume", pat);
-        audioSource.onParameterChanged("volume");
+    } else if (paramName == "gain") {
+        audioSource.gain->set(gain->get());
+        auto pat = getPattern("gain");
+        audioSource.modulate("gain", pat);
+        audioSource.onParameterChanged("gain");
     } 
     else if (paramName == "opacity") {
         auto pat = getPattern("opacity");
@@ -294,7 +291,7 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
     }
     
     // Propagate to both shadow processors.
-    // For audio params (speed, loop, playing, volume) the audioSource already pushed
+    // For audio params (speed, loop, playing, gain) the audioSource already pushed
     // a SET_PARAM via its own Node::onParameterChanged above — this produces a harmless
     // duplicate on the audio processor but is the only mechanism that updates the VIDEO
     // shadow processor's valuesMap, since VideoFileSource::onParameterChanged routes

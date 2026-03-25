@@ -6,6 +6,7 @@
 #include "ProcessorCommand.h"
 #include "moodycamel/readerwriterqueue.h"
 #include <vector>
+#include <unordered_set>
 #include <thread>
 #include <atomic>
 #include <memory>
@@ -84,7 +85,12 @@ private:
     // The "Air-Gap" Queues (Audio Thread)
     crumble::SPSCQueue<crumble::ProcessorCommand> audioCommandQueue{1024};
     crumble::SPSCQueue<crumble::AudioProcessor*> audioReleaseQueue{1024};
-    std::vector<crumble::AudioProcessor*> activeAudioProcessors;
+    // Patterns displaced from the audio thread are enqueued here so their
+    // destructors run on the main thread, not inside the real-time callback.
+    crumble::SPSCQueue<std::shared_ptr<Pattern<float>>> patternReleaseQueue{256};
+    // unordered_set makes the alive() O(1) check inside audioOut() constant-time
+    // regardless of how many processors are registered.
+    std::unordered_set<crumble::AudioProcessor*> activeAudioProcessors;
 
     // Processors nominated as session-driven audio endpoints.
     // Populated and iterated exclusively on the audio thread via REGISTER_ENDPOINT
@@ -94,7 +100,8 @@ private:
     // The "Air-Gap" Queues (Video - Evaluated on Main Thread)
     crumble::SPSCQueue<crumble::ProcessorCommand> videoCommandQueue{1024};
     crumble::SPSCQueue<crumble::VideoProcessor*> videoReleaseQueue{1024};
-    std::vector<crumble::VideoProcessor*> activeVideoProcessors;
+    // unordered_set for O(1) alive() check in Session::update()
+    std::unordered_set<crumble::VideoProcessor*> activeVideoProcessors;
     
 
 };

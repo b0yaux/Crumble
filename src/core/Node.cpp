@@ -13,8 +13,8 @@ Node::Node() {
     parameters = std::make_shared<ofParameterGroup>();
     parameters->setName("parameters");
     
-    volume = std::make_shared<ofParameter<float>>();
-    parameters->add(volume->set("volume", 1.0, 0.0, 1.0));
+    gain = std::make_shared<ofParameter<float>>();
+    parameters->add(gain->set("gain", 1.0, 0.0, 4.0));
     
     opacity = std::make_shared<ofParameter<float>>();
     parameters->add(opacity->set("opacity", 1.0, 0.0, 1.0));
@@ -158,8 +158,6 @@ Node* Node::getInputNode(int slot) const {
 
 void Node::modulate(const std::string& paramName, std::shared_ptr<Pattern<float>> pat) {
     std::lock_guard<std::recursive_mutex> lock(modMutex);
-    ofLogNotice("Node") << "modulate: " << name << " param=" << paramName
-                        << " pattern=" << (pat ? pat->getSignature() : "null");
     modulators[paramName] = pat;
 }
 
@@ -212,23 +210,16 @@ void Node::onParameterChanged(const std::string& paramName) {
     }
 
     if (found) {
-        ofLogNotice("Node") << "onParameterChanged: " << name
-                            << " param=" << paramName << " value=" << val;
-
         crumble::ProcessorCommand cmd;
         cmd.type = crumble::ProcessorCommand::SET_PARAM;
         cmd.slotName = paramName;
         cmd.value = val;
         pushCommand(cmd);
 
-        // Also propagate any pattern for this parameter to the audio/video thread.
-        // This is the single point where patterns are sent to processors.
         {
             std::lock_guard<std::recursive_mutex> lock(modMutex);
             auto it = modulators.find(paramName);
             if (it != modulators.end()) {
-                ofLogNotice("Node") << "onParameterChanged: " << name
-                                    << " sending pattern for " << paramName;
                 crumble::ProcessorCommand patCmd;
                 patCmd.type = crumble::ProcessorCommand::SET_PATTERN;
                 patCmd.slotName = paramName;
@@ -258,9 +249,9 @@ std::shared_ptr<ofxAudioFile> Node::getAudioAsset(const std::string& path) const
 ofJson Node::serialize() const {
     ofJson j;
     ofSerialize(j, *parameters);
-    // TODO: serialize modulators map (patternToJson per entry) when a non-Lua preset path is needed.
-    // Currently modulators are always re-applied by re-running the Lua script; the JSON snapshot
-    // intentionally omits them. See PatternSerializer.h design note in the Pass 4 audit thread.
+    // Modulators are intentionally not serialized: the Lua script is the source of truth and
+    // re-applies them on reload. A patternToJson/patternFromJson serializer would be needed
+    // if JSON presets ever need to capture live modulation state independently of the script.
     return j;
 }
 

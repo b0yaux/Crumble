@@ -3,7 +3,7 @@
 
 /**
  * AudioMixer sums multiple audio inputs into a single output.
- * It uses reactive expansion (like VideoMixer) to add volume parameters
+ * It uses reactive expansion (like VideoMixer) to add gain parameters
  * as inputs are connected.
  */
 class AudioMixer : public Node {
@@ -26,7 +26,6 @@ public:
 
 
 protected:
-    ofParameter<float> masterGain;
     std::vector<std::shared_ptr<ofParameter<float>>> inputGains;
     int numActiveInputs;
 

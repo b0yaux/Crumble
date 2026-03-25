@@ -51,7 +51,6 @@ public:
     
     // Parameter for GUI
     ofParameter<int> numActiveLayers;
-    ofParameter<float> masterOpacity;
     
     // Serialization - custom format for dynamic layers
     ofJson serialize() const override;

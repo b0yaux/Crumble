@@ -17,7 +17,7 @@ void Transport::update(float dt) {
     // Pattern contract: osc(1.0) completes exactly one oscillation per bar,
     // regardless of time signature or BPM.
     double barsPerSecond = (bpm / 60.0) / beatsPerBar;
-    cycle += dt * barsPerSecond;
-
-    while (cycle >= 1.0) cycle -= 1.0;
+    bars += dt * barsPerSecond;
+    cycle = std::fmod(bars, 1.0);
+    if (cycle < 0) cycle += 1.0;
 }
