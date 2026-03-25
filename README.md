@@ -68,7 +68,7 @@ Session (Root Container: Hardware & Threading)
 - **Interpreter**: The Lua runtime that parses and executes live-coding scripts.
 - **AssetRegistry**: A logical mapping layer that handles media discovery, banks, and automatic A/V pairing.
 - **AssetCache**: A global registry that deduplicates media files and caches RAM buffers for efficiency.
-- **Shadow Processors**: Internal high-performance workers that decouple C++ processing from Lua, using wait-free SPSC queues.
+- **Shadow Processors**: Internal high-performance workers that decouple C++ processing from Lua. They use wait-free SPSC queues and lock-free memory arrays to guarantee glitch-free audio during live-coding.
 
 ## Data Types & Flows
 
