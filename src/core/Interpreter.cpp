@@ -30,6 +30,14 @@ void Interpreter::setup(Session* s) {
     ofLogNotice("Interpreter") << "Path setup: " << pathSetup;
     
     bindSessionAPI();
+    
+    std::string preludePath = ofToDataPath("system/prelude.lua", true);
+    if (ofFile::doesFileExist(preludePath)) {
+        lua.doScript(preludePath);
+        ofLogNotice("Interpreter") << "Loaded standard library: prelude.lua";
+    } else {
+        ofLogWarning("Interpreter") << "System prelude not found at " << preludePath;
+    }
 }
 
 void Interpreter::addScriptPath(const std::string& dir) {
@@ -225,7 +233,17 @@ void Interpreter::bindSessionAPI() {
             return nil
         end
 
-        function addNode(type, name) return addNodeInternal(type, name) end
+        function addNode(type, name, params)
+            local nodeName = _G.type(name) == "table" and "" or name
+            local nodeParams = _G.type(name) == "table" and name or params
+            local node = addNodeInternal(type, nodeName)
+            if node and nodeParams and _G.type(nodeParams) == "table" then
+                for k, v in pairs(nodeParams) do
+                    node[k] = v
+                end
+            end
+            return node
+        end
         
         function clear() 
             _clear() 
