@@ -29,6 +29,11 @@ void Interpreter::setup(Session* s) {
     lua.doString(pathSetup);
     ofLogNotice("Interpreter") << "Path setup: " << pathSetup;
     
+    // Connect Graph's static script executor to the Interpreter's recursive runner
+    Graph::setScriptExecutor([](const std::string& path, Graph* g) {
+        if (g_interpreter) g_interpreter->runScriptInGraph(path, g);
+    });
+    
     bindSessionAPI();
     
     std::string preludePath = ofToDataPath("system/prelude.lua", true);
@@ -177,6 +182,7 @@ void Interpreter::bindSessionAPI() {
         function bpm(v) _setTempo(v) end
         function cpm(v) _setTempo(v * 4) end
         function cps(v) _setTempo(v * 240) end
+
         
         function NodeMeta:__newindex(key, value)
             if key == "id" or key == "type" or key == "name" then

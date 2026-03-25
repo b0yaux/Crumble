@@ -17,3 +17,4 @@ function Screen(name, params) return addNode("ScreenOutput", name, params) end
 -- Subgraphs
 function Inlet(name, params) return addNode("Inlet", name, params) end
 function Outlet(name, params) return addNode("Outlet", name, params) end
+function Subgraph(name, params) return addNode("Graph", name, params) end
