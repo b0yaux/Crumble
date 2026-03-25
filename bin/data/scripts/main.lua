@@ -18,9 +18,9 @@ bpm(200)
 
 -- 2. Data-driven loading from AssetRegistry
 local assets = getBank("superstratum_video-data")
-local count = math.min(#assets, 3)
+local count = math.min(#assets, 5)
 
-local lfo1 = 1 -- osc(3/10)
+local lfo1 = osc(3/10)
 local lfo2 = 1 -- scale(0.1, 2, osc(3/100))
 
     -- 3. Create AVSampler nodes with staggered modulations
@@ -33,7 +33,6 @@ for i = 1, count do
     
     -- rand(s): Returns a static number (0-1) for per-voice variation
     -- noise(f, s): Returns a dynamic pattern for smooth organic drift
-    local lfo1 = noise(i, rand(i))
     local mix = noise(0.5, i * 0.1)
     
     sampler:gain(mix):opacity(mix)
