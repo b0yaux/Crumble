@@ -13,7 +13,7 @@ brew install ffmpeg sdl2
 cd /path/to/openFrameworks/apps/myApps
 git clone https://github.com/YOUR_USERNAME/Crumble.git
 
-# Install ofxHapPlayer fork (macOS fix for system ffmpeg)
+# Install ofxHapPlayer (uses system ffmpeg)
 cd /path/to/openFrameworks/addons
 git clone https://github.com/b0yaux/ofxHapPlayer.git
 
