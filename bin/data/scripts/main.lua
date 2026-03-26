@@ -22,13 +22,13 @@ for i = 1, count do
     -- noise(f, s): perlin drift
     -- local mix = noise(1, i)
     -- each sampler oscillates at i
-    local mix =  gax("ly") + midi(82,1) + midinote(36,10)
+    local mix =  gpad("a") + midi(82,1) + midinote(36,10) + miditouch(36,10)
     
     -- create samplers
     local s = sampler(asset.name):path(asset.path)
               :gain(mix)
               :opacity(mix)
-              :speed(midi(74,1):scale(0,10))
+              :speed(midi(74,1):scale(0,10) + gax("ly"))
               :on()
 
     -- connect and configure mixer tracks

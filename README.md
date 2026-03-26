@@ -244,10 +244,13 @@ This enables stable live-coding: editing the current script preserves playback s
 ## Requirements
 
 ### macOS
-- [Homebrew](https://brew.sh)
-- `brew install ffmpeg sdl2`
+```bash
+brew install ffmpeg sdl2
+cd /path/to/openFrameworks/addons
+git clone https://github.com/b0yaux/ofxHapPlayer.git
+```
 
-Uses system ffmpeg (requires Homebrew). ofxHapPlayer bundled ffmpeg is incompatible with modern macOS SDK.
+Uses system ffmpeg from Homebrew. The ofxHapPlayer fork includes the macOS fix.
 
 ## Shortcuts
 
