@@ -100,7 +100,7 @@ Query the `AssetRegistry` directly to build generative graphs based on folder co
 ```lua
 local assets = getBank("my-folder")
 for i, asset in ipairs(assets) do
-    local s = addNode("AVSampler", asset.name)
+    local s = addNode("sampler", asset.name)
     s.path = asset.path -- e.g. "my-folder:0"
 end
 ```
@@ -110,9 +110,9 @@ end
 ### Graph Construction & Routing
 Crumble supports **Auto-Indexing** and **Table Routing** for concise graph setup.
 ```lua
-local sampler = addNode("AVSampler", "s1")
-local vmix = addNode("VideoMixer", "vmix")
-local amix = addNode("AudioMixer", "amix")
+local sampler = addNode("sampler", "s1")
+local vmix = addNode("videomix", "vmix")
+local amix = addNode("audiomix", "amix")
 
 -- Route one source to multiple mixers. 
 -- connect() finds the next free slot and returns the layer index.
@@ -125,7 +125,7 @@ amix["gain_" .. layer] = 0.5
 ### Sequencing & Modulation
 Crumble features a stateless, sample-accurate math engine. You can compose complex modulators using functional operators:
 ```lua
-local smp = addNode("AVSampler")
+local smp = addNode("sampler")
 
 -- Composition: Mix a sequence with an LFO
 smp.speed = seq("1 2 4") * osc(0.5)
@@ -144,9 +144,9 @@ smp.cutoff = scale(200, 2000, osc(0.25))
 
 | Function | Description |
 |----------|-------------|
-| `osc(f)` | Sine wave (frequency in cycles-per-bar) |
-| `ramp(f)` | Sawtooth (0.0 to 1.0, frequency in cycles-per-bar) |
-| `noise(s)`| Deterministic stochastic noise (optional seed) |
+| `osc(f)` | Sine wave (frequency `f` in cycles-per-bar) |
+| `ramp(f)` | Sawtooth (0.0 to 1.0, frequency `f` in cycles-per-bar) |
+| `noise(f, s)`| Deterministic stochastic noise (frequency `f`, optional seed `s`) |
 | `seq("...")`| Discrete step sequencer |
 | `fast(n, p)`| Speed up pattern `p` by factor `n` |
 | `slow(n, p)`| Slow down pattern `p` by factor `n` (1/n speed) |
@@ -170,7 +170,7 @@ smp.cutoff = scale(200, 2000, osc(0.25))
 > To modulate at beat rate in 4/4, use `fast(4, osc(1.0))` or simply `osc(4.0)`.
 
 ### Subgraph Composition
-Graphs are recursive: a `Graph` node can contain its own nested graph, loaded from a script.
+Graphs are recursive: a `graph` node can contain its own nested graph, loaded from a script.
 ```lua
 local g = graph("mySubgraph", { script = "scripts/inner.lua" })
 ```
@@ -179,9 +179,9 @@ local g = graph("mySubgraph", { script = "scripts/inner.lua" })
 Subgraphs use special boundary nodes to connect to their parent:
 ```lua
 -- scripts/inner.lua
-local inlet = addNode("Inlet", "in")      -- Receives from parent
-local proc = addNode("Filter", "filter")
-local outlet = addNode("Outlet", "out")   -- Exposes to parent
+local inlet = addNode("inlet", "in")      -- Receives from parent
+local proc = addNode("audiomix", "mix")
+local outlet = addNode("outlet", "out")   -- Exposes to parent
 
 connect(inlet, proc)
 connect(proc, outlet)
@@ -189,7 +189,7 @@ connect(proc, outlet)
 
 In the parent graph, connect to the subgraph as if it were any other node:
 ```lua
-local src = addNode("AudioSource", "src")
+local src = addNode("audio", "src")
 local g = graph("sub", { script = "scripts/inner.lua" })
 connect(src, g)  -- Routes through Inlet/Outlet boundaries
 ```
@@ -200,7 +200,7 @@ Lua's `require()` is available for code organization:
 -- scripts/utils.lua
 local M = {}
 M.makeMixer = function(name)
-    return addNode("AudioMixer", name)
+    return addNode("audiomix", name)
 end
 return M
 
@@ -226,13 +226,15 @@ This enables stable live-coding: editing the current script preserves playback s
 | Category | Type | Alias | Description |
 |----------|------|-------|-------------|
 | **Core** | `Graph` | `graph` | Nested scriptable sub-graph |
+| | `Inlet` | `inlet` | Sub-graph input boundary |
+| | `Outlet` | `outlet` | Sub-graph output boundary |
 | **Video** | `VideoSource` | `video` | High-performance HAP video player |
-| | `VideoMixer` | `vmix` | Multi-layer GPU compositor |
-| | `VideoOutput` | `vout` | Master video sink |
+| | `VideoMixer` | `videomix` | Multi-layer GPU compositor |
+| | `VideoOutput` | `videoout` | Master video sink |
 | **Audio** | `AudioSource` | `audio` | RAM-cached sample player |
-| | `AudioMixer` | `amix` | Multi-channel summation |
-| | `AudioOutput` | `aout` | Master audio sink |
-| **AV** | `AVSampler` | `s` | Unified audio+video player |
+| | `AudioMixer` | `audiomix` | Multi-channel summation |
+| | `AudioOutput` | `audioout` | Master audio sink |
+| **AV** | `AVSampler` | `sampler` | Unified audio+video player |
 
 ## Robustness
 
