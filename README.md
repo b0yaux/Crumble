@@ -2,6 +2,27 @@
 
 Simple audio+video live-scriptable node-graph system built with openFrameworks and Lua.
 
+## Requirements
+
+### macOS
+```bash
+# Install dependencies
+brew install ffmpeg sdl2
+
+# Clone Crumble into your openFrameworks apps folder
+cd /path/to/openFrameworks/apps/myApps
+git clone https://github.com/YOUR_USERNAME/Crumble.git
+
+# Install ofxHapPlayer fork (macOS fix for system ffmpeg)
+cd /path/to/openFrameworks/addons
+git clone https://github.com/b0yaux/ofxHapPlayer.git
+
+# Build
+cd Crumble
+make Release
+make RunRelease
+```
+
 ## Quick Start
 
 ```bash
