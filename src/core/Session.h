@@ -3,6 +3,7 @@
 #include "Graph.h"
 #include "AssetCache.h"
 #include "Transport.h"
+#include "InputManager.h"
 #include "ProcessorCommand.h"
 #include "moodycamel/readerwriterqueue.h"
 #include <vector>
@@ -67,6 +68,9 @@ public:
     Transport& getTransport() { return transport; }
     const Transport& getTransport() const { return transport; }
 
+    // --- Input Manager ---
+    crumble::InputManager& getInputManager() { return inputManager; }
+
     // --- Wait-Free Messaging ---
     void sendCommand(const crumble::ProcessorCommand& cmd);
 
@@ -79,6 +83,7 @@ private:
     Graph graph;
     AssetCache assetCache;
     Transport transport;
+    crumble::InputManager inputManager;
     uint64_t frameCounter = 0;
     ofSoundStream soundStream;
 

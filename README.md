@@ -241,9 +241,69 @@ This enables stable live-coding: editing the current script preserves playback s
 - **Null-Safety**: Setting parameters to `nil` or passing `nil` to routing functions logs a warning without crashing the application.
 - **State Preservation**: The C++ rendering engine remains active and maintains the last valid graph state when a Lua script encounters runtime errors.
 
+## Requirements
+
+### macOS
+- [Homebrew](https://brew.sh)
+- `brew install ffmpeg sdl2`
+
+The video pipeline requires ffmpeg ≥4.0 (Homebrew provides ffmpeg 7.x).
+
 ## Shortcuts
 
 | Key | Action |
 |-----|--------|
 | `G` | Toggle Graph UI |
 | `Cmd+S` | Save current graph state to `main.json` |
+
+## Hardware Input
+
+Crumble supports real-time modulation from MIDI, OSC, and gamepad controllers. Allinput values are normalized to 0.0-1.0.
+
+### MIDI
+
+```lua
+-- Control Change (knobs, faders)
+s1:gain(midi(74, 1))           -- CC74 on channel 1
+
+-- Note velocity (pad strike intensity)
+s1:opacity(midinote(36, 10))   -- Note 36 on channel 10
+
+-- Channel Aftertouch (keyboard pressure)
+s1:speed(channeltouch(1):scale(0.5, 2.0))
+```
+
+### OSC
+
+```lua
+-- Listen on port 8000 (default)
+s1:cutoff(oscin("/filterCutoff"))
+```
+
+### Gamepad
+
+```lua
+-- Semantic button names (Xbox/DualSense layout)
+s1:gain(gpad("a"))             -- A button
+s1:mute(gpad("lb"))             -- Left bumper
+
+-- Analog axes
+s1:speed(gax("ly"):scale(0.5, 2.0))  -- Left stick Y
+
+-- Available constants:
+-- GPAD: A, B, X, Y, LB, RB, BACK, START, GUIDE, LS, RS, UP, DOWN, LEFT, RIGHT
+-- AXIS: LX, LY, RX, RY, LT, RT
+```
+
+### Pattern Composition
+
+All hardware inputs return patterns that can be composed:
+
+```lua
+-- Combine MIDI CC and note velocity
+local mix = midi(82, 1) + midinote(36, 10)
+s1:gain(mix)
+
+-- Scale and transform
+s1:speed(gax("rx"):scale(-2, 2))-- Right stick X mapped to speed
+```

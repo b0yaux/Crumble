@@ -86,6 +86,24 @@ namespace patterns {
         std::shared_ptr<Pattern<float>> pat;
     };
 
+    /**
+     * Abs: Returns the absolute value of a pattern.
+     * Useful for symmetric gamepad axis handling.
+     */
+    class Abs : public Pattern<float> {
+    public:
+        Abs(std::shared_ptr<Pattern<float>> p) : pat(p) {}
+        float eval(double cycle) override {
+            if (!pat) return 0.0f;
+            return std::abs(pat->eval(cycle));
+        }
+        std::string getSignature() const override { 
+            return "abs(" + (pat ? pat->getSignature() : "null") + ")"; 
+        }
+    private:
+        std::shared_ptr<Pattern<float>> pat;
+    };
+
     // --- Combinators ---
 
     /**

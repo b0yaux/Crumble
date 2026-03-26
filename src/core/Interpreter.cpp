@@ -177,6 +177,8 @@ void Interpreter::bindSessionAPI() {
     lua_register(L, "_resolve", lua_resolvePath);
     lua_register(L, "_getBank", lua_getBank);
     lua_register(L, "_setTempo", lua_setTempo);
+    lua_register(L, "_midi", lua_midi);
+    lua_register(L, "_oscin", lua_oscin);
     
     std::string helper = R"(
         session = {}
@@ -306,26 +308,14 @@ void Interpreter::bindSessionAPI() {
                     slow = function(self, n) return makeGen({type="slow", n=n, p=self}) end,
                     shift = function(self, o) return makeGen({type="shift", o=o, p=self}) end,
                     scale = function(self, l, h) return makeGen({type="scale", l=l, h=h, p=self}) end,
-                    snap = function(self, s) return makeGen({type="snap", s=s, p=self}) end
+                    snap = function(self, s) return makeGen({type="snap", s=s, p=self}) end,
+                    abs = function(self) return makeGen({type="abs", p=self}) end
                 }
             }
             return setmetatable(t, GenMeta)
         end
         
-        function osc(freq) return makeGen({type="osc", val=freq or 1.0}) end
-        function ramp(freq) return makeGen({type="ramp", val=freq or 1.0}) end
-        function seq(steps) return makeGen({type="seq", val=steps or "1"}) end
-        function noise(f, s) return makeGen({type="noise", f=f or 1.0, s=s or 0}) end
-        function rand(s) 
-            local x = (s or 0) * 1103515245 + 12345
-            x = (math.floor(x / 65536) % 32768) / 32768.0
-            return x
-        end
-        function fast(n, p) return makeGen({type="fast", n=n, p=p}) end
-        function slow(n, p) return makeGen({type="slow", n=n, p=p}) end
-        function shift(o, p) return makeGen({type="shift", o=o, p=p}) end
-        function scale(l, h, p) return makeGen({type="scale", l=l, h=h, p=p}) end
-        function snap(s, p) return makeGen({type="snap", s=s, p=p}) end
+        _G.makeGen = makeGen
     )";
     lua.doString(helper);
 }
@@ -578,6 +568,44 @@ std::shared_ptr<Pattern<float>> parsePattern(lua_State* L, int index) {
             lua_getfield(L, index, "s"); float s = (float)lua_tonumber(L, -1); lua_pop(L, 1);
             lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
             if (p) return std::make_shared<patterns::Snap>(s, p);
+        } else if (genType == "abs") {
+            lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
+            if (p) return std::make_shared<patterns::Abs>(p);
+        } else if (genType == "midi") {
+            lua_getfield(L, index, "cc"); int cc = (int)lua_tonumber(L, -1); lua_pop(L, 1);
+            lua_getfield(L, index, "chan"); int chan = (int)lua_tonumber(L, -1); lua_pop(L, 1);
+            auto* ptr = Interpreter::s_currentSession->getInputManager().getMidiBinding(0, chan, cc);
+            return std::make_shared<patterns::External>(ptr, "midi:cc:" + std::to_string(chan) + ":" + std::to_string(cc));
+        } else if (genType == "midinote") {
+            lua_getfield(L, index, "note"); int note = (int)lua_tonumber(L, -1); lua_pop(L, 1);
+            lua_getfield(L, index, "chan"); int chan = (int)lua_tonumber(L, -1); lua_pop(L, 1);
+            auto* ptr = Interpreter::s_currentSession->getInputManager().getMidiBinding(1, chan, note);
+            return std::make_shared<patterns::External>(ptr, "midi:note:" + std::to_string(chan) + ":" + std::to_string(note));
+        } else if (genType == "miditouch") {
+            lua_getfield(L, index, "note"); int note = (int)lua_tonumber(L, -1); lua_pop(L, 1);
+            lua_getfield(L, index, "chan"); int chan = (int)lua_tonumber(L, -1); lua_pop(L, 1);
+            auto* ptr = Interpreter::s_currentSession->getInputManager().getMidiBinding(2, chan, note);
+            return std::make_shared<patterns::External>(ptr, "midi:touch:" + std::to_string(chan) + ":" + std::to_string(note));
+        } else if (genType == "channeltouch") {
+            lua_getfield(L, index, "chan"); int chan = (int)lua_tonumber(L, -1); lua_pop(L, 1);
+            std::string path = "midi:ctouch:" + std::to_string(chan);
+            auto* ptr = Interpreter::s_currentSession->getInputManager().getBinding(path);
+            return std::make_shared<patterns::External>(ptr, path);
+        } else if (genType == "oscin") {
+            lua_getfield(L, index, "path"); std::string path = lua_tostring(L, -1); lua_pop(L, 1);
+            std::string fullPath = "osc:" + path;
+            auto* ptr = Interpreter::s_currentSession->getInputManager().getBinding(fullPath);
+            return std::make_shared<patterns::External>(ptr, fullPath);
+        } else if (genType == "gamepadbutton") {
+            lua_getfield(L, index, "id"); int id = (int)lua_tonumber(L, -1); lua_pop(L, 1);
+            std::string path = "gamepad:button:" + std::to_string(id);
+            auto* ptr = Interpreter::s_currentSession->getInputManager().getBinding(path);
+            return std::make_shared<patterns::External>(ptr, path);
+        } else if (genType == "gamepadaxis") {
+            lua_getfield(L, index, "id"); int id = (int)lua_tonumber(L, -1); lua_pop(L, 1);
+            std::string path = "gamepad:axis:" + std::to_string(id);
+            auto* ptr = Interpreter::s_currentSession->getInputManager().getBinding(path);
+            return std::make_shared<patterns::External>(ptr, path);
         }
     }
     return nullptr;
@@ -588,3 +616,6 @@ int Interpreter::lua_setTempo(lua_State* L) {
     s_currentSession->getTransport().bpm = (float)luaL_checknumber(L, 1);
     return 0;
 }
+
+int Interpreter::lua_midi(lua_State* L) { return 0; }
+int Interpreter::lua_oscin(lua_State* L) { return 0; }

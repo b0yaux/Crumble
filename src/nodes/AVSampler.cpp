@@ -223,21 +223,6 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
         auto pat = getPattern("opacity");
         videoSource.modulate("opacity", pat);
         videoSource.onParameterChanged("opacity");
-    } else if (paramName == "loop") {
-        audioSource.loop.set(loop.get());
-        videoSource.loop.set(loop.get());
-        audioSource.onParameterChanged("loop");
-        videoSource.onParameterChanged("loop");
-    } else if (paramName == "playing") {
-        audioSource.playing.set(playing.get());
-        videoSource.playing.set(playing.get());
-        audioSource.onParameterChanged("playing");
-        videoSource.onParameterChanged("playing");
-    } else if (paramName == "position") {
-        if (!isInternalChange) {
-            audioSource.setRelativePosition(position.get());
-            videoSource.setPosition(position.get());
-        }
     } else if (paramName == "active") {
         bool isActive = active->get();
         audioSource.active->set(isActive);

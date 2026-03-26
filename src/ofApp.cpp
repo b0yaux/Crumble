@@ -22,6 +22,7 @@ void ofApp::setup(){
     const auto& config = ConfigManager::get().getConfig();
     
     crumble::registerNodes(session);
+    session.getInputManager().setup();
     interpreter.setup(&session);
     
     std::string scriptToRun = m_scriptOverride.empty() 
@@ -103,6 +104,7 @@ void ofApp::checkLiveReload() {
 }
 
 void ofApp::update(){
+    session.getInputManager().update();
     session.update(ofGetLastFrameTime());
     interpreter.update(session.getTransport());
     checkLiveReload();

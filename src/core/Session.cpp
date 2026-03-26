@@ -111,7 +111,6 @@ void Session::audioOut(ofSoundBuffer& buffer) {
             case crumble::ProcessorCommand::SET_PATTERN:
                 if (alive(ap) && ap->nodeId == cmd.nodeId) {
                     ap->setControl(cmd.paramHash, cmd.value, cmd.pattern, cmd.displacedPattern);
-                    // Move the command to the garbage queue so displacedPattern is destroyed on the main thread
                     commandGarbageQueue.enqueue(std::move(cmd));
                 }
                 break;

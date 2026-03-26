@@ -36,6 +36,8 @@ public:
     // Execute a script in a nested graph context (static, callable from Session)
     static void executeInNestedGraph(const std::string& path, Graph* nestedGraph);
     
+    static Session* s_currentSession;
+
     // Execute multiple scripts in order
     bool runScripts(const std::vector<std::string>& paths);
     
@@ -57,7 +59,6 @@ private:
     
     // Context stack for nested graph execution
     static thread_local std::vector<Graph*> s_graphStack;
-    static Session* s_currentSession;
     
     // RAII helper for graph context switching
     struct GraphContext {
@@ -80,4 +81,6 @@ private:
     static int lua_setActive(lua_State* L);
     static int lua_getBank(lua_State* L);
     static int lua_setTempo(lua_State* L);
+    static int lua_midi(lua_State* L);
+    static int lua_oscin(lua_State* L);
 };

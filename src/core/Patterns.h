@@ -4,6 +4,7 @@
 #include <sstream>
 #include <cmath>
 #include <memory>
+#include <atomic>
 
 /**
  * Pattern: A stateless mathematical mapping of cycle (0.0-1.0) to value.
@@ -125,5 +126,22 @@ namespace patterns {
         std::string raw;
         std::vector<float> steps;
     };
-}
 
+    /**
+     * External: A proxy for real-time external inputs (MIDI, OSC, Gamepad).
+     * Ignores the cycle argument and pulls directly from an atomic float.
+     */
+    class External : public Pattern<float> {
+    public:
+        External(std::atomic<float>* ptr, const std::string& label = "") 
+            : source(ptr), name(label) {}
+        
+        float eval(double cycle) override {
+            return source ? source->load(std::memory_order_acquire) : 0.0f;
+        }
+        std::string getSignature() const override { return "ext:" + name; }
+    private:
+        std::atomic<float>* source;
+        std::string name;
+    };
+}
