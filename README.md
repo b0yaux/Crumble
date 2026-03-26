@@ -249,6 +249,16 @@ This enables stable live-coding: editing the current script preserves playback s
 
 The video pipeline requires ffmpeg ≥4.0 (Homebrew provides ffmpeg 7.x).
 
+#### ofxHapPlayer Setup
+
+The bundled ffmpeg in ofxHapPlayer (v58) conflicts with system ffmpeg (v62+). Fix:
+
+```bash
+# Disable bundled ffmpeg/snappy libs (conflict with system ffmpeg)
+mv addons/ofxHapPlayer/libs/ffmpeg/lib/osx addons/ofxHapPlayer/libs/ffmpeg/lib/osx.disabled
+mv addons/ofxHapPlayer/libs/snappy/lib/osx addons/ofxHapPlayer/libs/snappy/lib/osx.disabled
+```
+
 ## Shortcuts
 
 | Key | Action |
