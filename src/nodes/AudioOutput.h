@@ -1,9 +1,9 @@
 #pragma once
 #include "../core/Node.h"
 
-class SpeakersOutput : public Node {
+class AudioOutput : public Node {
 public:
-    SpeakersOutput();
+    AudioOutput();
     
     crumble::AudioProcessor* createAudioProcessor() override;
     void setupProcessor() override;

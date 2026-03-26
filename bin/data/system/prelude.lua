@@ -1,20 +1,27 @@
--- stdlib.lua
+-- prelude.lua
 -- Crumble Standard Library for Declarative Node Construction
 
 -- Core Audio / Video Generators & Sources
-function sampler(name, params) return addNode("AVSampler", name, params) end
-function audio(name, params) return addNode("AudioFileSource", name, params) end
-function video(name, params) return addNode("VideoFileSource", name, params) end
+function sampler(n, p) return addNode("sampler", n, p, "sampler") end
+function audio(n, p)   return addNode("audio", n, p, "audio") end
+function video(n, p)   return addNode("video", n, p, "video") end
 
 -- Mixers
-function audiomix(name, params) return addNode("AudioMixer", name, params) end
-function videomix(name, params) return addNode("VideoMixer", name, params) end
+function audiomix(n, p) return addNode("audiomix", n, p, "audiomix") end
+function videomix(n, p) return addNode("videomix", n, p, "videomix") end
 
 -- Outputs
-function audioout(name, params) return addNode("SpeakersOutput", name, params) end
-function videoout(name, params) return addNode("ScreenOutput", name, params) end
+function audioout(n, p) return addNode("audioout", n, p, "audioout") end
+function videoout(n, p) return addNode("videoout", n, p, "videoout") end
 
--- Subgraphs
-function inlet(name, params) return addNode("Inlet", name, params) end
-function outlet(name, params) return addNode("Outlet", name, params) end
-function sub(name, params) return addNode("Graph", name, params) end
+-- Subgraphs / Modular Nodes
+function inlet(n, p)  return addNode("inlet", n, p, "inlet") end
+function outlet(n, p) return addNode("outlet", n, p, "outlet") end
+function graph(n, p)  return addNode("graph", n, p, "graph") end
+
+-- Mini-Notation Aliases (Performer Shorthands)
+function amix(n, p) return addNode("audiomix", n, p, "amix") end
+function vmix(n, p) return addNode("videomix", n, p, "vmix") end
+function aout(n, p) return addNode("audioout", n, p, "aout") end
+function vout(n, p) return addNode("videoout", n, p, "vout") end
+function s(n, p)    return addNode("sampler",  n, p, "s")    end

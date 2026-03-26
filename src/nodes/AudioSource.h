@@ -9,13 +9,13 @@ namespace crumble {
 }
 
 /**
- * AudioFileSource node using ofxAudioFile via AssetCache.
+ * AudioSource node using ofxAudioFile via AssetCache.
  * Decouples RAM buffers from the node lifecycle.
  */
-class AudioFileSource : public Node {
+class AudioSource : public Node {
 public:
-    AudioFileSource();
-    ~AudioFileSource();
+    AudioSource();
+    ~AudioSource();
     
     // Performance: Members made public to allow AVSampler direct pointer access
     ofParameter<std::string> path;

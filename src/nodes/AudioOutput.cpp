@@ -1,15 +1,15 @@
-#include "SpeakersOutput.h"
+#include "AudioOutput.h"
 #include "ofMain.h"
 #include "../core/ProcessorCommand.h"
 #include "../core/NodeProcessor.h"
 
 using namespace crumble;
 
-class SpeakersOutputProcessor : public AudioProcessor {
+class AudioOutputProcessor : public AudioProcessor {
 public:
     ControlSlot* masterGainSlot = nullptr;
 
-    SpeakersOutputProcessor() {
+    AudioOutputProcessor() {
         masterGainSlot = getControlPtr(crumble::hashString("gain"));
     }
     
@@ -33,22 +33,16 @@ public:
     }
 };
 
-SpeakersOutput::SpeakersOutput() {
-    type = "SpeakersOutput";
-    // NOTE: setupProcessor() is NOT called here.
-    // Graph::createNode() calls it after nodeId is assigned.
+AudioOutput::AudioOutput() {
+    type = "audioout";
 }
 
-AudioProcessor* SpeakersOutput::createAudioProcessor() {
-    return new SpeakersOutputProcessor();
+AudioProcessor* AudioOutput::createAudioProcessor() {
+    return new AudioOutputProcessor();
 }
 
-void SpeakersOutput::setupProcessor() {
-    // Let the base class create the processor and send ADD_NODE
+void AudioOutput::setupProcessor() {
     Node::setupProcessor();
-    // Self-register as a session-driven audio endpoint via the wait-free command
-    // queue. pushCommand fills in audioProcessor automatically — no direct
-    // Session coupling needed here.
     if (audioProcessor) {
         crumble::ProcessorCommand cmd;
         cmd.type = crumble::ProcessorCommand::REGISTER_ENDPOINT;
@@ -56,7 +50,6 @@ void SpeakersOutput::setupProcessor() {
     }
 }
 
-void SpeakersOutput::onParameterChanged(const std::string& paramName) {
-    // Node::onParameterChanged handles all params generically via slotMap.
+void AudioOutput::onParameterChanged(const std::string& paramName) {
     Node::onParameterChanged(paramName);
 }

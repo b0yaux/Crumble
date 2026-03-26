@@ -1,9 +1,8 @@
-#include "ScreenOutput.h"
+#include "VideoOutput.h"
 #include "ofMain.h"
 
-
-ScreenOutput::ScreenOutput() {
-    type = "ScreenOutput";
+VideoOutput::VideoOutput() {
+    type = "videoout";
     canDraw = true;
     
     parameters->add(enabled.set("enabled", true));
@@ -19,14 +18,14 @@ ScreenOutput::ScreenOutput() {
     parameters->add(height.set("height", defaultH, 1, 4096));
 }
 
-void ScreenOutput::setup(float posX, float posY, float w, float h) {
+void VideoOutput::setup(float posX, float posY, float w, float h) {
     x = posX;
     y = posY;
     width = w;
     height = h;
 }
 
-void ScreenOutput::update(float dt) {
+void VideoOutput::update(float dt) {
     if (autoFullscreen) {
         x = 0;
         y = 0;
@@ -38,8 +37,6 @@ void ScreenOutput::update(float dt) {
     sourceOpacity = 1.0f;
     if (!enabled) return;
     
-    // Pull input texture from connected node via Node abstraction
-    // (avoids coupling to Graph.h)
     Node* sourceNode = getInputNode(0);
     
     if (sourceNode) {
@@ -49,15 +46,12 @@ void ScreenOutput::update(float dt) {
     }
 }
 
-void ScreenOutput::draw() {
+void VideoOutput::draw() {
     if (!enabled) return;
     
     if (!inputTexture || !inputTexture->isAllocated()) {
-        // Draw a dark gray background to indicate the node is active but has no input
         ofSetColor(40);
         ofDrawRectangle(x, y, width, height);
-        
-        // Optionally draw an indicator
         ofSetColor(200);
         ofDrawBitmapString("No Input", x + width/2 - 30, y + height/2);
         return;

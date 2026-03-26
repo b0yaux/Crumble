@@ -42,119 +42,202 @@ Run multiple Crumble instances with different scripts:
 - **Node**: A single processing unit (video player, mixer, output).
 - **Graph**: A recursive container. **Graphs are Nodes**, enabling infinite recursion.
 - **Session**: Manages the root graph lifecycle and hardware audio/video streams.
-- **Deterministic Reloads**: Auto-naming counters reset on every script execution, ensuring stable node identity during live-coding.
 
 ## Architecture
 
 Crumble uses a **Shadow Processor** architecture to decouple slow UI/Lua logic from the real-time audio and video threads.
 
 ```text
-Session (Root Context)
-├── AudioThread: AudioProcessor (Wait-free DSP)
+Session (Root Container: Hardware & Threading)
+├── Transport (Musical Clock & Phase)
+├── AudioThread: AudioProcessor (Wait-free Audio DSP)
 ├── MainThread: VideoProcessor (GPU Compositing)
-├── Interpreter (Lua DSL & Alias-Aware Auto-Naming)
-├── Registry (Unified Node Factory)
-├── Graph (Recursive topology)
-└── AssetRegistry (Logical VFS)
+├── Patterns (Stateless logic: cycle -> value shapes)
+├── Graph (Recursive topology & Node lifecycle)
+│   └── Node (Atomic processing units)
+│       ├── Parameters (Stateful control)
+│       └── Modulators (Pattern assignments)
+├── Interpreter (Lua DSL & Bindings)
+├── AssetRegistry (Logical VFS: Banks & Asset discovery)
+└── AssetCache (Deduplicated RAM storage)
 ```
 
 ### Key Components
 
-- **Interpreter**: The Lua runtime with a dual-tier library: standard names and "performer shorthands" (mini-notation).
-- **Registry**: Central node factory using unified lowercase keys and C++ class mapping.
-- **Shadow Processors**: Internal high-performance workers using wait-free SPSC queues to guarantee glitch-free performance.
+- **Patterns**: Stateless recipes (`cycle -> value`) used for sample-accurate modulation.
+- **Interpreter**: The Lua runtime that parses and executes live-coding scripts.
+- **AssetRegistry**: A logical mapping layer that handles media discovery, banks, and automatic A/V pairing.
+- **AssetCache**: A global registry that deduplicates media files and caches RAM buffers for efficiency.
+- **Shadow Processors**: Internal high-performance workers that decouple C++ processing from Lua, using wait-free SPSC queues.
 
 ## Data Types & Flows
 
-Crumble uses a two-phase **Push-Pull** model to ensure sample-accurate sync between patterns, audio, and GPU video.
+Crumble uses a two-phase **Push-Pull** model to ensure sample-accurate sync between mathematical patterns, high-fidelity audio, and GPU-accelerated video.
 
 ### 1. The Push Phase (Sync & Control)
 The Session pushes a **Timing Context** to all nodes at the start of every hardware block.
 - **Type (`Control`)**: A vectorized block of `float` values (**K-rate**).
-- **The Flow**: Nodes pre-calculate `Patterns` into high-speed buffers, enabling **Sample-Accurate Modulation**.
+- **The Flow**: Nodes pre-calculate their mathematical `Patterns` into high-speed buffers.
+- **The Potential**: This **bridges the gap** between slow Lua logic and fast C++ DSP. It enables **Sample-Accurate Modulation**, where a parameter (like `speed` or `filter`) can change its value for every single audio sample.
 
 ### 2. The Pull Phase (Signal Processing)
-Data is pulled through the graph only when an output device demands it.
-- **Audio (`ofSoundBuffer`)**: Multi-channel floating-point PCM pulled by `AudioOutput`.
-- **Video (`ofTexture*`)**: GPU-resident textures pulled by `VideoOutput`. This "Zero-Copy" flow enables high-performance mixing.
+Data is pulled through the graph only when an output device (Speakers/Screen) demands it.
+- **Audio (`ofSoundBuffer`)**: Multi-channel **floating-point PCM**. The hardware thread recursively requests nodes to fill the buffer (**Active Fill**), performing high-fidelity signal summation in real-time.
+- **Video (`ofTexture*`)**: Pointers to **GPU-resident textures**. Sinks pull data from their sources on-demand (**Passive Pull**). This "Zero-Copy" flow enables high-performance mixing by referencing GPU memory rather than copying pixel data.
 
 ## Media Management
 
-Crumble features a **Logical Media Engine** that decouples scripts from physical file locations.
+Crumble features a **Logical Media Engine** that decouples scripts from physical file locations. Configure libraries in `config.json` via `searchPaths`.
 
 ### Unified Asset Loading
-- **Bank Index**: `s1.path = "drums:5"`
-- **Logical Name**: `s1.path = "birds"`
+Load media into nodes using logical strings:
+- **Bank Index**: `node.path = "drums:5"` (6th asset in the 'drums' folder).
+- **Logical Name**: `node.path = "birds"` (Finds associated media files named 'birds').
+- **Direct Path**: `node.path = "clips/loop.mov"` (Standard file path resolution).
 
-## Lua DSL
-
-### Concise Construction
-Crumble supports both descriptive factory functions and performer shorthands.
-
+### Data-Driven Scripts
+Query the `AssetRegistry` directly to build generative graphs based on folder contents:
 ```lua
--- Standard Tier
-local smp = sampler("kick", { path = "drums:0" })
-
--- Performer Tier (Auto-names to "s1", "s2", etc.)
-local s1 = s({ path = "perc:2", gain = 0.8 })
-local a1 = amix() 
-
--- Method Chaining
-s1:gain(osc(0.5)):connect(a1)
+local assets = getBank("my-folder")
+for i, asset in ipairs(assets) do
+    local s = addNode("AVSampler", asset.name)
+    s.path = asset.path -- e.g. "my-folder:0"
+end
 ```
 
-### Routing
+## Lua API
+
+### Graph Construction & Routing
+Crumble supports **Auto-Indexing** and **Table Routing** for concise graph setup.
 ```lua
--- connect() returns the assigned input slot index
-local layer = s1:connect(amix)
+local sampler = addNode("AVSampler", "s1")
+local vmix = addNode("VideoMixer", "vmix")
+local amix = addNode("AudioMixer", "amix")
+
+-- Route one source to multiple mixers. 
+-- connect() finds the next free slot and returns the layer index.
+local layer = connect(sampler, {vmix, amix})
+
+vmix["opacity_" .. layer] = 0.5
 amix["gain_" .. layer] = 0.5
 ```
 
-### Modulation
+### Sequencing & Modulation
+Crumble features a stateless, sample-accurate math engine. You can compose complex modulators using functional operators:
 ```lua
--- Sample-accurate math engine
-s1.speed = seq("1 2 4") * osc(0.5)
-s1.gain = ramp(1):scale(0, 1):snap(4)
+local smp = addNode("AVSampler")
+
+-- Composition: Mix a sequence with an LFO
+smp.speed = seq("1 2 4") * osc(0.5)
+
+-- Time Warping: Play a sequence at double speed
+smp.speed = fast(2, seq("1 0.5 2 0.25"))
+
+-- Generative Logic: Quantize a sine wave into 4 discrete steps
+smp.volume = snap(4, osc(1.0))
+
+-- Mapping: Scale a 0-1 LFO to a specific range (e.g. 200Hz to 2000Hz)
+smp.cutoff = scale(200, 2000, osc(0.25))
 ```
 
 #### Pattern Library
 
 | Function | Description |
 |----------|-------------|
-| `osc(f)` | Sine wave (cycles-per-bar) |
-| `ramp(f)` | Sawtooth (0.0 to 1.0) |
-| `noise(f)`| Smooth dynamic modulation |
+| `osc(f)` | Sine wave (frequency in cycles-per-bar) |
+| `ramp(f)` | Sawtooth (0.0 to 1.0, frequency in cycles-per-bar) |
+| `noise(s)`| Deterministic stochastic noise (optional seed) |
 | `seq("...")`| Discrete step sequencer |
+| `fast(n, p)`| Speed up pattern `p` by factor `n` |
+| `slow(n, p)`| Slow down pattern `p` by factor `n` (1/n speed) |
+| `shift(o, p)`| Offset phase by `o` (0.0 to 1.0) |
+| `scale(l, h, p)`| Map pattern range to [low, high] |
+| `snap(s, p)`| Quantize output into `s` steps |
+| `p1 * p2` | Multiply two patterns (Amplitude Modulation) |
+| `p1 + p2` | Add two patterns (Offset/Mixing) |
 
-| Method | Description |
-|--------|-------------|
-| `.fast(n)`| Speed up pattern |
-| `.shift(o)`| Offset phase |
-| `.scale(l, h)`| Map range |
-| `.snap(s)`| Quantize steps |
+> **Timing contract:** All pattern frequencies are in **cycles per bar**.
+> `Transport.cycle` advances at `bpm / beatsPerBar` beats-per-second, wrapping
+> once per bar. The default is `beatsPerBar = 4` (common time). Change it for
+> other time signatures:
+>
+> | `beatsPerBar` | Time sig | Bar length at 120 BPM | `osc(1.0)` rate |
+> |---|---|---|---|
+> | 4 (default) | 4/4 | 2.0 s | 0.5 Hz |
+> | 3 | 3/4 | 1.5 s | 0.67 Hz |
+> | 5 | 5/4 | 2.5 s | 0.4 Hz |
+>
+> To modulate at beat rate in 4/4, use `fast(4, osc(1.0))` or simply `osc(4.0)`.
+
+### Subgraph Composition
+Graphs are recursive: a `Graph` node can contain its own nested graph, loaded from a script.
+```lua
+local g = graph("mySubgraph", { script = "scripts/inner.lua" })
+```
+
+#### Inlet/Outlet Boundary Nodes
+Subgraphs use special boundary nodes to connect to their parent:
+```lua
+-- scripts/inner.lua
+local inlet = addNode("Inlet", "in")      -- Receives from parent
+local proc = addNode("Filter", "filter")
+local outlet = addNode("Outlet", "out")   -- Exposes to parent
+
+connect(inlet, proc)
+connect(proc, outlet)
+```
+
+In the parent graph, connect to the subgraph as if it were any other node:
+```lua
+local src = addNode("AudioSource", "src")
+local g = graph("sub", { script = "scripts/inner.lua" })
+connect(src, g)  -- Routes through Inlet/Outlet boundaries
+```
+
+### Module System
+Lua's `require()` is available for code organization:
+```lua
+-- scripts/utils.lua
+local M = {}
+M.makeMixer = function(name)
+    return addNode("AudioMixer", name)
+end
+return M
+
+-- scripts/main.lua
+local utils = require("utils")
+local mix = utils.makeMixer("mainMix")
+```
+
+> **Note:** All required modules share the same global namespace. Node names must be unique across all loaded modules.
+
+### Live Reload Behavior
+
+| Trigger | Behavior |
+|---------|----------|
+| `.lua` file saved | Hot-reload: existing nodes keep state, new nodes created, removed nodes deleted |
+| `entryScript` changed in `config.json` | Full reset: graph cleared, new script starts fresh |
+| `config.json` saved | Reload configuration |
+
+This enables stable live-coding: editing the current script preserves playback state, while switching to a different script provides a clean slate.
 
 ## Node Reference
 
 | Category | Type | Alias | Description |
 |----------|------|-------|-------------|
-| **Core** | `Graph` | `sub` | Nested scriptable sub-graph |
-| **Video** | `VideoSource` | `v` | HAP video player |
-| | `VideoMixer` | `vmix` | GPU compositor |
+| **Core** | `Graph` | `graph` | Nested scriptable sub-graph |
+| **Video** | `VideoSource` | `video` | High-performance HAP video player |
+| | `VideoMixer` | `vmix` | Multi-layer GPU compositor |
 | | `VideoOutput` | `vout` | Master video sink |
-| **Audio** | `AudioSource` | `s` | RAM-cached sample player |
+| **Audio** | `AudioSource` | `audio` | RAM-cached sample player |
 | | `AudioMixer` | `amix` | Multi-channel summation |
 | | `AudioOutput` | `aout` | Master audio sink |
-| **AV** | `AVSampler` | `av` | Unified A/V playback |
+| **AV** | `AVSampler` | `s` | Unified audio+video player |
 
 ## Robustness
-- **Null-Safety**: Setting parameters to `nil` is safe.
-- **State Preservation**: The C++ engine maintains the last valid graph state during Lua errors.
 
-## Shortcuts
-| Key | Action |
-|-----|--------|
-| `G` | Toggle Graph UI |
-| `Cmd+S` | Save state to `main.json` |
+- **Null-Safety**: Setting parameters to `nil` or passing `nil` to routing functions logs a warning without crashing the application.
+- **State Preservation**: The C++ rendering engine remains active and maintains the last valid graph state when a Lua script encounters runtime errors.
 
 ## Shortcuts
 

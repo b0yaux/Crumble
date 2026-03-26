@@ -1,7 +1,7 @@
 #include "ofMain.h"
 #include "Session.h"
 #include "NodeProcessor.h"
-#include "../nodes/SpeakersOutput.h"
+#include "../nodes/AudioOutput.h"
 #include <algorithm>
 
 Session* g_session = nullptr;

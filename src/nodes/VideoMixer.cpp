@@ -98,7 +98,7 @@ private:
 } // namespace crumble
 
 VideoMixer::VideoMixer() {
-    type = "VideoMixer";
+    type = "videomix";
     
     // Add parameters
     parameters->add(numActiveLayers.set("numLayers", 2, 1, 128));

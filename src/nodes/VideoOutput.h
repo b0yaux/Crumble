@@ -1,11 +1,11 @@
 #pragma once
 #include "../core/Node.h"
 
-// Screen output sink node
+// Video output sink node
 // Simply draws the input texture to the screen
-class ScreenOutput : public Node {
+class VideoOutput : public Node {
 public:
-    ScreenOutput();
+    VideoOutput();
     
     void setup(float x, float y, float w, float h);
     void update(float dt) override;

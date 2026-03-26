@@ -66,7 +66,7 @@ bool Interpreter::runScript(const std::string& path) {
     session->beginScript();
     
     // Reset auto-indexing and connections for idempotency
-    lua.doString("_autoIndices = {}");
+    lua.doString("_autoIndices = {}; _autoNames = {}");
     session->getGraph().markConnectionsStale();
     
     bool success = lua.doScript(path, true);
@@ -84,6 +84,9 @@ bool Interpreter::runScriptInGraph(const std::string& path, Graph* nestedGraph) 
     
     s_currentSession = session;
     GraphContext ctx(nestedGraph);
+    
+    // Reset auto-indexing for nested graph execution
+    lua.doString("_autoIndices = {}; _autoNames = {}");
     
     bool success = lua.doScript(path, true);
     
@@ -228,11 +231,12 @@ void Interpreter::bindSessionAPI() {
         function getBank(name) return _getBank(name) end
         
         _G._autoNames = {}
-        local function addNodeInternal(t, n)
+        local function addNodeInternal(t, n, p)
             local nodeName = n
             if not nodeName or nodeName == "" then
-                _G._autoNames[t] = (_G._autoNames[t] or 0) + 1
-                nodeName = t:lower() .. _G._autoNames[t]
+                local prefix = (p or t):lower()
+                _G._autoNames[prefix] = (_G._autoNames[prefix] or 0) + 1
+                nodeName = prefix .. _G._autoNames[prefix]
             end
             local id = _addNode(t, nodeName)
             if id then
@@ -245,10 +249,10 @@ void Interpreter::bindSessionAPI() {
             return nil
         end
 
-        function addNode(type, name, params)
+        function addNode(type, name, params, prefix)
             local nodeName = _G.type(name) == "table" and "" or name
             local nodeParams = _G.type(name) == "table" and name or params
-            local node = addNodeInternal(type, nodeName)
+            local node = addNodeInternal(type, nodeName, prefix)
             if node and nodeParams and _G.type(nodeParams) == "table" then
                 for k, v in pairs(nodeParams) do
                     node[k] = v

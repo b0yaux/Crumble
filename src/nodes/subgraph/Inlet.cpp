@@ -24,8 +24,8 @@ public:
 };
 
 Inlet::Inlet() {
-    type = "Inlet";
-    name = "Inlet";
+    type = "inlet";
+    name = "inlet";
     parameters->add(inletIndex.set("inletIndex", 0, 0, 16));
 }
 

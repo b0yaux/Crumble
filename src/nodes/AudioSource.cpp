@@ -1,11 +1,11 @@
 #include "ofMain.h"
-#include "AudioFileSource.h"
+#include "AudioSource.h"
 #include "../core/ProcessorCommand.h"
 #include "../core/NodeProcessor.h"
 
 namespace crumble {
 
-class AudioFileProcessor : public AudioProcessor {
+class AudioSourceProcessor : public AudioProcessor {
 public:
     ControlSlot* playingSlot = nullptr;
     ControlSlot* activeSlot = nullptr;
@@ -13,7 +13,7 @@ public:
     ControlSlot* speedSlot = nullptr;
     ControlSlot* gainSlot = nullptr;
 
-    AudioFileProcessor() {
+    AudioSourceProcessor() {
         playingSlot = getControlPtr(crumble::hashString("playing"));
         activeSlot = getControlPtr(crumble::hashString("active"));
         loopSlot = getControlPtr(crumble::hashString("loop"));
@@ -23,17 +23,13 @@ public:
 
     void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
                  double cycle, double cycleStep) override {
-        // Use name-based lookup — no more index confusion!
         if (!data || totalSamples == 0 || evalSlot(playingSlot, cycle) < 0.5f || evalSlot(activeSlot, cycle) < 0.5f) return;
 
         bool loop = evalSlot(loopSlot, cycle) > 0.5f;
-
         double currentPlayhead = playhead.load();
 
         for (size_t i = 0; i < buffer.getNumFrames(); i++) {
             double sampleCycle = cycle + i * cycleStep;
-
-            // Evaluate speed and gain by name — falls back to scalar if no pattern installed
             float speed = evalSlot(speedSlot, sampleCycle);
             float gain  = evalSlot(gainSlot, sampleCycle);
 
@@ -55,22 +51,17 @@ public:
                 currentPlayhead = ofClamp(currentPlayhead, 0.0, (double)totalSamples);
             }
         }
-
         playhead.store(currentPlayhead);
     }
     
     void handleCommand(const ProcessorCommand& cmd) override {
         if (cmd.type == ProcessorCommand::LOAD_BUFFER) {
-            // Store the lifetime anchor first so the data pointer is never
-            // valid without the underlying buffer being kept alive.
             dataOwner   = cmd.dataOwner;
             data        = cmd.audioData;
             totalSamples = cmd.totalSamples;
             channels    = cmd.channels;
             playhead.store(0.0);
         } else if (cmd.type == ProcessorCommand::RELEASE_BUFFER) {
-            // Zero the raw pointer before releasing the owner so there is
-            // never a window where data is non-null but the buffer is freed.
             data        = nullptr;
             totalSamples = 0;
             channels    = 0;
@@ -84,19 +75,12 @@ public:
     int channels = 0;
 
 private:
-    // Keeps the ofxAudioFile buffer alive for as long as this processor
-    // holds a reference, regardless of what the UI thread does with the
-    // originating AudioFileSource.
     std::shared_ptr<void> dataOwner;
 };
 
 } // namespace crumble
 
-AudioFileSource::~AudioFileSource() {
-    // Send RELEASE_BUFFER before ~Node() sends REMOVE_NODE.
-    // This lets the AudioFileProcessor zero its data pointer and release its
-    // dataOwner reference in the correct order: the raw pointer is cleared
-    // first, then the owning shared_ptr, then the processor is unregistered.
+AudioSource::~AudioSource() {
     if (audioProcessor) {
         crumble::ProcessorCommand cmd;
         cmd.type = crumble::ProcessorCommand::RELEASE_BUFFER;
@@ -104,89 +88,73 @@ AudioFileSource::~AudioFileSource() {
     }
 }
 
-AudioFileSource::AudioFileSource() {
-    type = "AudioFileSource";
+AudioSource::AudioSource() {
+    type = "audio";
     parameters->add(path.set("path", ""));
     parameters->add(speed.set("speed", 1.0, -4.0, 4.0));
     parameters->add(loop.set("loop", true));
     parameters->add(playing.set("playing", true));
-    path.addListener(this, &AudioFileSource::onPathChanged);
-    // NOTE: setupProcessor() is NOT called here.
-    // When used standalone, Graph::createNode() -> ptr->setupProcessor() handles it.
-    // When used as AVSampler::audioSource, AVSampler::createProcessor() sets the
-    // processor directly to avoid a double ADD_NODE / ghost processor leak.
+    path.addListener(this, &AudioSource::onPathChanged);
 }
 
-crumble::AudioProcessor* AudioFileSource::createAudioProcessor() {
-    return new crumble::AudioFileProcessor();
+crumble::AudioProcessor* AudioSource::createAudioProcessor() {
+    return new crumble::AudioSourceProcessor();
 }
 
-void AudioFileSource::processAudio(ofSoundBuffer& buffer, int index) {
-    // DSP is handled by AudioFileProcessor
-}
+void AudioSource::processAudio(ofSoundBuffer& buffer, int index) {}
 
-std::string AudioFileSource::getDisplayName() const {
+std::string AudioSource::getDisplayName() const {
     if (path.get().empty()) return "Empty Audio";
     return ofFilePath::getFileName(path.get());
 }
 
-ofJson AudioFileSource::serialize() const {
+ofJson AudioSource::serialize() const {
     ofJson j;
     ofSerialize(j, *parameters);
     return j;
 }
 
-void AudioFileSource::deserialize(const ofJson& json) {
+void AudioSource::deserialize(const ofJson& json) {
     ofDeserialize(json, *parameters);
 }
 
-void AudioFileSource::onPathChanged(std::string& p) {
+void AudioSource::onPathChanged(std::string& p) {
     if (!p.empty() && p != loadedPath) {
         load(p);
     }
 }
 
-void AudioFileSource::load(const std::string& p) {
-    // Delegate to AssetCache — deduplicates RAM buffers when multiple nodes
-    // reference the same file, and handles logical-alias resolution internally.
-    // Proxying through getAudioAsset avoids direct coupling to the cache implementation.
+void AudioSource::load(const std::string& p) {
     sharedLoader = getAudioAsset(p);
-
     if (sharedLoader && sharedLoader->loaded()) {
         loadedPath = p;
-
         crumble::ProcessorCommand cmd;
         cmd.type         = crumble::ProcessorCommand::LOAD_BUFFER;
         cmd.nodeId       = nodeId;
         cmd.audioProcessor = audioProcessor;
         cmd.audioData    = sharedLoader->data();
-        cmd.dataOwner    = sharedLoader;   // keeps buffer alive in the processor
+        cmd.dataOwner    = sharedLoader;
         cmd.totalSamples = sharedLoader->length();
         cmd.channels     = sharedLoader->channels();
         pushCommand(cmd);
-
-        ofLogNotice("AudioFileSource") << "Loaded: " << p
-            << " (" << sharedLoader->length() << " samples)"
-            << " [cache use_count=" << sharedLoader.use_count() << "]";
+        ofLogNotice("AudioSource") << "Loaded: " << p;
     } else {
-        ofLogError("AudioFileSource") << "Failed to load: " << p;
+        ofLogError("AudioSource") << "Failed to load: " << p;
     }
 }
 
-void AudioFileSource::onParameterChanged(const std::string& paramName) {
-    // Node::onParameterChanged handles the generic SET_PARAM command
-    // via the slotMap — no need for hardcoded slot indices here.
+void AudioSource::onParameterChanged(const std::string& paramName) {
     Node::onParameterChanged(paramName);
 }
 
-double AudioFileSource::getRelativePosition() const {
-    auto pProc = static_cast<crumble::AudioFileProcessor*>(audioProcessor);
+double AudioSource::getRelativePosition() const {
+    auto pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
     if (!pProc || !sharedLoader || sharedLoader->length() == 0) return 0.0;
     return pProc->playhead.load() / (double)sharedLoader->length();
 }
 
-void AudioFileSource::setRelativePosition(double pct) {
-    auto pProc = static_cast<crumble::AudioFileProcessor*>(audioProcessor);
+void AudioSource::setRelativePosition(double pct) {
+    auto pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
     if (!pProc || !sharedLoader || sharedLoader->length() == 0) return;
     pProc->playhead.store(ofClamp(pct, 0.0, 1.0) * (double)sharedLoader->length());
 }

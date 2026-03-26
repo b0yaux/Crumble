@@ -1,18 +1,12 @@
 -- Crumble
--- Entry point: loaded via config.json entryScript
--- Uses registry-based asset loading with AVSampler for A/V sync
-
---clear()
+-- Performance Script: Live-loading via main.lua
 
 -- 1. Setup Core Graph
-local vmix = addNode("VideoMixer", "vmix")
-local screen = addNode("ScreenOutput", "screen")
-connect(vmix, screen)
+local screen = videoout():on()
+local vmx = vmix():on():connect(screen)
 
-local amix = addNode("AudioMixer", "amix")
-local speakers = addNode("SpeakersOutput", "speakers")
-connect(amix, speakers)
-speakers.gain = 0.1
+local speakers = audioout():on()
+local amx = amix():on():gain(0.1):connect(speakers)
 
 bpm(200)
 
@@ -20,33 +14,30 @@ bpm(200)
 local assets = getBank("superstratum_video-data")
 local count = math.min(#assets, 5)
 
-local lfo1 = osc(3/10)
-local lfo2 = 1 -- scale(0.1, 2, osc(3/100))
+-- noise(f, s): Returns a dynamic pattern for smooth organic drift
+local lfo1 = osc(3/20):scale(-5, 5)
 
-    -- 3. Create AVSampler nodes with staggered modulations
+-- 3. Declarative AVSampler creation
 for i = 1, count do
     local asset = assets[i]
-    local idx = i - 1
-    
-    local sampler = addNode("AVSampler", string.format("s%d_%s", idx, asset.name))
-    sampler.path = asset.path
-    
-    -- rand(s): Returns a static number (0-1) for per-voice variation
-    -- noise(f, s): Returns a dynamic pattern for smooth organic drift
     local mix = noise(0.5, i * 0.1)
+    local weight = 1.0 / (count / 3)
+
+    -- Create AVSampler with table constructor for path
+    local s = sampler(asset.name, { path = asset.path })
+              :gain(mix)
+              :opacity(mix)
+              :speed(lfo1)
+              :on()
+
+    -- Connect and configure mixer slots using the returned index
+    local layer = connect(s, { vmx, amx })
     
-    sampler:gain(mix):opacity(mix)
-        :speed(lfo1)
-    
-    local layer = connect(sampler, {vmix, amix})
-    
-    -- Configure layer parameters using the assigned layer index
     if layer then
-        local weight = 1.0 / (count / 3)
-        amix["gain_" .. layer] = weight
-        vmix["opacity_" .. layer] = weight
-        vmix["blend_" .. layer] = 1
+        amx["gain_" .. layer] = weight
+        vmx["opacity_" .. layer] = weight
+        vmx["blend_" .. layer] = 1 -- Additive/Alpha blend
     end
 end
 
-print(string.format("Loaded %d AVSamplers from bank 'superstratum_video-data'", count))
+print(string.format("Loaded: %d active samplers from bank", count))

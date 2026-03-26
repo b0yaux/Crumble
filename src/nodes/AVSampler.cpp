@@ -3,7 +3,7 @@
 #include "../core/NodeProcessor.h"
 
 AVSampler::AVSampler() {
-    type = "AVSampler";
+    type = "sampler";
     
     // Add parameters
     parameters->add(path.set("path", ""));
@@ -14,19 +14,10 @@ AVSampler::AVSampler() {
     parameters->add(playing.set("playing", true));
     parameters->add(position.set("position", 0.0, 0.0, 1.0));
     
-    // NOTE: Processors are created via createAudioProcessor() and createVideoProcessor()
-    // when Graph::createNode() calls setupProcessor() -> createAudioProcessor()/createVideoProcessor()
-    
     lastSyncedAudioPos = -1.0;
 }
 
 AVSampler::~AVSampler() {
-    // Send RELEASE_BUFFER before nulling audioSource.audioProcessor and before
-    // ~Node() sends REMOVE_NODE.  This ensures the AudioFileProcessor zeroes its
-    // data pointer and releases its dataOwner reference while the processor is
-    // still registered — closing the use-after-free window that exists between
-    // sharedLoader being destroyed (as an AudioFileSource member) and the
-    // processor being dequeued from activeAudioProcessors.
     if (audioProcessor) {
         crumble::ProcessorCommand cmd;
         cmd.type = crumble::ProcessorCommand::RELEASE_BUFFER;
@@ -36,13 +27,11 @@ AVSampler::~AVSampler() {
 }
 
 crumble::AudioProcessor* AVSampler::createAudioProcessor() {
-    // Create the AudioFileProcessor via the audioSource factory
     crumble::AudioProcessor* proc = audioSource.createAudioProcessor();
     if (proc) {
         audioSource.audioProcessor = proc;
         proc->nodeId = audioSource.nodeId;
 
-        // Populate valuesMap from audioSource's parameter group
         for (int i = 0; i < (int)audioSource.parameters->size(); i++) {
             auto& p = audioSource.parameters->get(i);
             float val = 0;
@@ -70,12 +59,10 @@ crumble::AudioProcessor* AVSampler::createAudioProcessor() {
 }
 
 crumble::VideoProcessor* AVSampler::createVideoProcessor() {
-    // Create the VideoFileProcessor via the videoSource factory
     crumble::VideoProcessor* proc = videoSource.createVideoProcessor();
     if (proc) {
         proc->nodeId = videoSource.nodeId;
 
-        // Populate valuesMap from videoSource's parameter group
         for (int i = 0; i < (int)videoSource.parameters->size(); i++) {
             auto& p = videoSource.parameters->get(i);
             float val = 0;
@@ -99,8 +86,6 @@ crumble::VideoProcessor* AVSampler::createVideoProcessor() {
             }
         }
         
-        // Also copy AVSampler's own parameters (opacity, gain, active)
-        // These are what the VideoMixer needs to read from the source
         for (int i = 0; i < (int)parameters->size(); i++) {
             auto& p = parameters->get(i);
             std::string name = p.getName();
@@ -128,20 +113,15 @@ crumble::VideoProcessor* AVSampler::createVideoProcessor() {
 }
 
 void AVSampler::prepare(const Context& ctx) {
-    // 1. Skip if node is inactive
     if (!active->get()) return;
 
-    // 2. Optimization: Sync graph and clockMode only when the graph changes.
     if (graph && (audioSource.graph != graph || videoSource.graph != graph)) {
         audioSource.graph = graph;
         videoSource.graph = graph;
-        videoSource.setClockMode(VideoFileSource::INTERNAL);
+        videoSource.setClockMode(VideoSource::INTERNAL);
     }
     
-    // 3. Base prepare
     Node::prepare(ctx);
-    
-    // 4. Selective Prepare: only prepare audio on audio thread
     audioSource.prepare(ctx);
     if (ctx.frames <= 1) {
         videoSource.prepare(ctx);
@@ -153,20 +133,12 @@ void AVSampler::update(float dt) {
 
     if (!audioPath.get().empty() && !videoPath.get().empty()) {
         double audioPos = audioSource.getRelativePosition();
-        
-        // PASSIVE SYNC (rate-limited hard sync)
-        // Rather than reading the video clock (which would require flushing the HAP
-        // demuxer queue and cause I/O stalls), we throttle forced setPosition() calls
-        // by only firing when the audio playhead has travelled more than DRIFT_TOLERANCE
-        // since the last forced sync. This keeps video roughly chasing audio at coarse
-        // granularity without stalling the main thread every frame.
-        const double DRIFT_TOLERANCE = 0.05; // fire setPosition() after each 5% of audio travel
+        const double DRIFT_TOLERANCE = 0.05;
         if (std::abs(audioPos - lastSyncedAudioPos) > DRIFT_TOLERANCE) {
             videoSource.setPosition((float)audioPos);
             lastSyncedAudioPos = audioPos;
         }
 
-        // Internal change guard used to prevent recursion
         isInternalChange = true;
         position.set((float)audioPos);
         isInternalChange = false;
@@ -177,26 +149,16 @@ void AVSampler::update(float dt) {
 }
 
 void AVSampler::setupProcessor() {
-    // Crucial: Children must share the SAME ID as parent for shadow worker routing
     audioSource.nodeId = nodeId;
     videoSource.nodeId = nodeId;
-    
-    // Bind children to the same graph so they can reach global services (Cache, Registry)
     audioSource.graph = graph;
     videoSource.graph = graph;
-    
     Node::setupProcessor();
-
-    // HANDOVER: internal children must point to the same shadow processors 
-    // created by the factory methods above. This ensures they can send
-    // correctly-targeted ProcessorCommands (e.g. LOAD_BUFFER).
     audioSource.audioProcessor = audioProcessor;
     videoSource.videoProcessor = videoProcessor;
 }
 
-void AVSampler::processAudio(ofSoundBuffer& buffer, int index) {
-    // DSP is handled by the internal audioSource's processor
-}
+void AVSampler::processAudio(ofSoundBuffer& buffer, int index) {}
 
 ofTexture* AVSampler::processVideo(int index) {
     if (index == 0) return videoSource.getVideoOutput(index);
@@ -211,9 +173,6 @@ std::string AVSampler::getDisplayName() const {
 }
 
 void AVSampler::onParameterChanged(const std::string& paramName) {
-    // "path / audioPath / videoPath" are std::string parameters — Node::onParameterChanged
-    // only handles float/bool/int and would no-op for these anyway.  Return early to
-    // skip the unnecessary linear scan over the parameter group at the tail.
     if (paramName == "path") {
         std::string pathVal = path.get();
         if (pathVal.empty()) return;
@@ -249,7 +208,6 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
     if (paramName == "speed") {
         audioSource.speed.set(speed.get());
         videoSource.speed.set(speed.get());
-        
         auto pat = getPattern("speed");
         audioSource.modulate("speed", pat);
         audioSource.onParameterChanged("speed");
@@ -268,13 +226,13 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
     } else if (paramName == "loop") {
         audioSource.loop.set(loop.get());
         videoSource.loop.set(loop.get());
-        audioSource.onParameterChanged("loop");   // updates AudioFileProcessor valuesMap
-        videoSource.onParameterChanged("loop");   // updates HAP player loop state
+        audioSource.onParameterChanged("loop");
+        videoSource.onParameterChanged("loop");
     } else if (paramName == "playing") {
         audioSource.playing.set(playing.get());
         videoSource.playing.set(playing.get());
-        audioSource.onParameterChanged("playing"); // updates AudioFileProcessor valuesMap
-        videoSource.onParameterChanged("playing"); // pauses/plays HAP player
+        audioSource.onParameterChanged("playing");
+        videoSource.onParameterChanged("playing");
     } else if (paramName == "position") {
         if (!isInternalChange) {
             audioSource.setRelativePosition(position.get());
@@ -284,27 +242,13 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
         bool isActive = active->get();
         audioSource.active->set(isActive);
         videoSource.active->set(isActive);
-        // Also mirror to 'playing' on the audioSource so the AudioFileProcessor
-        // (which only checks getParam("playing") in the audio thread) goes silent.
-        // We only force-stop; we don't auto-start — the user's 'playing' param wins on resume.
         if (!isActive) {
             audioSource.playing.set(false);
         } else {
-            // Restore the AVSampler's own playing state
             audioSource.playing.set(playing.get());
         }
         audioSource.onParameterChanged("playing");
     }
-    
-    // Propagate to both shadow processors.
-    // For audio params (speed, loop, playing, gain) the audioSource already pushed
-    // a SET_PARAM via its own Node::onParameterChanged above — this produces a harmless
-    // duplicate on the audio processor but is the only mechanism that updates the VIDEO
-    // shadow processor's valuesMap, since VideoFileSource::onParameterChanged routes
-    // changes directly to the HAP player without calling Node::onParameterChanged.
-    // Full de-duplication of the audio-side SET_PARAM commands is a deeper
-    // architectural concern: VideoFileSource::onParameterChanged would need to
-    // call Node::onParameterChanged to make the video processor self-sufficient.
     Node::onParameterChanged(paramName);
 }
 

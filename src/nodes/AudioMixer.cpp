@@ -74,7 +74,7 @@ private:
 } // namespace crumble
 
 AudioMixer::AudioMixer() {
-    type = "AudioMixer";
+    type = "audiomix";
     numActiveInputs = 0;
 }
 

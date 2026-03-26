@@ -2,10 +2,10 @@
 #include "../core/Node.h"
 #include "ofxHapPlayer.h"
 
-// Video file source using HAP codec for high-performance playback
-class VideoFileSource : public Node {
+// Video source using HAP codec for high-performance playback
+class VideoSource : public Node {
 public:
-    VideoFileSource();
+    VideoSource();
     
     // Performance: Members made public to allow AVSampler direct pointer access
     ofParameter<std::string> path;

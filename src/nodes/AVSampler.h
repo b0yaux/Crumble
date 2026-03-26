@@ -1,21 +1,14 @@
 #pragma once
 #include "../core/Node.h"
-#include "VideoFileSource.h"
-#include "AudioFileSource.h"
+#include "VideoSource.h"
+#include "AudioSource.h"
 
 /**
  * AVSampler - Unified audio/visual sampler with synchronized playback.
  * 
- * Owns internal AudioFileSource and VideoFileSource instances with a shared
+ * Owns internal AudioSource and VideoSource instances with a shared
  * master playhead. All parameters (speed, loop, gain) are synchronized
  * across both sources.
- * 
- * Provides:
- * - Unified speed control (affects both audio and video equally)
- * - Unified loop control
- * - Audio gain control
- * - Master playhead management (ensures A/V sync)
- * - Flexibility to load different audio/video independently via live-scripting
  */
 class AVSampler : public Node {
 public:
@@ -40,8 +33,8 @@ public:
     void onParameterChanged(const std::string& paramName) override;
 
     // Direct access to internal sources (for advanced use via Lua)
-    AudioFileSource* getAudioSource() { return &audioSource; }
-    VideoFileSource* getVideoSource() { return &videoSource; }
+    AudioSource* getAudioSource() { return &audioSource; }
+    VideoSource* getVideoSource() { return &videoSource; }
     
     // Master playhead access
     double getMasterPlayhead() const { return masterPlayhead; }
@@ -49,8 +42,8 @@ public:
     
 private:
     // Internal sources - owned and synchronized by this node
-    AudioFileSource audioSource;
-    VideoFileSource videoSource;
+    AudioSource audioSource;
+    VideoSource videoSource;
     
     // Parameters
     ofParameter<std::string> path;
@@ -68,7 +61,4 @@ private:
     
     // Performance state for Sync
     bool isInternalChange = false;
-    
-
 };
-

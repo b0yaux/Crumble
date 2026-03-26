@@ -24,8 +24,8 @@ public:
 };
 
 Outlet::Outlet() {
-    type = "Outlet";
-    name = "Outlet";
+    type = "outlet";
+    name = "outlet";
     parameters->add(outletIndex.set("outletIndex", 0, 0, 16));
 }
 
