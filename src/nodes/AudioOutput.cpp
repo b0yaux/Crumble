@@ -8,17 +8,23 @@ using namespace crumble;
 class AudioOutputProcessor : public AudioProcessor {
 public:
     ControlSlot* masterGainSlot = nullptr;
+    ControlSlot* activeSlot = nullptr;
 
     AudioOutputProcessor() {
         masterGainSlot = getControlPtr(crumble::hashString("gain"));
+        activeSlot = getControlPtr(crumble::hashString("active"));
     }
     
     void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
                  double cycle, double cycleStep) override {
-        if (inputs[0].processor) {
+        
+        bool isActive = evalSlot(activeSlot, cycle) > 0.5f;
+
+        if (isActive && inputs[0].processor) {
             inputs[0].processor->pull(buffer, inputs[0].fromOutput, frameCounter, cycle, cycleStep);
         } else {
             buffer.set(0);
+            if (!isActive) return;
         }
         
         float* pOut = buffer.getBuffer().data();
