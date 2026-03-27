@@ -1,6 +1,60 @@
 #include "AVSampler.h"
 #include "ofMain.h"
 #include "../core/NodeProcessor.h"
+#include "../core/Graph.h"
+#include "../core/Session.h"
+
+// Audio processor that pulls from embedded video audio (ofxHapPlayer)
+class VideoEmbedAudioProcessor : public crumble::AudioProcessor {
+public:
+    ofBaseSoundOutput* audioOutput = nullptr;
+    crumble::ControlSlot* gainSlot = nullptr;
+    crumble::ControlSlot* activeSlot = nullptr;
+    std::atomic<bool> muted{false};
+    bool loggedOnce = false;
+    
+    VideoEmbedAudioProcessor(ofBaseSoundOutput* audioOut) : audioOutput(audioOut) {
+        gainSlot = getControlPtr(crumble::hashString("gain"));
+        activeSlot = getControlPtr(crumble::hashString("active"));
+        ofLogNotice("VideoEmbedAudioProcessor") << "Created with audioOutput=" << (audioOut ? "valid" : "null");
+    }
+    
+    void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
+                 double cycle, double cycleStep) override {
+        buffer.set(0.0f);  // Start with silence
+        
+        if (!audioOutput) {
+            if (!loggedOnce) {
+                ofLogWarning("VideoEmbedAudioProcessor") << "No audio output!";
+                loggedOnce = true;
+            }
+            return;
+        }
+        
+        if (muted.load()) {
+            // Muted for REST - return silence
+            return;
+        }
+        
+        if (evalSlot(activeSlot, cycle) < 0.5f) return;
+        
+        // Pull audio from ofxHapPlayer's AudioOutput
+        audioOutput->audioOut(buffer);
+        
+        // Apply gain
+        float g = evalSlot(gainSlot, cycle);
+        if (g < 0.999f || g > 1.001f) {
+            buffer *= g;
+        }
+    }
+    
+    void setMuted(bool m) { 
+        muted.store(m); 
+        if (m && !loggedOnce) {
+            ofLogNotice("VideoEmbedAudioProcessor") << "Muted for REST";
+        }
+    }
+};
 
 AVSampler::AVSampler() {
     type = "sampler";
@@ -15,6 +69,7 @@ AVSampler::AVSampler() {
     parameters->add(position.set("position", 0.0, 0.0, 1.0));
     
     lastSyncedAudioPos = -1.0;
+    useEmbeddedAudio = false;
 }
 
 AVSampler::~AVSampler() {
@@ -27,6 +82,17 @@ AVSampler::~AVSampler() {
 }
 
 crumble::AudioProcessor* AVSampler::createAudioProcessor() {
+    // If video has embedded audio, pull from VideoSource's player
+    if (useEmbeddedAudio && videoSource.hasEmbeddedAudio()) {
+        ofBaseSoundOutput* audioOut = videoSource.getPlayer().getAudioOutput();
+        if (audioOut) {
+            ofLogNotice("AVSampler") << "Creating audio processor from embedded video audio";
+            embeddedAudioProcessor = new VideoEmbedAudioProcessor(audioOut);
+            return embeddedAudioProcessor;
+        }
+    }
+    
+    // Otherwise use standalone AudioSource
     crumble::AudioProcessor* proc = audioSource.createAudioProcessor();
     if (proc) {
         audioSource.audioProcessor = proc;
@@ -131,6 +197,42 @@ void AVSampler::prepare(const Context& ctx) {
 void AVSampler::update(float dt) {
     if (!active->get()) return;
 
+    // Query index pattern for events (Tidal-style)
+    if (indexPattern && graph) {
+        double currentCycle = graph->getTransport().cycle;
+        
+        // Query events since last cycle
+        if (currentCycle > lastQueryCycle) {
+            auto events = indexPattern->query(lastQueryCycle < 0 ? 0 : lastQueryCycle, currentCycle);
+            if (!events.empty()) {
+                ofLogNotice("AVSampler") << "Pattern query: cycle=" << currentCycle << " events=" << events.size();
+            }
+            for (const auto& e : events) {
+                if (e.isRest) {
+                    ofLogNotice("AVSampler") << "Pattern event: REST at cycle " << e.onset;
+                    silenceSample();
+                } else {
+                    ofLogNotice("AVSampler") << "Pattern event: TRIGGER " << e.value << " at cycle " << e.onset;
+                    int idx = static_cast<int>(std::floor(e.value));
+                    idx = std::max(0, idx);
+                    triggerSample(idx);
+                }
+            }
+        } else if (lastQueryCycle < 0) {
+            // First evaluation - trigger at cycle 0
+            ofLogNotice("AVSampler") << "Pattern first evaluation at cycle 0";
+            auto events = indexPattern->query(0, 0.0001);
+            for (const auto& e : events) {
+                if (!e.isRest) {
+                    int idx = static_cast<int>(std::floor(e.value));
+                    idx = std::max(0, idx);
+                    triggerSample(idx);
+                }
+            }
+        }
+        lastQueryCycle = currentCycle;
+    }
+
     if (!audioPath.get().empty() && !videoPath.get().empty()) {
         double audioPos = audioSource.getRelativePosition();
         const double DRIFT_TOLERANCE = 0.05;
@@ -146,6 +248,84 @@ void AVSampler::update(float dt) {
     
     videoSource.update(dt);
     masterPlayhead = audioSource.getRelativePosition();
+}
+
+void AVSampler::setIndexPattern(std::shared_ptr<Pattern<float>> pat) {
+    indexPattern = pat;
+    lastQueryCycle = -1.0;  // Reset for fresh evaluation
+}
+
+void AVSampler::triggerSample(int index) {
+    // Build path from bank name and index
+    std::string newPath;
+    if (!bankName.empty()) {
+        // Bank mode: bank:index
+        newPath = bankName + ":" + std::to_string(index);
+    } else if (!path.get().empty()) {
+        // Single-file mode: keep existing path, just restart
+        // Path was set directly (e.g., "travaux" or "/path/to/file")
+        newPath = path.get();
+    } else {
+        // No path set yet, use index as path
+        newPath = std::to_string(index);
+    }
+    
+    ofLogNotice("AVSampler") << "triggerSample(" << index << ") -> path: " << newPath << " (bankName: " << bankName << ")";
+    
+    // Only reload if path changed
+    if (path.get() != newPath) {
+        path.set(newPath);
+        onParameterChanged("path");
+    }
+    
+    // Restart playback
+    if (useEmbeddedAudio) {
+        // Embedded audio: VideoSource handles both video and audio
+        videoSource.setPosition(0.0f);
+        if (embeddedAudioProcessor) {
+            embeddedAudioProcessor->setMuted(false);
+        }
+    } else {
+        // Separate files: restart both
+        audioSource.setRelativePosition(0.0);
+        videoSource.setPosition(0.0f);
+    }
+    
+    // Ensure playing
+    if (!playing.get()) {
+        playing.set(true);
+        onParameterChanged("playing");
+    }
+}
+
+void AVSampler::silenceSample() {
+    // Mute audio - handle embedded vs separate
+    if (useEmbeddedAudio && embeddedAudioProcessor) {
+        // For embedded audio, mute the VideoEmbedAudioProcessor
+        embeddedAudioProcessor->setMuted(true);
+    } else {
+        audioSource.gain->set(0.0f);
+    }
+}
+
+void AVSampler::modulate(const std::string& paramName, std::shared_ptr<Pattern<float>> pat) {
+    if (paramName == "n" || paramName == "index") {
+        // Extract bank name from pattern if present
+        if (auto* seqPat = dynamic_cast<patterns::Seq*>(pat.get())) {
+            std::string sig = seqPat->getSignature();
+            size_t secondColon = sig.find(':', sig.find(':') + 1);
+            if (secondColon != std::string::npos) {
+                std::string b = sig.substr(secondColon + 1);
+                if (!b.empty()) {
+                    bankName = b;
+                }
+            }
+        }
+        setIndexPattern(pat);
+    } else {
+        // Pass through to base class for regular modulation
+        Node::modulate(paramName, pat);
+    }
 }
 
 void AVSampler::setupProcessor() {
@@ -175,9 +355,21 @@ std::string AVSampler::getDisplayName() const {
 void AVSampler::onParameterChanged(const std::string& paramName) {
     if (paramName == "path") {
         std::string pathVal = path.get();
+        ofLogNotice("AVSampler") << "path changed to: " << pathVal;
         if (pathVal.empty()) return;
         std::string vid = resolvePath(pathVal, "video");
         std::string aud = resolvePath(pathVal, "audio");
+        ofLogNotice("AVSampler") << "Resolved video: " << vid << " audio: " << aud;
+        
+        // If video and audio are the same file, use embedded audio from video
+        if (aud == vid && !vid.empty()) {
+            ofLogNotice("AVSampler") << "Using embedded audio from video file";
+            useEmbeddedAudio = true;
+            aud = "";  // Don't load separate audio
+        } else {
+            useEmbeddedAudio = false;
+        }
+        
         if (aud != audioPath.get()) {
             audioPath.set(aud);
             onParameterChanged("audioPath");
@@ -190,6 +382,7 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
     }
     if (paramName == "audioPath") {
         if (!audioPath.get().empty() && audioPath.get() != loadedAudioPath) {
+            ofLogNotice("AVSampler") << "Loading audio: " << audioPath.get();
             audioSource.load(audioPath.get());
             loadedAudioPath = audioPath.get();
             masterPlayhead = 0.0;
@@ -198,6 +391,7 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
     }
     if (paramName == "videoPath") {
         if (!videoPath.get().empty() && videoPath.get() != loadedVideoPath) {
+            ofLogNotice("AVSampler") << "Loading video: " << videoPath.get();
             videoSource.load(videoPath.get());
             loadedVideoPath = videoPath.get();
             masterPlayhead = 0.0;

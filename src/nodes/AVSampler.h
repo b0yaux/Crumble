@@ -1,7 +1,11 @@
 #pragma once
 #include "../core/Node.h"
+#include "../core/Patterns.h"
 #include "VideoSource.h"
 #include "AudioSource.h"
+
+// Forward declaration
+class VideoEmbedAudioProcessor;
 
 /**
  * AVSampler - Unified audio/visual sampler with synchronized playback.
@@ -9,6 +13,9 @@
  * Owns internal AudioSource and VideoSource instances with a shared
  * master playhead. All parameters (speed, loop, gain) are synchronized
  * across both sources.
+ * 
+ * Supports mini-notation pattern triggering via indexPattern.
+ * Pattern evaluation uses query() for Tidal-style event extraction.
  */
 class AVSampler : public Node {
 public:
@@ -40,10 +47,21 @@ public:
     double getMasterPlayhead() const { return masterPlayhead; }
     void setMasterPlayhead(double position);
     
+    // Index pattern support for mini-notation triggering
+    void setIndexPattern(std::shared_ptr<Pattern<float>> pat);
+    void setBankName(const std::string& name) { bankName = name; }
+    std::string getBankName() const { return bankName; }
+    
+    // Override to handle "n" parameter for index patterns
+    void modulate(const std::string& paramName, std::shared_ptr<Pattern<float>> pat) override;
+    
 private:
     // Internal sources - owned and synchronized by this node
     AudioSource audioSource;
     VideoSource videoSource;
+    
+    // Embedded audio processor (for video files with audio)
+    VideoEmbedAudioProcessor* embeddedAudioProcessor = nullptr;
     
     // Parameters
     ofParameter<std::string> path;
@@ -59,6 +77,18 @@ private:
     std::string loadedAudioPath, loadedVideoPath;
     double lastSyncedAudioPos = -1.0;
     
+    // Embedded audio flag - true when video file contains audio
+    bool useEmbeddedAudio = false;
+    
     // Performance state for Sync
     bool isInternalChange = false;
+    
+    // Index pattern for mini-notation triggering
+    std::shared_ptr<Pattern<float>> indexPattern;
+    double lastQueryCycle = -1.0;
+    std::string bankName;
+    
+    // Trigger a sample at the given index
+    void triggerSample(int index);
+    void silenceSample();
 };

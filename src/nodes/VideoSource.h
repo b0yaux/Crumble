@@ -44,6 +44,10 @@ public:
     // Routes through the ofParameter so onClockModeChanged fires correctly.
     void setClockMode(ClockMode mode);
     
+    // Audio access for embedded audio streams (used by AVSampler)
+    bool hasEmbeddedAudio() const { return _hasAudio; }
+    ofxHapPlayer& getPlayer() { return player; }
+    
     // Serialization
     ofJson serialize() const override;
     void deserialize(const ofJson& json) override;
@@ -66,4 +70,5 @@ private:
     std::string loadedPath;
     float lastSpeed = 1.0f;   // tracks the last speed actually sent to the player
     ofxHapPlayer player;
+    bool _hasAudio = false;
 };

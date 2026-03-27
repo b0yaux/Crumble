@@ -112,10 +112,14 @@ void VideoSource::load(const std::string& vidPath) {
     if (loaded) {
         player.setLoopState(loop ? OF_LOOP_NORMAL : OF_LOOP_NONE);
         
+        // Check for embedded audio stream via ofxHapPlayer
+        _hasAudio = (player.getAudioOutput() != nullptr);
+        
+        // Don't mute - VideoEmbedAudioProcessor will handle muting for RESTs
+        // player.setVolume would silence the audioOut() buffer completely
+        
         if (clockMode == VideoSource::INTERNAL) {
-            if (playing) {
-                player.play();
-            }
+            if (playing) player.play();
             safeSetPlayerSpeed(speed.get());
         } else {
             player.setPaused(true);
@@ -123,6 +127,7 @@ void VideoSource::load(const std::string& vidPath) {
         loadedPath = vidPath;
     } else {
         ofLogError("VideoSource") << "Failed to load: " << resolvedPath;
+        _hasAudio = false;
     }
 }
 
@@ -186,6 +191,9 @@ void VideoSource::setFrame(int frame) {
 
 void VideoSource::setPosition(float pct) {
     player.setPosition(pct);
+    if (_hasAudio) {
+        player.flushAudioBuffers();
+    }
 }
 
 int VideoSource::getCurrentFrame() const {
