@@ -198,39 +198,25 @@ void AVSampler::update(float dt) {
     if (!active->get()) return;
 
     // Query index pattern for events (Tidal-style)
+    // Use bars (monotonically increasing) - pattern layer normalizes to [0,1)
     if (indexPattern && graph) {
-        double currentCycle = graph->getTransport().cycle;
+        double currentBars = graph->getTransport().bars;
         
-        // Query events since last cycle
-        if (currentCycle > lastQueryCycle) {
-            auto events = indexPattern->query(lastQueryCycle < 0 ? 0 : lastQueryCycle, currentCycle);
-            if (!events.empty()) {
-                ofLogNotice("AVSampler") << "Pattern query: cycle=" << currentCycle << " events=" << events.size();
-            }
+        if (currentBars > lastQueryCycle) {
+            double queryStart = lastQueryCycle < 0 ? 0 : lastQueryCycle;
+            auto events = indexPattern->query(queryStart, currentBars);
+            lastQueryCycle = currentBars;
+            
             for (const auto& e : events) {
                 if (e.isRest) {
-                    ofLogNotice("AVSampler") << "Pattern event: REST at cycle " << e.onset;
                     silenceSample();
                 } else {
-                    ofLogNotice("AVSampler") << "Pattern event: TRIGGER " << e.value << " at cycle " << e.onset;
-                    int idx = static_cast<int>(std::floor(e.value));
-                    idx = std::max(0, idx);
-                    triggerSample(idx);
-                }
-            }
-        } else if (lastQueryCycle < 0) {
-            // First evaluation - trigger at cycle 0
-            ofLogNotice("AVSampler") << "Pattern first evaluation at cycle 0";
-            auto events = indexPattern->query(0, 0.0001);
-            for (const auto& e : events) {
-                if (!e.isRest) {
                     int idx = static_cast<int>(std::floor(e.value));
                     idx = std::max(0, idx);
                     triggerSample(idx);
                 }
             }
         }
-        lastQueryCycle = currentCycle;
     }
 
     if (!audioPath.get().empty() && !videoPath.get().empty()) {

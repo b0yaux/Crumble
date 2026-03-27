@@ -209,9 +209,9 @@ namespace patterns {
             double cycleStart = start - std::floor(start);
             double cycleEnd = end - std::floor(end);
             
-            // Handle wraparound
-            if (end < start) {
-                // Query crosses cycle boundary
+            // Handle wraparound when query crosses a bar boundary
+            // With monotonically increasing time (bars), cycleEnd < cycleStart indicates boundary crossed
+            if (cycleEnd < cycleStart) {
                 auto firstHalf = queryRange(cycleStart, 1.0);
                 auto secondHalf = queryRange(0.0, cycleEnd);
                 events.insert(events.end(), firstHalf.begin(), firstHalf.end());
