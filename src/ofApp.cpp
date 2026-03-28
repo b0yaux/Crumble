@@ -37,6 +37,8 @@ void ofApp::setup(){
             absScriptPath = ofFilePath::getAbsolutePath(scriptToRun);
         } else if (ofFile::doesFileExist(ofToDataPath(scriptToRun))) {
             absScriptPath = ofToDataPath(scriptToRun);
+        } else if (ofFile::doesFileExist(ofToDataPath("scripts/" + scriptToRun))) {
+            absScriptPath = ofToDataPath("scripts/" + scriptToRun);
         }
         
         if (!absScriptPath.empty() && ofFile::doesFileExist(absScriptPath)) {

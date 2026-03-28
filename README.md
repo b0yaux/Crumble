@@ -35,7 +35,7 @@ make RunRelease     # loads bin/data/config.json
 
 ```bash
 ./Crumble                              # Default: config.json → entryScript
-./Crumble -s scripts/drums.lua         # Override script
+./Crumble -s scripts/drums.lua         # Override script (relative to bin/data/)
 ./Crumble -c drums.json                # Use different config file
 ./Crumble -t "Drums" -s drums.lua      # Set window title + script
 ```
@@ -43,7 +43,7 @@ make RunRelease     # loads bin/data/config.json
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-c, --config` | Config file path | `config.json` |
-| `-s, --script` | Override entry script | (from config) |
+| `-s, --script` | Override entry script (relative to `bin/data/` or absolute) | (from config) |
 | `-t, --title` | Window title | (none) |
 
 ### Multi-Instance
@@ -163,11 +163,12 @@ local dr = sp("k s k ~") -- Creates a sampler playing a pattern of aliases
 
 | Function | Description |
 |----------|-------------|
-| `osc(f)` | Sine wave (frequency `f` in cycles-per-bar) |
-| `ramp(f)` | Sawtooth (0.0 to 1.0, frequency `f` in cycles-per-bar) |
-| `noise(f, s)`| Deterministic stochastic noise (frequency `f`, optional seed `s`) |
-| `seq("...")`| Discrete step sequencer |
-| `sp("...")`| **Strudel-style sampler pattern** using aliases |
+| `osc(f)` / `sine(f)` | Sine wave (frequency `f` in cycles-per-bar) |
+| `ramp(f)` / `saw(f)` | Sawtooth (0.0 to 1.0, frequency `f` in cycles-per-bar) |
+| `noise(f, s)` | Deterministic stochastic noise (frequency `f`, optional seed `s`) |
+| `seq("...")` | Discrete step sequencer |
+| `sp("...")` | **Strudel-style sampler pattern** using aliases |
+| `rand(s)` | Deterministic random constant (0.0-1.0, optional seed `s`) |
 
 **Transforms (method syntax — chain on any pattern):**
 
@@ -227,6 +228,46 @@ s:n("k ~ s ~ t")           -- Trigger kick, rest, snare, rest, travaux
 > | 5 | 5/4 | 2.5 s | 0.4 Hz |
 >
 > To modulate at beat rate in 4/4, use `fast(4, osc(1.0))` or simply `osc(4.0)`.
+
+### Tempo
+
+| Function | Description |
+|----------|-------------|
+| `bpm(v)` | Set tempo in beats per minute |
+| `cpm(v)` | Set tempo in cycles per minute (`bpm * 4`) |
+| `cps(v)` | Set tempo in cycles per second (`bpm * 240`) |
+
+### Per-Frame Callback
+
+Define an `update()` function to run logic every frame. The global `Time` table is available:
+
+```lua
+function update()
+    local t = Time.absoluteTime   -- Seconds since start
+    local cycle = Time.cycle       -- Current cycle position
+    local bars = Time.bars         -- Bar count
+    local bpm = Time.tempo         -- Current BPM
+end
+```
+
+### Global Constants
+
+| Name | Description |
+|------|-------------|
+| `BLEND` | `{ALPHA=0, ADD=1, MULTIPLY=2}` |
+| `GPAD` | Xbox button IDs: `A=0, B=1, X=2, Y=3, LB=4, RB=5, ...` |
+| `GPAD_PS` | PlayStation names: `CROSS=0, CIRCLE=1, SQUARE=2, TRIANGLE=3, L1=4, ...` |
+| `AXIS` | Gamepad axes: `LX=0, LY=1, RX=2, RY=3, LT=4, RT=5` |
+
+### Node Short Aliases
+
+| Alias | Equivalent |
+|-------|-----------|
+| `s(name)` | `sampler(name)` |
+| `amix()` | `audiomix()` |
+| `vmix()` | `videomix()` |
+| `aout()` | `audioout()` |
+| `vout()` | `videoout()` |
 
 ### Subgraph Composition
 Graphs are recursive: a `graph` node can contain its own nested graph, loaded from a script.
@@ -330,6 +371,9 @@ s1:gain(midi(74, 1))           -- CC74 on channel 1
 
 -- Note velocity (pad strike intensity)
 s1:opacity(midinote(36, 10))   -- Note 36 on channel 10
+
+-- Note-specific aftertouch (key pressure)
+s1:speed(miditouch(36, 10):scale(0.5, 2.0))
 
 -- Channel Aftertouch (keyboard pressure)
 s1:speed(channeltouch(1):scale(0.5, 2.0))

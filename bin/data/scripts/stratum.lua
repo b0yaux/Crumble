@@ -1,18 +1,12 @@
 -- Crumble
--- Entry point: loaded via config.json entryScript
--- Uses registry-based asset loading with AVSampler for A/V sync
-
---clear()
+-- Data-driven AVSampler script: loads all assets from a bank
 
 -- 1. Setup Core Graph
-local vmix = addNode("VideoMixer", "vmix")
-local screen = addNode("ScreenOutput", "screen")
-connect(vmix, screen)
+local screen = videoout("screen"):on()
+local vmix = videomix("vmix"):connect(screen):on()
 
-local amix = addNode("AudioMixer", "amix")
-local speakers = addNode("SpeakersOutput", "speakers")
-connect(amix, speakers)
-speakers.gain = 0.1
+local speakers = audioout("speakers"):on()
+local amix = audiomix("amix"):connect(speakers):on()
 
 -- 2. Data-driven loading from AssetRegistry
 local bankName = "superstratum_video-data"
@@ -22,25 +16,16 @@ local maxClips = math.min(#assets, 64)
 -- 3. Create AVSampler nodes for unified A/V playback
 for i = 1, maxClips do
     local asset = assets[i]
-    local idx = i - 1  -- 0-indexed for layer assignment
-    
-    -- Node name is strictly its ID + filename for clarity
-    local nodeName = string.format("s%d_%s", idx, asset.name)
-    
-    -- Use AVSampler with registry path syntax
-    local sampler = addNode("AVSampler", nodeName)
-    sampler.path = asset.path
-    
-    -- Route to mixers (Auto-Indexing handles the layer assignment and returns it)
-    -- We assign the result to 'layer' to use it below.
-    local layer = connect(sampler, {vmix, amix})
-    
-    -- Configure layer parameters using the assigned layer index
+    local idx = i - 1
+    local s = sampler(asset.name,{path=asset.path}):on()
+
+    local layer = connect(s, {vmix, amix})
+
     if layer then
         local opacity = 1.0 / (maxClips / 3)
         vmix["opacity_" .. layer] = opacity
-        vmix["blend_" .. layer] = 1 
-        amix["gain_" .. layer] = 0.5 
+        vmix["blend_" .. layer] = 1
+        amix["gain_" .. layer] = 0.5
     end
 end
 
