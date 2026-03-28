@@ -66,7 +66,14 @@ convert_video() {
 }
 
 usage() {
-    echo "Usage: yt-hap [options] <youtube_url> [output_path]"
+    echo "Usage: yt-hap [options] <url> [output_path]"
+    echo ""
+    echo "Downloads and converts YouTube videos to HAP or Photo-JPEG."
+    echo ""
+    echo "Examples:"
+    echo "  yt-hap <url>             Save with auto-title in current folder"
+    echo "  yt-hap <url> clip        Save as 'clip.mov' in current folder"
+    echo "  yt-hap <url> clips/v1    Save as 'v1.mov' in 'clips/' folder"
     echo ""
     echo "Options:"
     echo "  -q, --quick    Use timestamp as name"
