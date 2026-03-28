@@ -137,6 +137,10 @@ local s1 = sampler("drums:0"):on():opacity(1.0):blend("ADD"):connect({vmix, amix
 -- Chainable methods return the node, so you can keep configuring:
 s1:speed(1.5):connect(vmix)
 
+-- mix() controls both audio gain and video opacity simultaneously:
+s1:mix(0.5)                           -- constant value
+s1:mix(seq("1 0.5"):fast(4))         -- pattern-based modulation
+
 -- Advanced connect with mixer-side overrides:
 s1:connect(vmix, {blend="ADD", opacity=0.5})
 ```
@@ -162,8 +166,8 @@ local dr = sp("k s k ~") -- Creates a sampler playing a pattern of aliases
 | `noise(f, s)`| Deterministic stochastic noise (frequency `f`, optional seed `s`) |
 | `seq("...")`| Discrete step sequencer |
 | `sp("...")`| **Strudel-style sampler pattern** using aliases |
-| `fast(n, p)`| Speed up pattern `p` by factor `n` |
-| `slow(n, p)`| Slow down pattern `p` by factor `n` (1/n speed) |
+| `fast(n, p)`| Speed up pattern `p` by factor `n` (constant or pattern) |
+| `slow(n, p)`| Slow down pattern `p` by factor `n` (constant or pattern) |
 | `shift(o, p)`| Offset phase by `o` (0.0 to 1.0) |
 | `scale(l, h, p)`| Map pattern range to [low, high] |
 | `snap(s, p)`| Quantize output into `s` steps |

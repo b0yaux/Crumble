@@ -227,6 +227,17 @@ function NodeMeta:__newindex(key, value)
             elseif k == "on" then return function(self) _setActive(self.id, true) return self end
             elseif k == "mute" then return function(self) _setActive(self.id, false) return self end
             elseif k == "unmute" then return function(self) _setActive(self.id, true) return self end
+            elseif k == "mix" then
+                return function(self, val)
+                    if type(val) == "table" and val._isGen then
+                        _setGen(self.id, "gain", val)
+                        _setGen(self.id, "opacity", val)
+                    else
+                        _set(self.id, "gain", val)
+                        _set(self.id, "opacity", val)
+                    end
+                    return self
+                end
             else 
                 -- Chainable Setter: s:gain(0.5) returns s
                 return function(self, val)
@@ -598,13 +609,48 @@ std::shared_ptr<Pattern<float>> parsePattern(lua_State* L, int index) {
             lua_getfield(L, index, "b"); auto pb = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
             if (pa && pb) return std::make_shared<patterns::Sum>(pa, pb);
         } else if (genType == "fast") {
-            lua_getfield(L, index, "n"); float n = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+            lua_getfield(L, index, "n");
+            std::shared_ptr<Pattern<float>> speedPat = nullptr;
+            float n = 1.0f;
+            if (lua_istable(L, -1)) {
+                // n is a pattern
+                speedPat = parsePattern(L, lua_gettop(L));
+            } else if (lua_isnumber(L, -1)) {
+                // n is a constant
+                n = (float)lua_tonumber(L, -1);
+            }
+            lua_pop(L, 1);
             lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
-            if (p) return std::make_shared<patterns::Speed>(n, p);
+            if (p) {
+                if (speedPat) {
+                    return std::make_shared<patterns::Density>(speedPat, p);
+                } else {
+                    return std::make_shared<patterns::Density>(n, p);
+                }
+            }
         } else if (genType == "slow") {
-            lua_getfield(L, index, "n"); float n = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+            lua_getfield(L, index, "n");
+            std::shared_ptr<Pattern<float>> speedPat = nullptr;
+            float n = 1.0f;
+            if (lua_istable(L, -1)) {
+                // n is a pattern
+                speedPat = parsePattern(L, lua_gettop(L));
+            } else if (lua_isnumber(L, -1)) {
+                // n is a constant
+                n = (float)lua_tonumber(L, -1);
+            }
+            lua_pop(L, 1);
             lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
-            if (p) return std::make_shared<patterns::Speed>(1.0f/n, p);
+            if (p) {
+                if (speedPat) {
+                    // For slow, we need to invert the density pattern
+                    // Create a pattern that returns 1.0/value
+                    auto invPat = std::make_shared<patterns::Scale>(0.01f, 100.0f, speedPat);
+                    return std::make_shared<patterns::Density>(invPat, p);
+                } else {
+                    return std::make_shared<patterns::Density>(1.0f/n, p);
+                }
+            }
         } else if (genType == "shift") {
             lua_getfield(L, index, "o"); float o = (float)lua_tonumber(L, -1); lua_pop(L, 1);
             lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);

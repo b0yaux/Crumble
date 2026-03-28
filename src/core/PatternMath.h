@@ -12,26 +12,54 @@ namespace patterns {
     // --- Time Transformations ---
 
     /**
-     * Speed: Squeezes or stretches time (Fast/Slow).
+     * Density: Squeezes or stretches pattern time (Fast/Slow).
+     * Accepts either constant factor or dynamic pattern.
      */
-    class Speed : public Pattern<float> {
+    class Density : public Pattern<float> {
     public:
-        Speed(float factor, std::shared_ptr<Pattern<float>> p) : f(factor), pat(p) {}
+        // Constructor for constant factor (backward compatible)
+        Density(float factor, std::shared_ptr<Pattern<float>> p) 
+            : densityPat(nullptr), constantFactor(factor), pat(p) {}
+        
+        // Constructor for dynamic pattern factor
+        Density(std::shared_ptr<Pattern<float>> factorPat, std::shared_ptr<Pattern<float>> p)
+            : densityPat(factorPat), constantFactor(1.0f), pat(p) {}
         
         std::vector<Event<float>> query(double start, double end) override {
             if (!pat) return {};
-            // Transform time domain: query wrapped pattern at sped up rate
-            return pat->query(start * f, end * f);
+            if (densityPat) {
+                // Dynamic density: evaluate speed pattern at query boundaries
+                // For simplicity, we sample the speed at the start of the query
+                float speed = std::max(0.1f, densityPat->eval(start));
+                return pat->query(start * speed, end * speed);
+            } else {
+                // Constant density
+                return pat->query(start * constantFactor, end * constantFactor);
+            }
         }
         
         float eval(double cycle) override {
-            return pat ? pat->eval(cycle * f) : 0.0f;
+            if (!pat) return 0.0f;
+            if (densityPat) {
+                // Dynamic density: multiply current cycle by evaluated speed
+                float speed = std::max(0.1f, densityPat->eval(cycle));
+                return pat->eval(cycle * speed);
+            } else {
+                // Constant density
+                return pat->eval(cycle * constantFactor);
+            }
         }
+        
         std::string getSignature() const override { 
-            return "speed:" + std::to_string(f) + "(" + (pat ? pat->getSignature() : "null") + ")"; 
+            if (densityPat) {
+                return "density:pat(" + (pat ? pat->getSignature() : "null") + ")";
+            } else {
+                return "density:" + std::to_string(constantFactor) + "(" + (pat ? pat->getSignature() : "null") + ")";
+            }
         }
     private:
-        float f;
+        std::shared_ptr<Pattern<float>> densityPat;  // Dynamic density pattern
+        float constantFactor;                         // Constant density factor
         std::shared_ptr<Pattern<float>> pat;
     };
 
