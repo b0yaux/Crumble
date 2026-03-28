@@ -23,6 +23,7 @@ public:
     std::atomic<bool> hasPendingTriggerPath{false};
     std::mutex pendingPathMutex;
     std::atomic<bool> muted{false};
+    std::atomic<bool> pendingRetrigger{false};  // Sample-accurate re-trigger flag
     double lastTriggerBars = -1.0;
 
     AudioSourceProcessor() {
@@ -68,6 +69,7 @@ public:
                 } else {
                     pendingRest.store(false);
                     pendingTrigger.store(static_cast<int>(std::floor(e.value)));
+                    pendingRetrigger.store(true);  // Set flag for immediate sample-accurate reset
                     std::lock_guard<std::mutex> lock(pendingPathMutex);
                     hasPendingTriggerPath.store(false);
                 }
@@ -79,6 +81,12 @@ public:
         size_t frames = buffer.getNumFrames();
 
         if (isMuted || !data || totalSamples == 0) return;
+
+        // Check for sample-accurate re-trigger (atomic flag set by pattern query)
+        if (pendingRetrigger.load()) {
+            playhead.store(0.0);
+            pendingRetrigger.store(false);
+        }
 
         bool isPlaying = evalSlot(playingSlot, cycle) > 0.5f;
         if (!isPlaying) return;
