@@ -254,10 +254,7 @@ end
 
 | Name | Description |
 |------|-------------|
-| `BLEND` | `{ALPHA=0, ADD=1, MULTIPLY=2}` |
-| `GPAD` | Xbox button IDs: `A=0, B=1, X=2, Y=3, LB=4, RB=5, ...` |
-| `GPAD_PS` | PlayStation names: `CROSS=0, CIRCLE=1, SQUARE=2, TRIANGLE=3, L1=4, ...` |
-| `AXIS` | Gamepad axes: `LX=0, LY=1, RX=2, RY=3, LT=4, RT=5` |
+| `BLEND` | `{ALPHA=0, ADD=1, MULTIPLY=2}` — used for mixer blend parameters |
 
 ### Node Short Aliases
 
