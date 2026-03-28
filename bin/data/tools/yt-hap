@@ -5,7 +5,7 @@
 set -e
 
 # --- Configuration ---
-# Default to current directory like yt-dlp
+# Default to current directory, or $VIDEOS_DIR if set
 DEFAULT_OUTPUT_DIR="${VIDEOS_DIR:-.}"
 
 check_dependencies() {
@@ -30,7 +30,7 @@ convert_video() {
     local url="$1"
     local name="$2"
     local mode="$3" # "hap" or "mjpeg"
-    local output_dir="$DEFAULT_OUTPUT_DIR"
+    local output_dir="$4"
 
     mkdir -p "$output_dir"
     
@@ -73,9 +73,9 @@ usage() {
     echo "Usage: yt-hap [options] <youtube_url> [output_name]"
     echo ""
     echo "Downloads and converts YouTube videos to HAP or Photo-JPEG."
-    echo "Default output is the current directory, or \$VIDEOS_DIR."
     echo ""
     echo "Options:"
+    echo "  -o, --output   Output directory (default: current or \$VIDEOS_DIR)"
     echo "  -q, --quick    Use timestamp as name"
     echo "  -j, --jpeg     Force Photo-JPEG encoding"
     echo "  -h, --help     Show this help"
@@ -86,12 +86,22 @@ MODE="hap"
 NAME_INPUT=""
 URL=""
 QUICK="false"
+OUTPUT_DIR="$DEFAULT_OUTPUT_DIR"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         -h|--help) usage ;;
         -q|--quick) QUICK="true"; shift ;;
         -j|--jpeg) MODE="mjpeg"; shift ;;
+        -o|--output) 
+            if [[ -n "$2" && "$2" != -* ]]; then
+                OUTPUT_DIR="$2"
+                shift 2
+            else
+                echo "Error: -o/--output requires a directory path"
+                exit 1
+            fi
+            ;;
         -*) echo "Unknown option: $1"; usage ;;
         *)
             if [[ -z "$URL" ]]; then
@@ -119,4 +129,4 @@ else
     FINAL_NAME=$(yt-dlp --get-filename -o "%(title)s" "$URL" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g' | sed 's/__+/_/g' | sed 's/^_//' | sed 's/_$//')
 fi
 
-convert_video "$URL" "$FINAL_NAME" "$MODE"
+convert_video "$URL" "$FINAL_NAME" "$MODE" "$OUTPUT_DIR"
