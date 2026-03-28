@@ -5,7 +5,8 @@
 set -e
 
 # --- Configuration ---
-DEFAULT_OUTPUT_DIR="${VIDEOS_DIR:-$HOME/Videos/HAP}"
+# Default to current directory like yt-dlp
+DEFAULT_OUTPUT_DIR="${VIDEOS_DIR:-.}"
 
 check_dependencies() {
     if ! command -v yt-dlp &> /dev/null; then
