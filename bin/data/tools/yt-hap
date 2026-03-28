@@ -1,5 +1,5 @@
 #!/bin/zsh
-# yt-hap: YouTube to HAP Converter
+# yt-hap: Media to HAP Converter
 # Downloads and encodes videos for A/V performance.
 
 set -e
@@ -68,7 +68,7 @@ convert_video() {
 usage() {
     echo "Usage: yt-hap [options] <url> [output_path]"
     echo ""
-    echo "Downloads and converts YouTube videos to HAP or Photo-JPEG."
+    echo "Downloads videos from YouTube and many other sites (via yt-dlp) and encodes to HAP or Photo-JPEG."
     echo ""
     echo "Examples:"
     echo "  yt-hap <url>             Save with auto-title in current folder"
