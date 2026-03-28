@@ -1,0 +1,23 @@
+{
+    "entryScript": "scripts/main.lua",
+    "searchPaths": [
+        "/Users/jaufre/works/superstratum_video-data",
+        "/Users/jaufre/works/Noûs-performance-ka",
+        "/Users/jaufre/works/Crumble/assets"
+    ],
+    "graph": {
+        "layout": {
+            "spawnPosition": "topological"
+        },
+        "physics": {
+            "enabled": true,
+            "damping": 0.75,
+            "maxVelocity": 10.0,
+            "springStrength": 0.0001,
+            "idealEdgeLength": 120.0,
+            "repulsionEnabled": true,
+            "repulsionStrength": 0.01,
+            "repulsionRadius": 100.0
+        }
+    }
+}

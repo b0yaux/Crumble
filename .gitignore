@@ -1,12 +1,16 @@
 # Build artifacts
-bin/
+bin/*
+!bin/data/
 obj/
 *.app
 
 # Xcode
-*.xcodeproj/
-*.xcworkspace/
+!*.xcodeproj/
+!*.xcworkspace/
 *.xcuserstate
+xcuserdata/
+*.xccheckout
+*.xcscmblueprint
 
 # OS
 .DS_Store
@@ -14,10 +18,13 @@ obj/
 *~
 
 # Build files
-*.make
-*.pbxproj
-*.xcconfig
-config.make
-addons.make
-*.entitlements
-*-Info.plist
+!*.make
+!*.xcconfig
+!*-Info.plist
+!*.entitlements
+
+# Ignore specific dynamic files in data
+bin/data/.DS_Store
+bin/data/.gitkeep
+# (Optional) ignore autosave/session files if any
+# bin/data/main.json
