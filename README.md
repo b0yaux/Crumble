@@ -129,36 +129,28 @@ end
 ## Lua API
 
 ### Graph Construction & Routing
-Crumble supports **Auto-Indexing** and **Table Routing** for concise graph setup.
+Crumble supports **Auto-Indexing**, **Table Routing**, and **Chainable Parameters** for concise graph setup.
 ```lua
-local sampler = addNode("sampler", "s1")
-local vmix = addNode("videomix", "vmix")
-local amix = addNode("audiomix", "amix")
+-- Create and configure in one line
+local s1 = sampler("drums:0"):on():opacity(1.0):blend("ADD"):connect({vmix, amix})
 
--- Route one source to multiple mixers. 
--- connect() finds the next free slot and returns the layer index.
-local layer = connect(sampler, {vmix, amix})
+-- Chainable methods return the node, so you can keep configuring:
+s1:speed(1.5):connect(vmix)
 
-vmix["opacity_" .. layer] = 0.5
-amix["gain_" .. layer] = 0.5
+-- Advanced connect with mixer-side overrides:
+s1:connect(vmix, {blend="ADD", opacity=0.5})
 ```
 
 ### Sequencing & Modulation
 Crumble features a stateless, sample-accurate math engine. You can compose complex modulators using functional operators:
 ```lua
-local smp = addNode("sampler")
+local smp = sampler("bd")
 
 -- Composition: Mix a sequence with an LFO
 smp.speed = seq("1 2 4") * osc(0.5)
 
--- Time Warping: Play a sequence at double speed
-smp.speed = fast(2, seq("1 0.5 2 0.25"))
-
--- Generative Logic: Quantize a sine wave into 4 discrete steps
-smp.volume = snap(4, osc(1.0))
-
--- Mapping: Scale a 0-1 LFO to a specific range (e.g. 200Hz to 2000Hz)
-smp.cutoff = scale(200, 2000, osc(0.25))
+-- Strudel-style Pattern Sampler:
+local dr = sp("k s k ~") -- Creates a sampler playing a pattern of aliases
 ```
 
 #### Pattern Library
@@ -169,6 +161,7 @@ smp.cutoff = scale(200, 2000, osc(0.25))
 | `ramp(f)` | Sawtooth (0.0 to 1.0, frequency `f` in cycles-per-bar) |
 | `noise(f, s)`| Deterministic stochastic noise (frequency `f`, optional seed `s`) |
 | `seq("...")`| Discrete step sequencer |
+| `sp("...")`| **Strudel-style sampler pattern** using aliases |
 | `fast(n, p)`| Speed up pattern `p` by factor `n` |
 | `slow(n, p)`| Slow down pattern `p` by factor `n` (1/n speed) |
 | `shift(o, p)`| Offset phase by `o` (0.0 to 1.0) |
@@ -176,6 +169,39 @@ smp.cutoff = scale(200, 2000, osc(0.25))
 | `snap(s, p)`| Quantize output into `s` steps |
 | `p1 * p2` | Multiply two patterns (Amplitude Modulation) |
 | `p1 + p2` | Add two patterns (Offset/Mixing) |
+
+### Sample Sequencing (Mini-Notation)
+
+Crumble supports Tidal/Strudel-style mini-notation for sample triggering and **Global Aliases**:
+
+```lua
+-- Define aliases (Strudel-style)
+alias("k", "drums:0")
+aliases({ s = "drums:1", t = "travaux" })
+
+local s = sampler("drums")
+
+-- Basic patterns using aliases
+s:n("k ~ s ~ t")           -- Trigger kick, rest, snare, rest, travaux
+```
+
+**Video Blending & Performance:**
+- **Video Cache**: Automatic global caching ensures that switching between samples (e.g. in `sp()`) is instant and glitch-free after the first load.
+- **Intelligent Blending**: Nodes have their own `blend` and `opacity` parameters. `VideoMixer` automatically reads these, allowing for `s:blend("ADD")` syntax.
+- **Embedded Audio**: Supports `.mov` files with embedded audio (HAP codec). The system automatically switches to embedded mode when no separate audio file is found.
+
+
+**Mini-Notation Syntax:**
+
+| Symbol | Meaning |
+|--------|---------|
+| `~` | Rest (silence) |
+| `[0 1]` | Subdivision (play 0 and 1 in one step's time) |
+| `0*3` | Repetition (play 0 three times) |
+| `drums:0` | Bank:index notation |
+| `bd sd hh` | Named samples (bd→0, sd→1, hh→2, etc.) |
+
+> **Timing contract:** Patterns are stateless functions queried each cycle. Multiple nodes can share the same pattern object without interference.
 
 > **Timing contract:** All pattern frequencies are in **cycles per bar**.
 > `Transport.cycle` advances at `bpm / beatsPerBar` beats-per-second, wrapping
@@ -307,16 +333,20 @@ s1:cutoff(oscin("/filterCutoff"))
 ### Gamepad
 
 ```lua
--- Semantic button names (Xbox/DualSense layout)
-s1:gain(gpad("a"))             -- A button
-s1:mute(gpad("lb"))             -- Left bumper
+-- Unified API - auto-detects button or axis
+-- Both Xbox and PlayStation naming supported
+s1:gain(gpad("cross"))                  -- A/Cross button
+s1:mute(gpad("l1"))                     -- LB/L1 bumper
+s1:speed(gpad("ly"):scale(0.5, 2.0))    -- Left stick Y
+s1:cutoff(gpad("rx"):scale(-1, 1))     -- Right stick X
 
--- Analog axes
-s1:speed(gax("ly"):scale(0.5, 2.0))  -- Left stick Y
-
--- Available constants:
--- GPAD: A, B, X, Y, LB, RB, BACK, START, GUIDE, LS, RS, UP, DOWN, LEFT, RIGHT
--- AXIS: LX, LY, RX, RY, LT, RT
+-- Available names:
+-- Face: a/cross, b/circle, x/square, y/triangle
+-- Shoulders: lb/l1, rb/r1
+-- Menu: back/select, start/options, guide/ps
+-- Sticks: ls/l3, rs/r3
+-- D-pad: up, down, left, right
+-- Axes: lx, ly, rx, ry, lt, rt
 ```
 
 ### Pattern Composition
@@ -329,5 +359,5 @@ local mix = midi(82, 1) + midinote(36, 10)
 s1:gain(mix)
 
 -- Scale and transform
-s1:speed(gax("rx"):scale(-2, 2))-- Right stick X mapped to speed
+s1:speed(gpad("rx"):scale(-2, 2))  -- Right stick X mapped to speed
 ```

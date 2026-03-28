@@ -30,9 +30,11 @@ public:
                  double cycle, double cycleStep) override {
         float masterGain = evalSlot(masterGainSlot, cycle);
         
+        int connectedInputs = 0;
         for (int i = 0; i < MAX_INPUTS; i++) {
             auto& input = inputs[i];
             if (input.processor) {
+                connectedInputs++;
                 // Only reallocate when the host changes buffer geometry (rare).
                 if (sumBuf.getNumFrames() != buffer.getNumFrames() ||
                     sumBuf.getNumChannels() != buffer.getNumChannels()) {
@@ -43,6 +45,8 @@ public:
                 
                 // Pass cycle/cycleStep down the graph
                 input.processor->pull(sumBuf, input.fromOutput, frameCounter, cycle, cycleStep);
+                
+                float inputRMS = sumBuf.getRMSAmplitude();
                 
                 float* pSum = sumBuf.getBuffer().data();
                 float* pOut = buffer.getBuffer().data();
@@ -55,6 +59,20 @@ public:
                     for (int c = 0; c < numChannels; c++) {
                         pOut[f * numChannels + c] += pSum[f * numChannels + c] * gain;
                     }
+                }
+                
+                static int mixDiagCounter = 0;
+                if (++mixDiagCounter % 6000 == 0) {
+                    float outRMS = 0;
+                    for (size_t k = 0; k < buffer.size(); k++) {
+                        outRMS += buffer[k] * buffer[k];
+                    }
+                    outRMS = std::sqrt(outRMS / buffer.size());
+                    // Write to a file-like approach: use a static atomic
+                    static std::atomic<float> s_diagRMS{0};
+                    static std::atomic<int> s_diagInputs{0};
+                    s_diagRMS.store(outRMS);
+                    s_diagInputs.store(connectedInputs);
                 }
             }
         }

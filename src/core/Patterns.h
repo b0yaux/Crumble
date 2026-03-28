@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <algorithm>
 #include <optional>
+#include <functional>
 
 /**
  * Event: A single value with temporal metadata.
@@ -19,14 +20,70 @@ struct Event {
     double onset;              // When this event starts (0.0-1.0 cycle)
     double duration;           // How long it lasts (0.0-1.0 cycle)
     bool isRest = false;       // Is this a rest?
+    std::optional<std::string> name;  // Optional name token for runtime resolution
+    std::optional<std::string> bank;  // Optional bank for names
     
     Event(T v, double o, double d = 0.0, bool r = false)
         : value(v), onset(o), duration(d), isRest(r) {}
+    
+    Event(T v, double o, double d, bool r, const std::string& n, const std::string& b = "")
+        : value(v), onset(o), duration(d), isRest(r), name(n), bank(b) {}
     
     // Check if a cycle position falls within this event
     bool contains(double cycle) const {
         return cycle >= onset && cycle < onset + duration;
     }
+};
+
+/**
+ * Pattern: A stateless function from Time to Events.
+...
+    virtual std::vector<Event<T>> query(double start, double end) = 0;
+...
+        std::vector<Event<float>> query(double start, double end) override {
+            // Constant covers entire cycle, so return if range is non-empty
+            if (end > start) {
+                return {Event<float>(val, 0.0, 1.0, false)};
+            }
+            return {};
+        }
+...
+        std::vector<Event<float>> query(double start, double end) override {
+            // Continuous pattern - return value at start of query
+            float val = eval(start);
+            return {Event<float>(val, start, end - start, false)};
+        }
+...
+        std::vector<Event<float>> query(double start, double end) override {
+            // Continuous pattern - return value at start of query
+            float val = eval(start);
+            return {Event<float>(val, start, end - start, false)};
+        }
+...
+        std::vector<Event<float>> query(double start, double end) override {
+            // Continuous pattern - return value at start of query
+            float val = eval(start);
+            return {Event<float>(val, start, end - start, false)};
+        }
+...
+        std::vector<Event<float>> query(double start, double end) override {
+            std::vector<Event<float>> events;
+...
+        std::vector<Event<float>> queryRange(double cycleStart, double cycleEnd) {
+            std::vector<Event<float>> events;
+...
+                        events.emplace_back(val, onset, stepDuration, false, step.name, step.bank);
+                    } else {
+                        // Numeric value or rest
+                        float val = (step.type == Step::NUMBER) ? step.value : 0.0f;
+                        events.emplace_back(val, onset, stepDuration, rest);
+...
+        std::vector<Event<float>> query(double start, double end) override {
+            // External inputs are continuous - return current value at start
+            float val = source ? source->load(std::memory_order_acquire) : 0.0f;
+            return {Event<float>(val, start, end - start, false)};
+        }
+
 };
 
 /**
@@ -194,10 +251,47 @@ namespace patterns {
      *   - "0*2 1"        : Repetition (0 plays twice)
      *   - "bd sd hh"     : Named samples (resolved to indices)
      */
+    /**
+     * Step: A single step in a sequence, storing either:
+     * - A numeric value (float)
+     * - A string token (name) that resolves at trigger time
+     * - A rest
+     */
+    struct Step {
+        enum Type { REST, NUMBER, NAME };
+        Type type;
+        float value;           // Valid if type == NUMBER
+        std::string name;      // Valid if type == NAME
+        std::string bank;      // For bank:notation
+        
+        Step() : type(REST), value(0.0f) {}
+        explicit Step(float v) : type(NUMBER), value(v) {}
+        explicit Step(const std::string& n, const std::string& b = "") 
+            : type(NAME), value(0.0f), name(n), bank(b) {}
+        
+        static Step makeRest() { return Step(); }
+        bool isRest() const { return type == REST; }
+        
+        // Resolve to a numeric value using the provided resolver function
+        // resolver(name, bank) -> optional<float>
+        template<typename Resolver>
+        float resolve(Resolver&& resolver) const {
+            switch (type) {
+                case REST: return REST_VALUE;
+                case NUMBER: return value;
+                case NAME: {
+                    auto resolved = resolver(name, bank);
+                    return resolved.value_or(0.0f);
+                }
+            }
+            return 0.0f;
+        }
+    };
+
     class Seq : public Pattern<float> {
     public:
         Seq(const std::string& patternString, const std::string& bankName = "") 
-            : raw(patternString), bank(bankName) {
+            : raw(patternString), defaultBank(bankName) {
             parseMiniNotation(patternString);
         }
 
@@ -210,7 +304,6 @@ namespace patterns {
             double cycleEnd = end - std::floor(end);
             
             // Handle wraparound when query crosses a bar boundary
-            // With monotonically increasing time (bars), cycleEnd < cycleStart indicates boundary crossed
             if (cycleEnd < cycleStart) {
                 auto firstHalf = queryRange(cycleStart, 1.0);
                 auto secondHalf = queryRange(0.0, cycleEnd);
@@ -228,21 +321,23 @@ namespace patterns {
             double phase = cycle - std::floor(cycle);
             int index = (int)(phase * steps.size());
             index = std::max(0, std::min((int)steps.size() - 1, index));
-            return steps[index];
+            // Return raw value (ignoring names - used for modulation, not triggers)
+            const auto& step = steps[index];
+            return step.type == Step::NUMBER ? step.value : 0.0f;
         }
 
-        std::string getSignature() const override { return "seq:" + raw + ":" + bank; }
+        std::string getSignature() const override { return "seq:" + raw + ":" + defaultBank; }
         
-        const std::vector<float>& getSteps() const { return steps; }
+        const std::vector<Step>& getSteps() const { return steps; }
         bool isStepRest(int index) const {
             if (index < 0 || index >= (int)steps.size()) return true;
-            return isRest(steps[index]);
+            return steps[index].isRest();
         }
 
     private:
         std::string raw;
-        std::string bank;
-        std::vector<float> steps;
+        std::string defaultBank;
+        std::vector<Step> steps;
 
         std::vector<Event<float>> queryRange(double cycleStart, double cycleEnd) {
             std::vector<Event<float>> events;
@@ -253,9 +348,18 @@ namespace patterns {
             for (int i = 0; i < (int)steps.size(); ++i) {
                 double onset = i * stepDuration;
                 if (onset >= cycleStart && onset < cycleEnd) {
-                    float val = steps[i];
-                    bool rest = isRest(val);
-                    events.emplace_back(val, onset, stepDuration, rest);
+                    const auto& step = steps[i];
+                    bool rest = step.isRest();
+                    
+                    if (step.type == Step::NAME && !rest) {
+                        // Named sample - include name/bank for runtime resolution
+                        float val = 0.0f;  // Will be resolved at trigger time
+                        events.emplace_back(val, onset, stepDuration, false, step.name, step.bank);
+                    } else {
+                        // Numeric value or rest
+                        float val = (step.type == Step::NUMBER) ? step.value : 0.0f;
+                        events.emplace_back(val, onset, stepDuration, rest);
+                    }
                 }
             }
             
@@ -270,18 +374,16 @@ namespace patterns {
                 
                 if (token == "~") {
                     // Rest
-                    steps.push_back(REST_VALUE);
+                    steps.push_back(Step::makeRest());
                 } else if (token.front() == '[' && token.back() == ']') {
-                    // Subdivision: [0 1 2]
-                    // For now, flatten subdivisions into sequential steps
+                    // Subdivision: [0 1 2] or [bd sd hh]
                     std::string inner = token.substr(1, token.size() - 2);
                     std::vector<std::string> subTokens = tokenize(inner);
                     for (const auto& sub : subTokens) {
                         if (sub == "~") {
-                            steps.push_back(REST_VALUE);
+                            steps.push_back(Step::makeRest());
                         } else {
-                            float val = parseValue(sub);
-                            steps.push_back(val);
+                            steps.push_back(parseStep(sub));
                         }
                     }
                 } else if (token.find('*') != std::string::npos) {
@@ -293,30 +395,53 @@ namespace patterns {
                         count = std::stoi(token.substr(starPos + 1));
                     } catch (...) {}
                     
-                    float val = parseValue(baseToken);
+                    Step step = parseStep(baseToken);
                     for (int r = 0; r < count; ++r) {
-                        steps.push_back(val);
+                        steps.push_back(step);
                     }
                 } else if (token.find(':') != std::string::npos) {
-                    // Bank:index notation: drums:0 or :0
+                    // Bank:index or bank:name notation: drums:0 or drums:bd
                     size_t colonPos = token.find(':');
                     std::string explicitBank = token.substr(0, colonPos);
-                    std::string indexStr = token.substr(colonPos + 1);
+                    std::string indexOrName = token.substr(colonPos + 1);
                     
                     if (!explicitBank.empty()) {
-                        bank = explicitBank;
+                        defaultBank = explicitBank;
                     }
                     
+                    // Try to parse as number first
                     try {
-                        steps.push_back(std::stof(indexStr));
+                        size_t pos;
+                        float val = std::stof(indexOrName, &pos);
+                        if (pos == indexOrName.size()) {
+                            steps.push_back(Step(val));
+                        } else {
+                            // It's a name with a bank
+                            steps.push_back(Step(indexOrName, defaultBank));
+                        }
                     } catch (...) {
-                        steps.push_back(0.0f);
+                        // It's a name
+                        steps.push_back(Step(indexOrName, defaultBank));
                     }
                 } else {
                     // Regular value or named sample
-                    steps.push_back(parseValue(token));
+                    steps.push_back(parseStep(token));
                 }
             }
+        }
+
+        Step parseStep(const std::string& token) {
+            // Try to parse as number
+            try {
+                size_t pos;
+                float val = std::stof(token, &pos);
+                if (pos == token.size()) {
+                    return Step(val);
+                }
+            } catch (...) {}
+            
+            // It's a name - will be resolved at trigger time
+            return Step(token, defaultBank);
         }
 
         std::vector<std::string> tokenize(const std::string& input) {
@@ -362,39 +487,6 @@ namespace patterns {
             size_t end = s.size();
             while (end > start && std::isspace(s[end - 1])) end--;
             return s.substr(start, end - start);
-        }
-
-        float parseValue(const std::string& token) {
-            // Try to parse as number
-            try {
-                size_t pos;
-                float val = std::stof(token, &pos);
-                if (pos == token.size()) {
-                    return val;
-                }
-            } catch (...) {}
-            
-            // Named sample - for now return 0, will be resolved at runtime
-            // Common drum names mapped to indices
-            static const std::unordered_map<std::string, int> drumMap = {
-                {"bd", 0}, {"kick", 0}, {"k", 0},
-                {"sd", 1}, {"snare", 1}, {"s", 1},
-                {"hh", 2}, {"hihat", 2}, {"ch", 2}, {"oh", 3},
-                {"clap", 4}, {"cp", 4},
-                {"tom", 5}, {"lt", 5}, {"mt", 6}, {"ht", 7},
-                {"cym", 8}, {"crash", 8}, {"ride", 9}
-            };
-            
-            std::string lower = token;
-            std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-            
-            auto it = drumMap.find(lower);
-            if (it != drumMap.end()) {
-                return static_cast<float>(it->second);
-            }
-            
-            // Unknown name - return 0 (first sample)
-            return 0.0f;
         }
     };
 

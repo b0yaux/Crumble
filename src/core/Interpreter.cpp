@@ -175,10 +175,9 @@ void Interpreter::bindSessionAPI() {
     lua_register(L, "_setActive", lua_setActive);
     lua_register(L, "_clear", lua_clear);
     lua_register(L, "_resolve", lua_resolvePath);
+    lua_register(L, "_setAlias", lua_setAlias);
     lua_register(L, "_getBank", lua_getBank);
     lua_register(L, "_setTempo", lua_setTempo);
-    lua_register(L, "_midi", lua_midi);
-    lua_register(L, "_oscin", lua_oscin);
     
     std::string helper = R"(
         session = {}
@@ -189,9 +188,22 @@ void Interpreter::bindSessionAPI() {
         function cps(v) _setTempo(v * 240) end
 
         
-        function NodeMeta:__newindex(key, value)
+function NodeMeta:__newindex(key, value)
             if key == "id" or key == "type" or key == "name" then
                 rawset(self, key, value)
+            elseif type(value) == "string" then
+                -- Pattern-accepting parameters (mini-notation auto-convert)
+                local patternParams = {n=true, speed=true, gain=true, opacity=true, 
+                                       cutoff=true, resonance=true, active=true,
+                                       position=true, loop=true, playing=true}
+                if patternParams[key] then
+                    -- Auto-convert mini-notation strings to patterns
+                    local pat = makeGen({type = "seq", val = value})
+                    _setGen(self.id, key, pat)
+                else
+                    -- Path and other params stay as strings
+                    _set(self.id, key, value)
+                end
             elseif type(value) == "table" and value._isGen then
                 _setGen(self.id, key, value)
             else
@@ -207,9 +219,8 @@ void Interpreter::bindSessionAPI() {
                     return self 
                 end
             elseif k == "connect" then
-                return function(self, toNode, fromOut, toIn)
-                    local toId = type(toNode) == "table" and toNode.id or toNode
-                    _connect(self.id, toId, fromOut or 0, toIn or 0)
+                return function(self, toNode, paramsOrOut, toIn)
+                    connect(self, toNode, paramsOrOut, toIn)
                     return self
                 end
             elseif k == "off" then return function(self) _setActive(self.id, false) return self end
@@ -228,11 +239,8 @@ void Interpreter::bindSessionAPI() {
         end
 
         _G._allNodes = {}
-        _G._autoIndices = {}
-        
-        function getBank(name) return _getBank(name) end
-        
         _G._autoNames = {}
+        
         local function addNodeInternal(t, n, p)
             local nodeName = n
             if not nodeName or nodeName == "" then
@@ -270,15 +278,17 @@ void Interpreter::bindSessionAPI() {
             _G._autoNames = {}
         end
 
-        function connect(src, dst, outIdx, inIdx)
+        function getBank(name) return _getBank(name) end
+
+        function connect(src, dst, paramsOrOut, inIdx)
             if type(src) == "table" and not src.id then
                 local lastIdx = 0
-                for _, s in ipairs(src) do lastIdx = connect(s, dst, outIdx, inIdx) end
+                for _, s in ipairs(src) do lastIdx = connect(s, dst, paramsOrOut, inIdx) end
                 return lastIdx
             end
             if type(dst) == "table" and not dst.id then
                 local lastIdx = 0
-                for _, d in ipairs(dst) do lastIdx = connect(src, d, outIdx, inIdx) end
+                for _, d in ipairs(dst) do lastIdx = connect(src, d, paramsOrOut, inIdx) end
                 return lastIdx
             end
             
@@ -287,14 +297,41 @@ void Interpreter::bindSessionAPI() {
             
             if sId and dId then
                 local targetIn = inIdx
+                local outIdx = 0
+                local params = nil
+
+                if type(paramsOrOut) == "table" then
+                    params = paramsOrOut
+                elseif type(paramsOrOut) == "number" then
+                    outIdx = paramsOrOut
+                end
+
                 if not targetIn then
                     _G._autoIndices[dId] = (_G._autoIndices[dId] or -1) + 1
                     targetIn = _G._autoIndices[dId]
                 end
-                _connect(sId, dId, outIdx or 0, targetIn)
+                
+                _connect(sId, dId, outIdx, targetIn)
+                
+                if params then
+                    for pk, pv in pairs(params) do
+                        local finalVal = pv
+                        if pk == "blend" then
+                            if type(pv) == "string" then
+                                local upper = pv:upper()
+                                if upper == "ALPHA" or upper == "NORMAL" then finalVal = 0
+                                elseif upper == "ADD" or upper == "ADDITIVE" then finalVal = 1
+                                elseif upper == "MULTIPLY" or upper == "MUL" then finalVal = 2
+                                end
+                            end
+                        end
+                        _set(dId, pk .. "_" .. targetIn, finalVal)
+                    end
+                end
+                src._lastTrack = targetIn
                 return targetIn
             end
-            return -1
+            return nil
         end
 
         -- Pattern functions
@@ -350,6 +387,7 @@ int Interpreter::lua_addNode(lua_State* L) {
         ofLogWarning("Interpreter") << "addNode: failed to create node of type '" << type << "'";
         return 0;
     }
+    node->touched = true; // CRITICAL: ensure node is not removed at end of script
     lua_pushinteger(L, node->nodeId);
     return 1;
 }
@@ -469,6 +507,13 @@ int Interpreter::lua_resolvePath(lua_State* L) {
     return 1;
 }
 
+int Interpreter::lua_setAlias(lua_State* L) {
+    std::string alias = luaL_checkstring(L, 1);
+    std::string target = luaL_checkstring(L, 2);
+    AssetRegistry::get().registerAlias(alias, target);
+    return 0;
+}
+
 int Interpreter::lua_getBank(lua_State* L) {
     std::string bankName = luaL_checkstring(L, 1);
     const auto& banks = AssetRegistry::get().getBanks();
@@ -519,10 +564,15 @@ std::shared_ptr<Pattern<float>> parsePattern(lua_State* L, int index) {
         lua_getfield(L, index, "type");
         std::string genType = lua_tostring(L, -1) ? lua_tostring(L, -1) : "";
         lua_pop(L, 1);
-        if (genType == "seq") {
+        if (genType == "seq" || genType == "trigger") {
             lua_getfield(L, index, "val");
             std::string p = lua_tostring(L, -1) ? lua_tostring(L, -1) : "";
-            lua_pop(L, 1); return std::make_shared<patterns::Seq>(p);
+            lua_pop(L, 1);
+            // Check for bank name
+            lua_getfield(L, index, "bank");
+            std::string bank = lua_tostring(L, -1) ? lua_tostring(L, -1) : "";
+            lua_pop(L, 1);
+            return std::make_shared<patterns::Seq>(p, bank);
         } else if (genType == "osc") {
             lua_getfield(L, index, "val");
             float f = (float)lua_tonumber(L, -1);
@@ -574,37 +624,37 @@ std::shared_ptr<Pattern<float>> parsePattern(lua_State* L, int index) {
         } else if (genType == "midi") {
             lua_getfield(L, index, "cc"); int cc = (int)lua_tonumber(L, -1); lua_pop(L, 1);
             lua_getfield(L, index, "chan"); int chan = (int)lua_tonumber(L, -1); lua_pop(L, 1);
-            auto* ptr = Interpreter::s_currentSession->getInputManager().getMidiBinding(0, chan, cc);
+            auto* ptr = Interpreter::s_currentSession->getInputBindings().getMidiBinding(0, chan, cc);
             return std::make_shared<patterns::External>(ptr, "midi:cc:" + std::to_string(chan) + ":" + std::to_string(cc));
         } else if (genType == "midinote") {
             lua_getfield(L, index, "note"); int note = (int)lua_tonumber(L, -1); lua_pop(L, 1);
             lua_getfield(L, index, "chan"); int chan = (int)lua_tonumber(L, -1); lua_pop(L, 1);
-            auto* ptr = Interpreter::s_currentSession->getInputManager().getMidiBinding(1, chan, note);
+            auto* ptr = Interpreter::s_currentSession->getInputBindings().getMidiBinding(1, chan, note);
             return std::make_shared<patterns::External>(ptr, "midi:note:" + std::to_string(chan) + ":" + std::to_string(note));
         } else if (genType == "miditouch") {
             lua_getfield(L, index, "note"); int note = (int)lua_tonumber(L, -1); lua_pop(L, 1);
             lua_getfield(L, index, "chan"); int chan = (int)lua_tonumber(L, -1); lua_pop(L, 1);
-            auto* ptr = Interpreter::s_currentSession->getInputManager().getMidiBinding(2, chan, note);
+            auto* ptr = Interpreter::s_currentSession->getInputBindings().getMidiBinding(2, chan, note);
             return std::make_shared<patterns::External>(ptr, "midi:touch:" + std::to_string(chan) + ":" + std::to_string(note));
         } else if (genType == "channeltouch") {
             lua_getfield(L, index, "chan"); int chan = (int)lua_tonumber(L, -1); lua_pop(L, 1);
             std::string path = "midi:ctouch:" + std::to_string(chan);
-            auto* ptr = Interpreter::s_currentSession->getInputManager().getBinding(path);
+            auto* ptr = Interpreter::s_currentSession->getInputBindings().getBinding(path);
             return std::make_shared<patterns::External>(ptr, path);
         } else if (genType == "oscin") {
             lua_getfield(L, index, "path"); std::string path = lua_tostring(L, -1); lua_pop(L, 1);
             std::string fullPath = "osc:" + path;
-            auto* ptr = Interpreter::s_currentSession->getInputManager().getBinding(fullPath);
+            auto* ptr = Interpreter::s_currentSession->getInputBindings().getBinding(fullPath);
             return std::make_shared<patterns::External>(ptr, fullPath);
         } else if (genType == "gamepadbutton") {
             lua_getfield(L, index, "id"); int id = (int)lua_tonumber(L, -1); lua_pop(L, 1);
             std::string path = "gamepad:button:" + std::to_string(id);
-            auto* ptr = Interpreter::s_currentSession->getInputManager().getBinding(path);
+            auto* ptr = Interpreter::s_currentSession->getInputBindings().getBinding(path);
             return std::make_shared<patterns::External>(ptr, path);
         } else if (genType == "gamepadaxis") {
             lua_getfield(L, index, "id"); int id = (int)lua_tonumber(L, -1); lua_pop(L, 1);
             std::string path = "gamepad:axis:" + std::to_string(id);
-            auto* ptr = Interpreter::s_currentSession->getInputManager().getBinding(path);
+            auto* ptr = Interpreter::s_currentSession->getInputBindings().getBinding(path);
             return std::make_shared<patterns::External>(ptr, path);
         }
     }
@@ -616,6 +666,3 @@ int Interpreter::lua_setTempo(lua_State* L) {
     s_currentSession->getTransport().bpm = (float)luaL_checknumber(L, 1);
     return 0;
 }
-
-int Interpreter::lua_midi(lua_State* L) { return 0; }
-int Interpreter::lua_oscin(lua_State* L) { return 0; }

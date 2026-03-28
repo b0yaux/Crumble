@@ -8,22 +8,23 @@
 
 namespace crumble {
 
-class InputManagerImpl;
+class InputBindingsImpl;
 
 /**
- * InputManager: Manages external hardware bindings (MIDI, OSC, Gamepad).
+ * InputBindings: Maps external hardware inputs (MIDI, OSC, Gamepad) to atomic floats.
  * 
  * Design:
  * 1. Pointer Stability: Atomic floats never move in memory once created.
  * 2. Pre-allocated MIDI: Fast-path for MIDI (CC, Notes, Touch).
  */
-class InputManager {
+class InputBindings {
 public:
-    InputManager();
-    ~InputManager();
+    InputBindings();
+    ~InputBindings();
     
     void setup();
     void update();
+    void cleanup();
 
     // Get or create an atomic binding for a semantic path
     std::atomic<float>* getBinding(const std::string& path);
@@ -44,11 +45,10 @@ private:
     std::unordered_map<std::string, std::unique_ptr<std::atomic<float>>> namedStore;
     
     std::mutex mutex;
-    std::unique_ptr<InputManagerImpl> impl;
+    std::unique_ptr<InputBindingsImpl> impl;
 
     // Internal helper to get MIDI index
     int getMidiIndex(int statusOffset, int chan, int num);
 };
 
 } // namespace crumble
-

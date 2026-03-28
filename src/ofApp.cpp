@@ -22,7 +22,7 @@ void ofApp::setup(){
     const auto& config = ConfigManager::get().getConfig();
     
     crumble::registerNodes(session);
-    session.getInputManager().setup();
+    session.getInputBindings().setup();
     interpreter.setup(&session);
     
     std::string scriptToRun = m_scriptOverride.empty() 
@@ -58,6 +58,10 @@ void ofApp::setup(){
     fileWatcher.start(500);
     
     graphUI.setup();
+
+    // Start audio engine AFTER nodes and assets have been initialized
+    // to avoid concurrent RtAudio initialization cracks.
+    session.setupAudio(44100, 256);
 }
 
 void ofApp::checkLiveReload() {
@@ -104,7 +108,7 @@ void ofApp::checkLiveReload() {
 }
 
 void ofApp::update(){
-    session.getInputManager().update();
+    session.getInputBindings().update();
     session.update(ofGetLastFrameTime());
     interpreter.update(session.getTransport());
     checkLiveReload();
@@ -161,4 +165,5 @@ void ofApp::dragEvent(ofDragInfo dragInfo){
 }
 
 void ofApp::exit() {
+    session.getInputBindings().cleanup();
 }

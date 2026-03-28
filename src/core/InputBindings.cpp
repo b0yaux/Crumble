@@ -1,5 +1,5 @@
 #include <vector>
-#include "InputManager.h"
+#include "InputBindings.h"
 #include "ofLog.h"
 #include "ofxMidi.h"
 #include "ofxOsc.h"
@@ -9,10 +9,9 @@
 
 namespace crumble {
 
-// Internal implementation class to hide ofxMidi/ofxOsc/SDL headers from the public API
-class InputManagerImpl : public ofxMidiListener {
+class InputBindingsImpl : public ofxMidiListener {
 public:
-    void setup(InputManager* owner) {
+    void setup(InputBindings* owner) {
         this->owner = owner;
         
         // MIDI Setup - Open all available ports
@@ -21,13 +20,13 @@ public:
             auto sub = std::make_unique<ofxMidiIn>();
             sub->openPort(i);
             sub->addListener(this);
-            ofLogNotice("InputManager") << "MIDI input opened on port " << i << ": " << ports[i];
+            ofLogNotice("InputBindings") << "MIDI input opened on port " << i << ": " << ports[i];
             midiInputs.push_back(std::move(sub));
         }
 
         // OSC Setup
         oscReceiver.setup(8000);
-        ofLogNotice("InputManager") << "OSC receiver started on port 8000";
+        ofLogNotice("InputBindings") << "OSC receiver started on port 8000";
 
         // Gamepad Setup
         setupGamepad();
@@ -35,7 +34,7 @@ public:
 
     void setupGamepad() {
         if (SDL_Init(SDL_INIT_GAMECONTROLLER) != 0) {
-            ofLogError("InputManager") << "SDL_Init Error: " << SDL_GetError();
+            ofLogError("InputBindings") << "SDL_Init Error: " << SDL_GetError();
             sdlInitialized = false;
             return;
         }
@@ -60,7 +59,7 @@ public:
         closeGamepad();
         controller = SDL_GameControllerOpen(deviceIndex);
         if (controller) {
-            ofLogNotice("InputManager") << "Gamepad connected: " << SDL_GameControllerName(controller);
+            ofLogNotice("InputBindings") << "Gamepad connected: " << SDL_GameControllerName(controller);
         }
     }
 
@@ -68,7 +67,7 @@ public:
         if (controller) {
             SDL_GameControllerClose(controller);
             controller = nullptr;
-            ofLogNotice("InputManager") << "Gamepad disconnected";
+            ofLogNotice("InputBindings") << "Gamepad disconnected";
         }
     }
 
@@ -137,7 +136,6 @@ public:
         }
     }
 
-    // ofxMidiListener callback
     void newMidiMessage(ofxMidiMessage& msg) override {
         if (msg.status == MIDI_CONTROL_CHANGE) {
             std::string path = "midi:cc:" + std::to_string(msg.channel) + ":" + std::to_string(msg.control);
@@ -152,7 +150,6 @@ public:
         else if (msg.status == MIDI_NOTE_OFF) {
             std::string path = "midi:note:" + std::to_string(msg.channel) + ":" + std::to_string(msg.pitch);
             owner->setBinding(path, 0.0f);
-            ofLog(OF_LOG_NOTICE, "[MIDI] midinote(%d, %d) -> OFF  [%s]", msg.pitch, msg.channel, path.c_str());
         }
         else if (msg.status == MIDI_POLY_AFTERTOUCH) {
             std::string path = "midi:touch:" + std::to_string(msg.channel) + ":" + std::to_string(msg.pitch);
@@ -167,37 +164,40 @@ public:
     }
 
 private:
-    InputManager* owner = nullptr;
+    InputBindings* owner = nullptr;
     ofxMidiIn midiInHelper;
     std::vector<std::unique_ptr<ofxMidiIn>> midiInputs;
     ofxOscReceiver oscReceiver;
     
-    // SDL Gamepad state
     SDL_GameController* controller = nullptr;
     bool sdlInitialized = false;
     std::array<float, SDL_CONTROLLER_AXIS_MAX> axisValues{};
     std::array<float, SDL_CONTROLLER_BUTTON_MAX> buttonStates{};
 };
 
-InputManager::InputManager() : impl(std::make_unique<InputManagerImpl>()) {
+InputBindings::InputBindings() : impl(std::make_unique<InputBindingsImpl>()) {
     for (auto& val : midiStore) val.store(0.0f);
 }
-InputManager::~InputManager() = default;
 
-int InputManager::getMidiIndex(int statusOffset, int chan, int num) {
-    // statusOffset: 0=CC, 1=Note, 2=Touch
-    // Clamp to valid MIDI ranges
+InputBindings::~InputBindings() {
+    if (impl) impl->exit();
+}
+
+void InputBindings::cleanup() {
+    if (impl) impl->exit();
+}
+
+int InputBindings::getMidiIndex(int statusOffset, int chan, int num) {
     int c = std::max(1, std::min(16, chan)) - 1;
     int n = std::max(0, std::min(127, num));
     return (statusOffset * 16 * 128) + (c * 128) + n;
 }
 
-std::atomic<float>* InputManager::getMidiBinding(int statusOffset, int chan, int num) {
+std::atomic<float>* InputBindings::getMidiBinding(int statusOffset, int chan, int num) {
     return &midiStore[getMidiIndex(statusOffset, chan, num)];
 }
 
-std::atomic<float>* InputManager::getBinding(const std::string& path) {
-    // Fast path for MIDI
+std::atomic<float>* InputBindings::getBinding(const std::string& path) {
     if (path.rfind("midi:", 0) == 0) {
         int status = -1;
         if (path.find("midi:cc:") == 0) status = 0;
@@ -215,7 +215,6 @@ std::atomic<float>* InputManager::getBinding(const std::string& path) {
         }
     }
 
-    // Standard map path (OSC/Gamepad)
     std::lock_guard<std::mutex> lock(mutex);
     if (namedStore.find(path) == namedStore.end()) {
         namedStore[path] = std::make_unique<std::atomic<float>>(0.0f);
@@ -223,16 +222,16 @@ std::atomic<float>* InputManager::getBinding(const std::string& path) {
     return namedStore[path].get();
 }
 
-void InputManager::setBinding(const std::string& path, float value) {
+void InputBindings::setBinding(const std::string& path, float value) {
     auto* ptr = getBinding(path);
     if (ptr) ptr->store(value, std::memory_order_release);
 }
 
-void InputManager::setup() {
+void InputBindings::setup() {
     impl->setup(this);
 }
 
-void InputManager::update() {
+void InputBindings::update() {
     impl->update();
 }
 

@@ -36,6 +36,7 @@ public:
     void setPosition(float pct);  // 0.0 to 1.0
     int getCurrentFrame() const;
     int getTotalFrames() const;
+    float getPosition() const;
     
     // Looping
     void setLoop(bool loop);
@@ -46,7 +47,7 @@ public:
     
     // Audio access for embedded audio streams (used by AVSampler)
     bool hasEmbeddedAudio() const { return _hasAudio; }
-    ofxHapPlayer& getPlayer() { return player; }
+    ofxHapPlayer& getPlayer() { return currentPlayer ? *currentPlayer : localPlayer; }
     
     // Serialization
     ofJson serialize() const override;
@@ -68,7 +69,9 @@ private:
     void safeSetPlayerSpeed(float newSpeed);
 
     std::string loadedPath;
+    std::string loadedResolvedPath;  // Cache: last resolved path loaded
     float lastSpeed = 1.0f;   // tracks the last speed actually sent to the player
-    ofxHapPlayer player;
+    std::shared_ptr<ofxHapPlayer> currentPlayer;
+    ofxHapPlayer localPlayer; // Fallback if not in cache
     bool _hasAudio = false;
 };

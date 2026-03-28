@@ -94,6 +94,7 @@ public:
     std::shared_ptr<ofParameter<int>> drawLayer;
     std::shared_ptr<ofParameter<float>> gain;
     std::shared_ptr<ofParameter<float>> opacity;
+    std::shared_ptr<ofParameter<int>> blend;
     std::shared_ptr<ofParameter<bool>> active; 
     
     virtual std::string getDisplayName() const { return name; }

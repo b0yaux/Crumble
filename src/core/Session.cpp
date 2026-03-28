@@ -9,7 +9,6 @@ Session* g_session = nullptr;
 Session::Session() {
     g_session = this;
     graph.setTransport(&transport);
-    setupAudio(44100, 256); 
 }
 
 Session::~Session() {
@@ -104,6 +103,11 @@ void Session::audioOut(ofSoundBuffer& buffer) {
                     // Update static value directly without disturbing pattern
                     if (auto* slot = ap->getControlPtr(cmd.paramHash)) {
                         slot->value.store(cmd.value, std::memory_order_relaxed);
+                        if (cmd.paramHash == crumble::hashString("gain")) {
+                            ofLogNotice("Session") << "SET_PARAM gain: nodeId=" << cmd.nodeId
+                                                   << " val=" << cmd.value
+                                                   << " stored=" << slot->value.load();
+                        }
                     }
                 }
                 break;
@@ -161,17 +165,17 @@ void Session::audioOut(ofSoundBuffer& buffer) {
         }
     }
 
-    // 2. Advance the absolute clock
-    float dt = buffer.getNumFrames() / (float)buffer.getSampleRate();
-    transport.update(dt);
-    frameCounter++;
-    
-    // 3. Clear buffer initially
-    buffer.set(0);
-
     // 4. Compute cycle timing for this block (monotonically increasing bars)
     double blockBars = transport.bars;
     double barsStep  = transport.getCyclesPerSample(buffer.getSampleRate());
+
+    // Clear the hardware buffer before DSP traversal
+    buffer.set(0);
+
+    // Advance the absolute clock for the NEXT block
+    double dt = buffer.getNumFrames() / (double)buffer.getSampleRate();
+    transport.update(dt);
+    frameCounter++;
 
     // 5. Wait-Free DSP Traversal — pull from every registered audio endpoint.
     // Endpoints register themselves via REGISTER_ENDPOINT (e.g. SpeakersOutput).
@@ -184,6 +188,15 @@ void Session::audioOut(ofSoundBuffer& buffer) {
     }
     for (auto* ep : audioEndpoints) {
         ep->pull(buffer, 0, frameCounter, blockBars, barsStep);
+    }
+
+    // Master Diagnostic: Check if any audio is leaving the system
+    static int silenceCounter = 0;
+    float energy = buffer.getRMSAmplitude();
+    if (energy > 0.0001f) {
+        silenceCounter = 0;
+    } else {
+        silenceCounter++;
     }
 }
 

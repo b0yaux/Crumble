@@ -59,8 +59,16 @@ void AssetRegistry::registerFile(const std::string& filePath, const std::string&
     LogicalAsset& asset = assets[baseName];
     asset.name = baseName;
     
-    if (isVideo) asset.videoPath = filePath;
-    else asset.audioPath = filePath;
+    // Video containers (mov, mp4) can contain both video AND audio streams
+    if (isVideo) {
+        asset.videoPath = filePath;
+        // ofxHapPlayer can decode audio from video containers
+        if (ext == "mov" || ext == "mp4" || ext == "mkv" || ext == "avi") {
+            asset.audioPath = filePath;
+        }
+    } else {
+        asset.audioPath = filePath;
+    }
 
     // 2. Register in the bank
     if (!bankName.empty()) {
@@ -70,8 +78,15 @@ void AssetRegistry::registerFile(const std::string& filePath, const std::string&
         bool found = false;
         for (auto& bAsset : bank) {
             if (bAsset.name == baseName) {
-                if (ext == "mov" || ext == "hap" || ext == "mp4") bAsset.videoPath = filePath;
-                else bAsset.audioPath = filePath;
+                if (isVideo) {
+                    bAsset.videoPath = filePath;
+                    // Video containers can contain audio too
+                    if (ext == "mov" || ext == "mp4" || ext == "mkv" || ext == "avi") {
+                        bAsset.audioPath = filePath;
+                    }
+                } else {
+                    bAsset.audioPath = filePath;
+                }
                 found = true;
                 break;
             }
@@ -80,8 +95,15 @@ void AssetRegistry::registerFile(const std::string& filePath, const std::string&
         if (!found) {
             LogicalAsset newBAsset;
             newBAsset.name = baseName;
-            if (ext == "mov" || ext == "hap" || ext == "mp4") newBAsset.videoPath = filePath;
-            else newBAsset.audioPath = filePath;
+            if (isVideo) {
+                newBAsset.videoPath = filePath;
+                // Video containers can contain audio too
+                if (ext == "mov" || ext == "mp4" || ext == "mkv" || ext == "avi") {
+                    newBAsset.audioPath = filePath;
+                }
+            } else {
+                newBAsset.audioPath = filePath;
+            }
             bank.push_back(newBAsset);
         }
     }
@@ -104,6 +126,7 @@ std::string AssetRegistry::resolve(const std::string& logicalPath, const std::st
         auto it = banks.find(bankName);
         if (it != banks.end()) {
             const auto& bank = it->second;
+            ofLogNotice("AssetRegistry") << "Bank lookup: " << bankName << " has " << bank.size() << " items";
             
             // Try as index first
             try {
@@ -134,6 +157,21 @@ std::string AssetRegistry::resolve(const std::string& logicalPath, const std::st
         if (!result.empty()) return result;
     }
 
-    // 3. Fallback to raw path (honestly failed to resolve)
+    // 3. Check user-defined aliases
+    auto aliasIt = aliases.find(logicalPath);
+    if (aliasIt != aliases.end()) {
+        // Alias maps to logical path - recursively resolve
+        ofLogNotice("AssetRegistry") << "Alias found: " << logicalPath << " -> " << aliasIt->second;
+        std::string result = resolve(aliasIt->second, typeHint);
+        ofLogNotice("AssetRegistry") << "Alias resolved: " << aliasIt->second << " -> " << result;
+        return result;
+    }
+
+    // 4. Fallback to raw path (failed to resolve)
     return "";
+}
+
+void AssetRegistry::registerAlias(const std::string& alias, const std::string& target) {
+    aliases[alias] = target;
+    ofLogNotice("AssetRegistry") << "Registered alias: " << alias << " -> " << target;
 }

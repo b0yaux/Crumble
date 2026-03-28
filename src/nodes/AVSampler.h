@@ -4,9 +4,6 @@
 #include "VideoSource.h"
 #include "AudioSource.h"
 
-// Forward declaration
-class VideoEmbedAudioProcessor;
-
 /**
  * AVSampler - Unified audio/visual sampler with synchronized playback.
  * 
@@ -14,8 +11,12 @@ class VideoEmbedAudioProcessor;
  * master playhead. All parameters (speed, loop, gain) are synchronized
  * across both sources.
  * 
- * Supports mini-notation pattern triggering via indexPattern.
- * Pattern evaluation uses query() for Tidal-style event extraction.
+ * Supports pattern-based triggering via the "n" parameter.
+ * Uses unified pattern system: patterns flow through ControlSlot,
+ * triggers are evaluated sample-accurately in audio thread.
+ * 
+ * AudioSourceProcessor handles both standalone audio buffers and
+ * embedded audio decoded from video files via LOAD_BUFFER command.
  */
 class AVSampler : public Node {
 public:
@@ -47,21 +48,18 @@ public:
     double getMasterPlayhead() const { return masterPlayhead; }
     void setMasterPlayhead(double position);
     
-    // Index pattern support for mini-notation triggering
-    void setIndexPattern(std::shared_ptr<Pattern<float>> pat);
-    void setBankName(const std::string& name) { bankName = name; }
-    std::string getBankName() const { return bankName; }
+    // Trigger a sample at the given index
+    void triggerSample(int index);
+    void triggerSampleWithPath(const std::string& resolvedPath);
+    void silenceSample();
     
-    // Override to handle "n" parameter for index patterns
+    // Override to extract bank name from trigger patterns
     void modulate(const std::string& paramName, std::shared_ptr<Pattern<float>> pat) override;
     
 private:
     // Internal sources - owned and synchronized by this node
     AudioSource audioSource;
     VideoSource videoSource;
-    
-    // Embedded audio processor (for video files with audio)
-    VideoEmbedAudioProcessor* embeddedAudioProcessor = nullptr;
     
     // Parameters
     ofParameter<std::string> path;
@@ -71,24 +69,12 @@ private:
     ofParameter<bool> loop;
     ofParameter<bool> playing;
     ofParameter<float> position;
+    ofParameter<float> triggerPosition;
 
     // Master playhead (in samples, converted as needed for each source)
     double masterPlayhead = 0.0;
     std::string loadedAudioPath, loadedVideoPath;
-    double lastSyncedAudioPos = -1.0;
     
-    // Embedded audio flag - true when video file contains audio
-    bool useEmbeddedAudio = false;
-    
-    // Performance state for Sync
-    bool isInternalChange = false;
-    
-    // Index pattern for mini-notation triggering
-    std::shared_ptr<Pattern<float>> indexPattern;
-    double lastQueryCycle = -1.0;
+    // Bank name for pattern triggering
     std::string bankName;
-    
-    // Trigger a sample at the given index
-    void triggerSample(int index);
-    void silenceSample();
 };

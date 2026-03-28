@@ -6,7 +6,7 @@ public:
     Transport() : bpm(120.0f), beatsPerBar(4), absoluteTime(0.0), bars(0.0), cycle(0.0), isPlaying(true) {}
 
     // Core timing update (called from audio thread each block)
-    void update(float dt);
+    void update(double dt);
 
     // Core timing state
     float  bpm;           // Beats per minute

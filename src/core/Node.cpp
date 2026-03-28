@@ -19,6 +19,9 @@ Node::Node() {
     opacity = std::make_shared<ofParameter<float>>();
     parameters->add(opacity->set("opacity", 1.0, 0.0, 1.0));
     
+    blend = std::make_shared<ofParameter<int>>();
+    parameters->add(blend->set("blend", 0, 0, 2)); // Default: ALPHA
+    
     active = std::make_shared<ofParameter<bool>>();
     parameters->add(active->set("active", true));
     
@@ -216,6 +219,10 @@ void Node::onParameterChanged(const std::string& paramName) {
         cmd.type = crumble::ProcessorCommand::SET_PARAM;
         cmd.paramHash = crumble::hashString(paramName.c_str());
         cmd.value = val;
+        if (paramName == "gain") {
+            ofLogNotice("Node") << "onParameterChanged(" << paramName << ") sending SET_PARAM: val=" << val
+                                 << " nodeId=" << nodeId;
+        }
         pushCommand(cmd);
 
         {

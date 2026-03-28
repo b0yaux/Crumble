@@ -2,7 +2,7 @@
 #include "ofMain.h"
 #include "core/Session.h"
 #include "core/Interpreter.h"
-#include "core/InputManager.h"
+#include "core/InputBindings.h"
 #include "ui/GraphUI.h"
 #include "core/FileWatcher.h"
 

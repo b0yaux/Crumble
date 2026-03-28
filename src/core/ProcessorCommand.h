@@ -39,6 +39,7 @@ struct ProcessorCommand {
         SET_GRAPH_REF,
         LOAD_BUFFER,
         RELEASE_BUFFER,
+        SET_RELATIVE_POS,   // Jump to a relative position (0.0-1.0)
         REGISTER_ENDPOINT   // Nominate this processor as a Session-driven audio endpoint
     };
 
@@ -63,16 +64,10 @@ struct ProcessorCommand {
     // For SET_PATTERN: the old pattern being returned to the main thread for safe destruction.
     std::shared_ptr<Pattern<float>> displacedPattern;
     
-    // For LOAD_BUFFER / RELEASE_BUFFER
-    // dataOwner keeps the underlying audio buffer alive for exactly as long as
-    // the AudioFileProcessor holds a reference to it.  The processor stores this
-    // shared_ptr alongside the raw audioData pointer; the raw pointer becomes
-    // safe to dereference for the processor's entire lifetime without any
-    // explicit synchronisation between the UI thread and the audio thread.
     const float* audioData = nullptr;
     size_t totalSamples = 0;
     int channels = 0;
-    std::shared_ptr<void> dataOwner; // type-erased to avoid pulling ofxAudioFile here
+    std::shared_ptr<void> dataOwner;
     
     int fromOutput = 0;
     int toInput = 0;

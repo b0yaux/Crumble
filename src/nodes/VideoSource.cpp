@@ -1,6 +1,7 @@
 #include "ofMain.h"
 #include "VideoSource.h"
 #include "../core/NodeProcessor.h"
+#include "../core/VideoCache.h"
 
 // Shadow processor for the video thread
 class VideoSourceProcessor : public crumble::VideoProcessor {
@@ -9,44 +10,53 @@ public:
     crumble::ControlSlot* playingSlot = nullptr;
     crumble::ControlSlot* activeSlot = nullptr;
 
-    VideoSourceProcessor(ofxHapPlayer* p) : playerRef(p), lastSpeed(1.0f) {
+    VideoSourceProcessor(ofxHapPlayer* p) : lastSpeed(1.0f) {
+        playerRef.store(p);
         speedSlot = getControlPtr(crumble::hashString("speed"));
         playingSlot = getControlPtr(crumble::hashString("playing"));
         activeSlot = getControlPtr(crumble::hashString("active"));
     }
 
     void processVideo(double cycle, double cycleStep) override {
-        if (!playerRef || !playerRef->isLoaded()) return;
+        currentCycle = cycle; // Update cycle for pattern-aware getParam()
+        
+        ofxHapPlayer* p = playerRef.load(std::memory_order_relaxed);
+        if (!p || !p->isLoaded()) return;
 
         float newSpeed = evalSlot(speedSlot, cycle);
 
         if (std::abs(newSpeed - lastSpeed) > 1e-4f) {
             if (newSpeed == 0.0f) {
-                playerRef->setPaused(true);
+                p->setPaused(true);
             } else {
                 if (lastSpeed == 0.0f && evalSlot(playingSlot, cycle) > 0.5f) {
-                    playerRef->setPaused(false);
+                    p->setPaused(false);
                 }
-                playerRef->setSpeed(newSpeed);
+                p->setSpeed(newSpeed);
             }
             lastSpeed = newSpeed;
         }
 
-        playerRef->update();
+        p->update();
     }
     
     ofTexture* getOutput(int index = 0) override {
         if (evalSlot(activeSlot, currentCycle) < 0.5f) return nullptr;
         
-        if (playerRef && playerRef->isLoaded()) {
-            ofTexture* tex = playerRef->getTexture();
+        ofxHapPlayer* p = playerRef.load(std::memory_order_relaxed);
+        if (p && p->isLoaded()) {
+            ofTexture* tex = p->getTexture();
             if (tex && tex->isAllocated()) return tex;
         }
         return nullptr;
     }
     
+    void setPlayer(ofxHapPlayer* p) {
+        playerRef.store(p, std::memory_order_relaxed);
+    }
+    
 private:
-    ofxHapPlayer* playerRef = nullptr;
+    std::atomic<ofxHapPlayer*> playerRef;
     float lastSpeed;
 };
 
@@ -64,7 +74,7 @@ VideoSource::VideoSource() {
 }
 
 crumble::VideoProcessor* VideoSource::createVideoProcessor() {
-    return new VideoSourceProcessor(&player);
+    return new VideoSourceProcessor(currentPlayer ? currentPlayer.get() : &localPlayer);
 }
 
 void VideoSource::setClockMode(ClockMode mode) {
@@ -73,23 +83,23 @@ void VideoSource::setClockMode(ClockMode mode) {
 
 void VideoSource::safeSetPlayerSpeed(float newSpeed) {
     if (newSpeed == 0.0f) {
-        player.setPaused(true);
+        getPlayer().setPaused(true);
     } else {
         if (lastSpeed == 0.0f && playing.get()) {
-            player.setPaused(false);
+            getPlayer().setPaused(false);
         }
-        player.setSpeed(newSpeed);
+        getPlayer().setSpeed(newSpeed);
     }
     lastSpeed = newSpeed;
 }
 
 void VideoSource::onClockModeChanged(int& mode) {
-    if (player.isLoaded()) {
+    if (getPlayer().isLoaded()) {
         if (mode == VideoSource::EXTERNAL) {
-            player.setPaused(true);
+            getPlayer().setPaused(true);
         } else {
             if (playing) {
-                player.play();
+                getPlayer().play();
                 safeSetPlayerSpeed(speed.get());
             }
         }
@@ -105,53 +115,77 @@ void VideoSource::onPathChanged(std::string& p) {
 
 void VideoSource::load(const std::string& vidPath) {
     std::string resolvedPath = resolvePath(vidPath, "video");
-    ofLogNotice("VideoSource") << "Loading video: " << resolvedPath << " (from: " << vidPath << ")";
     
-    bool loaded = player.load(resolvedPath);
-
-    if (loaded) {
-        player.setLoopState(loop ? OF_LOOP_NORMAL : OF_LOOP_NONE);
-        
-        // Check for embedded audio stream via ofxHapPlayer
-        _hasAudio = (player.getAudioOutput() != nullptr);
-        
-        // Don't mute - VideoEmbedAudioProcessor will handle muting for RESTs
-        // player.setVolume would silence the audioOut() buffer completely
-        
-        if (clockMode == VideoSource::INTERNAL) {
-            if (playing) player.play();
-            safeSetPlayerSpeed(speed.get());
-        } else {
-            player.setPaused(true);
-        }
-        loadedPath = vidPath;
-    } else {
-        ofLogError("VideoSource") << "Failed to load: " << resolvedPath;
+    // Acquire from global cache (or load if not cached)
+    auto cached = VideoCache::get().acquire(resolvedPath);
+    if (!cached) {
+        ofLogError("VideoSource") << "Failed to acquire video from cache: " << resolvedPath;
         _hasAudio = false;
+        return;
     }
+    
+    // Check if this is the same video already loaded in this player
+    bool isSameVideo = (loadedResolvedPath == resolvedPath);
+    
+    if (isSameVideo && getPlayer().isLoaded()) {
+        // Same video, just seek to start
+        ofLogNotice("VideoSource") << "Same video reload, seeking to start: " << resolvedPath;
+        setPosition(0.0f);
+        if (clockMode == INTERNAL && playing.get()) {
+            getPlayer().play();
+        }
+        return;
+    }
+    
+    // Different video - swap in the cached player
+    ofLogNotice("VideoSource") << "Swapping to cached video: " << resolvedPath;
+    
+    // Stop current playback
+    if (getPlayer().isLoaded()) {
+        getPlayer().stop();
+    }
+    
+    // Swap pointers and update processor
+    currentPlayer = cached->player;
+    if (videoProcessor) {
+        static_cast<VideoSourceProcessor*>(videoProcessor)->setPlayer(currentPlayer.get());
+    }
+    
+    _hasAudio = cached->hasAudio;
+    getPlayer().setLoopState(loop ? OF_LOOP_NORMAL : OF_LOOP_NONE);
+    
+    if (clockMode == VideoSource::INTERNAL) {
+        if (playing) getPlayer().play();
+        safeSetPlayerSpeed(speed.get());
+    } else {
+        getPlayer().setPaused(true);
+    }
+    
+    loadedPath = vidPath;
+    loadedResolvedPath = resolvedPath;
 }
 
 void VideoSource::onParameterChanged(const std::string& paramName) {
-    if (!player.isLoaded()) return;
+    if (!getPlayer().isLoaded()) return;
 
     if (paramName == "speed") {
         if (clockMode == VideoSource::INTERNAL) {
             safeSetPlayerSpeed(speed.get());
         }
     } else if (paramName == "loop") {
-        player.setLoopState(loop ? OF_LOOP_NORMAL : OF_LOOP_NONE);
+        getPlayer().setLoopState(loop ? OF_LOOP_NORMAL : OF_LOOP_NONE);
     } else if (paramName == "playing") {
         if (clockMode == VideoSource::INTERNAL) {
-            if (playing) player.play();
-            else player.setPaused(true);
+            if (playing) getPlayer().play();
+            else getPlayer().setPaused(true);
         }
     }
 }
 
 ofTexture* VideoSource::processVideo(int index) {
     if (index != 0) return nullptr;
-    if (player.isLoaded()) {
-        ofTexture* tex = player.getTexture();
+    if (getPlayer().isLoaded()) {
+        ofTexture* tex = getPlayer().getTexture();
         if (tex && tex->isAllocated()) {
             return tex;
         }
@@ -170,43 +204,44 @@ std::string VideoSource::getDisplayName() const {
 }
 
 void VideoSource::play() {
-    player.play();
+    getPlayer().play();
 }
 
 void VideoSource::stop() {
-    player.stop();
+    getPlayer().stop();
 }
 
 void VideoSource::pause() {
-    player.setPaused(true);
+    getPlayer().setPaused(true);
 }
 
 bool VideoSource::isPlaying() const {
-    return player.isPlaying();
+    return const_cast<VideoSource*>(this)->getPlayer().isPlaying();
 }
 
 void VideoSource::setFrame(int frame) {
-    player.setFrame(frame);
+    getPlayer().setFrame(frame);
 }
 
 void VideoSource::setPosition(float pct) {
-    player.setPosition(pct);
-    if (_hasAudio) {
-        player.flushAudioBuffers();
-    }
+    getPlayer().setPosition(pct);
 }
 
 int VideoSource::getCurrentFrame() const {
-    return player.getCurrentFrame();
+    return const_cast<VideoSource*>(this)->getPlayer().getCurrentFrame();
 }
 
 int VideoSource::getTotalFrames() const {
-    return player.getTotalNumFrames();
+    return const_cast<VideoSource*>(this)->getPlayer().getTotalNumFrames();
+}
+
+float VideoSource::getPosition() const {
+    return const_cast<VideoSource*>(this)->getPlayer().getPosition();
 }
 
 void VideoSource::setLoop(bool shouldLoop) {
     loop = shouldLoop;
-    player.setLoopState(shouldLoop ? OF_LOOP_NORMAL : OF_LOOP_NONE);
+    getPlayer().setLoopState(shouldLoop ? OF_LOOP_NORMAL : OF_LOOP_NONE);
 }
 
 ofJson VideoSource::serialize() const {

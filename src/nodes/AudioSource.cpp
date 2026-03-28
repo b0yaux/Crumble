@@ -1,17 +1,29 @@
 #include "ofMain.h"
 #include "AudioSource.h"
-#include "../core/ProcessorCommand.h"
 #include "../core/NodeProcessor.h"
+#include "../core/ProcessorCommand.h"
+#include "../core/AssetRegistry.h"
+#include "../core/AssetCache.h"
+#include "../core/Session.h"
 
 namespace crumble {
 
 class AudioSourceProcessor : public AudioProcessor {
 public:
-    ControlSlot* playingSlot = nullptr;
-    ControlSlot* activeSlot = nullptr;
-    ControlSlot* loopSlot = nullptr;
     ControlSlot* speedSlot = nullptr;
+    ControlSlot* playingSlot = nullptr;
+    ControlSlot* loopSlot = nullptr;
+    ControlSlot* activeSlot = nullptr;
     ControlSlot* gainSlot = nullptr;
+    ControlSlot* triggerSlot = nullptr;
+
+    std::atomic<int> pendingTrigger{-1};
+    std::atomic<bool> pendingRest{false};
+    char pendingTriggerPathBuf[512] = {0};
+    std::atomic<bool> hasPendingTriggerPath{false};
+    std::mutex pendingPathMutex;
+    std::atomic<bool> muted{false};
+    double lastTriggerBars = -1.0;
 
     AudioSourceProcessor() {
         playingSlot = getControlPtr(crumble::hashString("playing"));
@@ -19,41 +31,84 @@ public:
         loopSlot = getControlPtr(crumble::hashString("loop"));
         speedSlot = getControlPtr(crumble::hashString("speed"));
         gainSlot = getControlPtr(crumble::hashString("gain"));
+        triggerSlot = getControlPtr(crumble::hashString("n"));
     }
 
     void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
                  double cycle, double cycleStep) override {
-        if (!data || totalSamples == 0 || evalSlot(playingSlot, cycle) < 0.5f || evalSlot(activeSlot, cycle) < 0.5f) return;
+        if (evalSlot(activeSlot, cycle) < 0.5f) return;
+        
+        if (triggerSlot && triggerSlot->pattern) {
+            if (lastTriggerBars < 0) lastTriggerBars = cycle;
+            
+            if (std::abs(cycle - lastTriggerBars) > 0.5) lastTriggerBars = cycle;
 
-        bool loop = evalSlot(loopSlot, cycle) > 0.5f;
-        double currentPlayhead = playhead.load();
+            double samplesPerBar = 1.0 / cycleStep;
+            double endBars = cycle + (buffer.getNumFrames() * cycleStep);
 
-        for (size_t i = 0; i < buffer.getNumFrames(); i++) {
+            querySlot(triggerSlot, lastTriggerBars, endBars,
+                      samplesPerBar, (int)buffer.getNumFrames(),
+                      [this](const auto& e, int sampleOffset) {
+                if (e.isRest) {
+                    pendingRest.store(true);
+                    pendingTrigger.store(-1);
+                    std::lock_guard<std::mutex> lock(pendingPathMutex);
+                    hasPendingTriggerPath.store(false);
+                } else if (e.name) {
+                    pendingRest.store(false);
+                    std::string resolved = AssetRegistry::get().resolve(*(e.name), "audio");
+                    if (!resolved.empty()) {
+                        std::lock_guard<std::mutex> lock(pendingPathMutex);
+                        size_t len = std::min(resolved.length(), sizeof(pendingTriggerPathBuf) - 1);
+                        memcpy(pendingTriggerPathBuf, resolved.c_str(), len);
+                        pendingTriggerPathBuf[len] = '\0';
+                        hasPendingTriggerPath.store(true);
+                        pendingTrigger.store(-1);
+                    }
+                } else {
+                    pendingRest.store(false);
+                    pendingTrigger.store(static_cast<int>(std::floor(e.value)));
+                    std::lock_guard<std::mutex> lock(pendingPathMutex);
+                    hasPendingTriggerPath.store(false);
+                }
+            });
+            lastTriggerBars = endBars;
+        }
+        
+        bool isMuted = muted.load();
+        size_t frames = buffer.getNumFrames();
+
+        if (isMuted || !data || totalSamples == 0) return;
+
+        bool isPlaying = evalSlot(playingSlot, cycle) > 0.5f;
+        if (!isPlaying) return;
+
+        bool loopVal = evalSlot(loopSlot, cycle) > 0.5f;
+        double ph = playhead.load();
+        int outCh = buffer.getNumChannels();
+
+        for (size_t i = 0; i < frames; i++) {
             double sampleCycle = cycle + i * cycleStep;
-            float speed = evalSlot(speedSlot, sampleCycle);
-            float gain  = evalSlot(gainSlot, sampleCycle);
+            float spd = evalSlot(speedSlot, sampleCycle);
+            float curG = evalSlot(gainSlot, sampleCycle);
 
-            size_t frameIndex = (size_t)currentPlayhead;
-            if (frameIndex < totalSamples) {
-                for (int c = 0; c < buffer.getNumChannels(); c++) {
-                    int sourceChannel = c % channels;
-                    float sample = data[frameIndex * channels + sourceChannel];
-                    buffer[i * buffer.getNumChannels() + c] += sample * gain;
+            size_t frameIndex = (size_t)ph;
+            if (frameIndex < totalSamples && channels > 0) {
+                for (int c = 0; c < outCh; c++) {
+                    buffer[i * outCh + c] += data[frameIndex * channels + (c % channels)] * curG;
                 }
             }
-
-            currentPlayhead += speed;
-
-            if (loop) {
-                while (currentPlayhead >= (double)totalSamples) currentPlayhead -= totalSamples;
-                while (currentPlayhead < 0)                     currentPlayhead += totalSamples;
-            } else if (currentPlayhead >= (double)totalSamples || currentPlayhead < 0) {
-                currentPlayhead = ofClamp(currentPlayhead, 0.0, (double)totalSamples);
+            ph += spd;
+            if (loopVal) {
+                while (ph >= (double)totalSamples) ph -= totalSamples;
+                while (ph < 0) ph += totalSamples;
+            } else if (ph >= (double)totalSamples || ph < 0) {
+                ph = ofClamp(ph, 0.0, (double)totalSamples);
             }
         }
-        playhead.store(currentPlayhead);
+        playhead.store(ph);
     }
-    
+
     void handleCommand(const ProcessorCommand& cmd) override {
         if (cmd.type == ProcessorCommand::LOAD_BUFFER) {
             dataOwner   = cmd.dataOwner;
@@ -66,27 +121,30 @@ public:
             totalSamples = 0;
             channels    = 0;
             dataOwner.reset();
+        } else if (cmd.type == ProcessorCommand::SET_RELATIVE_POS) {
+            if (totalSamples > 0) {
+                playhead.store(cmd.value * totalSamples);
+            }
         }
     }
 
-    std::atomic<double> playhead{0.0};
-    const float* data = nullptr;
-    size_t totalSamples = 0;
-    int channels = 0;
+    void setMuted(bool m) { muted.store(m); }
+    bool hasPendingTrigger() const { return pendingTrigger.load() >= 0; }
+    int getPendingTrigger() const { return pendingTrigger.load(); }
+    void clearPendingTrigger() { pendingTrigger.store(-1); }
+    bool hasPendingRest() const { return pendingRest.load(); }
+    void clearPendingRest() { pendingRest.store(false); }
 
-private:
-    std::shared_ptr<void> dataOwner;
+    bool hasPendingPath() const { return hasPendingTriggerPath.load(); }
+    std::string getPendingPath() {
+        std::lock_guard<std::mutex> lock(pendingPathMutex);
+        std::string p(pendingTriggerPathBuf);
+        hasPendingTriggerPath.store(false);
+        return p;
+    }
 };
 
 } // namespace crumble
-
-AudioSource::~AudioSource() {
-    if (audioProcessor) {
-        crumble::ProcessorCommand cmd;
-        cmd.type = crumble::ProcessorCommand::RELEASE_BUFFER;
-        pushCommand(cmd);
-    }
-}
 
 AudioSource::AudioSource() {
     type = "audio";
@@ -94,14 +152,113 @@ AudioSource::AudioSource() {
     parameters->add(speed.set("speed", 1.0, -4.0, 4.0));
     parameters->add(loop.set("loop", true));
     parameters->add(playing.set("playing", true));
+
     path.addListener(this, &AudioSource::onPathChanged);
+}
+
+AudioSource::~AudioSource() {
+    path.removeListener(this, &AudioSource::onPathChanged);
+    if (audioProcessor) {
+        crumble::ProcessorCommand cmd;
+        cmd.type = crumble::ProcessorCommand::RELEASE_BUFFER;
+        cmd.audioProcessor = audioProcessor;
+        pushCommand(cmd);
+    }
+}
+
+void AudioSource::onPathChanged(std::string& p) {
+    if (!p.empty()) {
+        load(p);
+    }
+}
+
+void AudioSource::load(const std::string& audioPath) {
+    std::string resolved = AssetRegistry::get().resolve(audioPath, "audio");
+    if (resolved.empty()) return;
+
+    std::string ext = ofToLower(ofFilePath::getFileExt(resolved));
+    if (ext == "mov" || ext == "hap" || ext == "mp4") {
+        return;
+    }
+
+    auto audioFile = getAudioAsset(resolved);
+    if (audioFile && audioFile->loaded()) {
+        loadedPath = audioPath;
+        crumble::ProcessorCommand cmd;
+        cmd.type         = crumble::ProcessorCommand::LOAD_BUFFER;
+        cmd.nodeId       = nodeId;
+        cmd.audioProcessor = audioProcessor;
+        cmd.audioData    = audioFile->data();
+        cmd.dataOwner    = audioFile;
+        cmd.totalSamples = audioFile->length();
+        cmd.channels     = audioFile->channels();
+        pushCommand(cmd);
+        ofLogNotice("AudioSource") << "Loaded: " << audioPath;
+    } else {
+        ofLogError("AudioSource") << "Failed to load: " << audioPath;
+    }
+}
+
+void AudioSource::loadEmbedded(const std::string& videoPath) {
+    if (!audioProcessor) {
+        ofLogWarning("AudioSource") << "loadEmbedded: audioProcessor is null";
+        return;
+    }
+
+    auto* cache = getCache();
+    if (!cache) {
+        ofLogError("AudioSource") << "loadEmbedded: no cache available";
+        return;
+    }
+
+    int targetRate = g_session ? g_session->getSampleRate() : 44100;
+    auto decoded = cache->getEmbeddedAudio(videoPath, targetRate);
+    if (!decoded || decoded->numFrames == 0) {
+        ofLogError("AudioSource") << "Failed to get embedded audio for: " << videoPath;
+        return;
+    }
+
+    ofLogNotice("AudioSource") << "loadEmbedded: " << decoded->numFrames
+                               << " frames, " << decoded->channels
+                               << " ch, " << decoded->sampleRate << " Hz, data="
+                               << (void*)decoded->data.data();
+
+    const float* d = decoded->data.data();
+    ofLogNotice("AudioSource") << "sample check: [0]=" << d[0]
+                               << " [1]=" << d[1]
+                               << " [2]=" << d[2]
+                               << " [3]=" << d[3]
+                               << " [4]=" << d[4]
+                               << " [100]=" << d[100];
+
+    embeddedAudioFrames = decoded->numFrames;
+    embeddedAudioChannels = decoded->channels;
+
+    crumble::ProcessorCommand cmd;
+    cmd.type           = crumble::ProcessorCommand::LOAD_BUFFER;
+    cmd.nodeId         = nodeId;
+    cmd.audioProcessor = audioProcessor;
+    cmd.audioData      = decoded->data.data();
+    cmd.dataOwner      = std::static_pointer_cast<void>(decoded);
+    cmd.totalSamples   = decoded->numFrames;
+    cmd.channels       = decoded->channels;
+    pushCommand(cmd);
+
+    ofLogNotice("AudioSource") << "LOAD_BUFFER pushed: nodeId=" << nodeId
+                               << " totalSamples=" << decoded->numFrames
+                               << " channels=" << decoded->channels;
 }
 
 crumble::AudioProcessor* AudioSource::createAudioProcessor() {
     return new crumble::AudioSourceProcessor();
 }
 
-void AudioSource::processAudio(ofSoundBuffer& buffer, int index) {}
+void AudioSource::processAudio(ofSoundBuffer& buffer, int index) {
+}
+
+void AudioSource::onParameterChanged(const std::string& paramName) {
+    Node::onParameterChanged(paramName);
+}
 
 std::string AudioSource::getDisplayName() const {
     if (path.get().empty()) return "Empty Audio";
@@ -118,43 +275,62 @@ void AudioSource::deserialize(const ofJson& json) {
     ofDeserialize(json, *parameters);
 }
 
-void AudioSource::onPathChanged(std::string& p) {
-    if (!p.empty() && p != loadedPath) {
-        load(p);
-    }
-}
-
-void AudioSource::load(const std::string& p) {
-    sharedLoader = getAudioAsset(p);
-    if (sharedLoader && sharedLoader->loaded()) {
-        loadedPath = p;
-        crumble::ProcessorCommand cmd;
-        cmd.type         = crumble::ProcessorCommand::LOAD_BUFFER;
-        cmd.nodeId       = nodeId;
-        cmd.audioProcessor = audioProcessor;
-        cmd.audioData    = sharedLoader->data();
-        cmd.dataOwner    = sharedLoader;
-        cmd.totalSamples = sharedLoader->length();
-        cmd.channels     = sharedLoader->channels();
-        pushCommand(cmd);
-        ofLogNotice("AudioSource") << "Loaded: " << p;
-    } else {
-        ofLogError("AudioSource") << "Failed to load: " << p;
-    }
-}
-
-void AudioSource::onParameterChanged(const std::string& paramName) {
-    Node::onParameterChanged(paramName);
-}
-
 double AudioSource::getRelativePosition() const {
     auto pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
-    if (!pProc || !sharedLoader || sharedLoader->length() == 0) return 0.0;
-    return pProc->playhead.load() / (double)sharedLoader->length();
+    if (!pProc || pProc->totalSamples == 0) return 0.0;
+    return pProc->playhead.load() / (double)pProc->totalSamples;
 }
 
 void AudioSource::setRelativePosition(double pct) {
+    crumble::ProcessorCommand cmd;
+    cmd.type = crumble::ProcessorCommand::SET_RELATIVE_POS;
+    cmd.nodeId = nodeId;
+    cmd.audioProcessor = audioProcessor;
+    cmd.value = pct;
+    pushCommand(cmd);
+}
+
+void AudioSource::setMuted(bool muted) {
     auto pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
-    if (!pProc || !sharedLoader || sharedLoader->length() == 0) return;
-    pProc->playhead.store(ofClamp(pct, 0.0, 1.0) * (double)sharedLoader->length());
+    if (pProc) pProc->setMuted(muted);
+}
+
+bool AudioSource::getMuted() const {
+    auto pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
+    return pProc ? pProc->muted.load() : false;
+}
+
+bool AudioSource::hasPendingTrigger() const {
+    auto pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
+    return pProc ? pProc->hasPendingTrigger() : false;
+}
+
+int AudioSource::getPendingTrigger() const {
+    auto pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
+    return pProc ? pProc->getPendingTrigger() : -1;
+}
+
+void AudioSource::clearPendingTrigger() {
+    auto pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
+    if (pProc) pProc->clearPendingTrigger();
+}
+
+bool AudioSource::hasPendingRest() const {
+    auto pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
+    return pProc ? pProc->hasPendingRest() : false;
+}
+
+void AudioSource::clearPendingRest() {
+    auto pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
+    if (pProc) pProc->clearPendingRest();
+}
+
+bool AudioSource::hasPendingPath() const {
+    auto pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
+    return pProc ? pProc->hasPendingPath() : false;
+}
+
+std::string AudioSource::getPendingPath() {
+    auto pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
+    return pProc ? pProc->getPendingPath() : "";
 }

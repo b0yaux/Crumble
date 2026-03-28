@@ -27,6 +27,8 @@ public:
     }
 
     void processVideo(double cycle, double cycleStep) override {
+        currentCycle = cycle;
+        
         if (!writeTex) {
             static bool loggedOnce = false;
             if (!loggedOnce) {
@@ -59,7 +61,15 @@ public:
                     ofTexture* tex = inputs[i].processor->getOutput(inputs[i].fromOutput);
                     
                     if (tex && tex->isAllocated()) {
-                        BlendMode mode = (BlendMode)(int)blendModeVal;
+                        // Intelligent Blending:
+                        // 1. Check if the mixer has an explicit override (blend_i != -1)
+                        // 2. If not, use the source node's own 'blend' parameter preference.
+                        int finalBlend = (int)blendModeVal;
+                        if (finalBlend == -1) {
+                            finalBlend = (int)inputs[i].processor->getParam(crumble::hashString("blend"));
+                        }
+                        
+                        BlendMode mode = (BlendMode)std::max(0, finalBlend);
                         switch (mode) {
                             case BlendMode::ADD: ofEnableBlendMode(OF_BLENDMODE_ADD); break;
                             case BlendMode::MULTIPLY: ofEnableBlendMode(OF_BLENDMODE_MULTIPLY); break;
@@ -67,7 +77,8 @@ public:
                             default: ofEnableBlendMode(OF_BLENDMODE_ALPHA); break;
                         }
                         
-                        // Get source metadata dynamically from the source processor each frame
+                        // Combined Opacity:
+                        // Multiplies the mixer's layer opacity by the source node's own opacity.
                         float sourceOpacity = inputs[i].processor->getParam(crumble::hashString("opacity"));
                         float sourceActive = inputs[i].processor->getParam(crumble::hashString("active"));
                         
@@ -82,6 +93,7 @@ public:
         }
         
         ofDisableBlendMode();
+        ofSetColor(255, 255, 255, 255);
         currentFbo.end();
         
         // Copy FBO texture reference to our shadow texture
@@ -142,7 +154,7 @@ void VideoMixer::resizeLayerArrays(int newSize) {
         // Add new layers
         for (int i = currentSize; i < newSize; i++) {
             layerOpacities.push_back(ofParameter<float>("opacity_" + ofToString(i), 1.0, 0.0, 1.0));
-            layerBlendModes.push_back(ofParameter<int>("blend_" + ofToString(i), 0, 0, (int)BlendMode::COUNT - 1));
+            layerBlendModes.push_back(ofParameter<int>("blend_" + ofToString(i), -1, -1, (int)BlendMode::COUNT - 1));
             layerActive.push_back(ofParameter<bool>("active_" + ofToString(i), true));
             
             parameters->add(layerOpacities[i]);
@@ -152,7 +164,7 @@ void VideoMixer::resizeLayerArrays(int newSize) {
             // Sync new layer params to VideoMixerProcessor
             if (videoProcessor) {
                 if (auto* slot = videoProcessor->getControlPtr(crumble::hashString(("opacity_" + std::to_string(i)).c_str()))) slot->value.store(1.0f, std::memory_order_relaxed);
-                if (auto* slot = videoProcessor->getControlPtr(crumble::hashString(("blend_" + std::to_string(i)).c_str()))) slot->value.store(0.0f, std::memory_order_relaxed);
+                if (auto* slot = videoProcessor->getControlPtr(crumble::hashString(("blend_" + std::to_string(i)).c_str()))) slot->value.store(-1.0f, std::memory_order_relaxed);
                 if (auto* slot = videoProcessor->getControlPtr(crumble::hashString(("active_" + std::to_string(i)).c_str()))) slot->value.store(1.0f, std::memory_order_relaxed);
             }
         }

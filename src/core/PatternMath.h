@@ -17,6 +17,13 @@ namespace patterns {
     class Speed : public Pattern<float> {
     public:
         Speed(float factor, std::shared_ptr<Pattern<float>> p) : f(factor), pat(p) {}
+        
+        std::vector<Event<float>> query(double start, double end) override {
+            if (!pat) return {};
+            // Transform time domain: query wrapped pattern at sped up rate
+            return pat->query(start * f, end * f);
+        }
+        
         float eval(double cycle) override {
             return pat ? pat->eval(cycle * f) : 0.0f;
         }
@@ -34,6 +41,12 @@ namespace patterns {
     class Shift : public Pattern<float> {
     public:
         Shift(float amount, std::shared_ptr<Pattern<float>> p) : o(amount), pat(p) {}
+        
+        std::vector<Event<float>> query(double start, double end) override {
+            if (!pat) return {};
+            return pat->query(start + o, end + o);
+        }
+        
         float eval(double cycle) override {
             return pat ? pat->eval(cycle + o) : 0.0f;
         }
@@ -53,6 +66,16 @@ namespace patterns {
     class Scale : public Pattern<float> {
     public:
         Scale(float min, float max, std::shared_ptr<Pattern<float>> p) : lo(min), hi(max), pat(p) {}
+        
+        std::vector<Event<float>> query(double start, double end) override {
+            if (!pat) return {};
+            auto events = pat->query(start, end);
+            for (auto& e : events) {
+                e.value = lo + e.value * (hi - lo);
+            }
+            return events;
+        }
+        
         float eval(double cycle) override {
             if (!pat) return lo;
             float val = pat->eval(cycle);
@@ -72,6 +95,16 @@ namespace patterns {
     class Snap : public Pattern<float> {
     public:
         Snap(float steps, std::shared_ptr<Pattern<float>> p) : n(steps), pat(p) {}
+        
+        std::vector<Event<float>> query(double start, double end) override {
+            if (!pat) return {};
+            auto events = pat->query(start, end);
+            for (auto& e : events) {
+                if (n > 0) e.value = std::round(e.value * n) / n;
+            }
+            return events;
+        }
+        
         float eval(double cycle) override {
             if (!pat) return 0.0f;
             float val = pat->eval(cycle);
@@ -93,6 +126,16 @@ namespace patterns {
     class Abs : public Pattern<float> {
     public:
         Abs(std::shared_ptr<Pattern<float>> p) : pat(p) {}
+        
+        std::vector<Event<float>> query(double start, double end) override {
+            if (!pat) return {};
+            auto events = pat->query(start, end);
+            for (auto& e : events) {
+                e.value = std::abs(e.value);
+            }
+            return events;
+        }
+        
         float eval(double cycle) override {
             if (!pat) return 0.0f;
             return std::abs(pat->eval(cycle));
@@ -112,6 +155,30 @@ namespace patterns {
     class Sum : public Pattern<float> {
     public:
         Sum(std::shared_ptr<Pattern<float>> a, std::shared_ptr<Pattern<float>> b) : patA(a), patB(b) {}
+        
+        std::vector<Event<float>> query(double start, double end) override {
+            // For combination, we take events from both patterns and merge
+            auto eventsA = patA ?patA->query(start, end) : std::vector<Event<float>>{};
+            auto eventsB = patB ? patB->query(start, end) : std::vector<Event<float>>{};
+            
+            // Simple merge: add values at same onset
+            std::vector<Event<float>> result = eventsA;
+            for (auto& eb : eventsB) {
+                bool found = false;
+                for (auto& er : result) {
+                    if (std::abs(er.onset - eb.onset) < 0.0001) {
+                        er.value += eb.value;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    result.push_back(eb);
+                }
+            }
+            return result;
+        }
+        
         float eval(double cycle) override {
             return (patA ? patA->eval(cycle) : 0.0f) + (patB ? patB->eval(cycle) : 0.0f);
         }
@@ -128,6 +195,22 @@ namespace patterns {
     class Product : public Pattern<float> {
     public:
         Product(std::shared_ptr<Pattern<float>> a, std::shared_ptr<Pattern<float>> b) : patA(a), patB(b) {}
+        
+        std::vector<Event<float>> query(double start, double end) override {
+            // For product, we combine events multiplicatively
+            auto eventsA = patA ? patA->query(start, end) : std::vector<Event<float>>{};
+            auto eventsB = patB ? patB->query(start, end) : std::vector<Event<float>>{};
+            
+            // Use eval for multiplicative combination (simplified)
+            std::vector<Event<float>> result;
+            for (auto& ea : eventsA) {
+                Event<float> e = ea;
+                e.value *= patB ? patB->eval(ea.onset) : 0.0f;
+                result.push_back(e);
+            }
+            return result;
+        }
+        
         float eval(double cycle) override {
             return (patA ? patA->eval(cycle) : 0.0f) * (patB ? patB->eval(cycle) : 0.0f);
         }

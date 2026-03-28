@@ -1,6 +1,6 @@
 #include "Transport.h"
 
-void Transport::update(float dt) {
+void Transport::update(double dt) {
     if (!isPlaying) return;
 
     absoluteTime += dt;

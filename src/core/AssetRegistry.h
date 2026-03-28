@@ -1,5 +1,6 @@
 #pragma once
 #include "ofMain.h"
+#include <unordered_map>
 
 /**
  * A Logical Asset represents a group of related media streams (Video, Audio, etc.)
@@ -39,11 +40,21 @@ public:
      * - "birds"        (Logical Asset): Resolves to the MOV/WAV pair named 'birds'.
      * - "drums:5"      (Bank Index): Resolves to the 6th asset pair in the 'drums' folder.
      * - "drums:snare"  (Bank Named): Resolves to the 'snare' asset within the 'drums' bank.
+     * - "t"            (Alias): Resolves via user-defined alias (e.g., "t" -> "travaux")
      * 
      * @param logicalPath The user-provided identifier.
      * @param typeHint The component to retrieve ("audio" or "video").
      */
     std::string resolve(const std::string& logicalPath, const std::string& typeHint = "") const;
+
+    /**
+     * Register a user-defined alias for a sample or asset.
+     * Allows custom short names like "t" -> "travaux" or "k" -> "drums:0"
+     * 
+     * @param alias The short name (e.g., "t", "k")
+     * @param target The target: logical path like "travaux" or "drums:0"
+     */
+    void registerAlias(const std::string& alias, const std::string& target);
 
     const std::map<std::string, LogicalAsset>& getAssets() const { return assets; }
     const std::map<std::string, std::vector<LogicalAsset>>& getBanks() const { return banks; }
@@ -53,6 +64,9 @@ private:
     
     std::map<std::string, LogicalAsset> assets;
     std::map<std::string, std::vector<LogicalAsset>> banks;
+    
+    // User-defined aliases: alias -> logical path
+    std::unordered_map<std::string, std::string> aliases;
     
     void processDirectory(const std::string& path, const std::string& bankName = "");
     void registerFile(const std::string& filePath, const std::string& bankName = "");

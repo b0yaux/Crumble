@@ -29,20 +29,78 @@ public:
 
     virtual void handleCommand(const ProcessorCommand& cmd) {}
 
-    // --- Pattern evaluation (SET_PATTERN) ---
+    // --- Pattern evaluation ---
+    
+    /**
+     * Evaluate a modulation pattern at a specific cycle.
+     * Returns the pattern's value at that point in time.
+     * If no pattern is set, returns the slot's static value.
+     * 
+     * @param slot The control slot containing the pattern or static value
+     * @param cycle The cycle position (0.0 = start of first cycle, increases monotonically)
+     * @return The evaluated value
+     */
     inline float evalSlot(ControlSlot* slot, double cycle) {
         if (!slot) return 0.0f;
         if (slot->pattern) return slot->pattern->eval(cycle);
         return slot->value.load(std::memory_order_relaxed);
     }
     
-    inline float evalPattern(uint32_t hash, double cycle) {
+    /**
+     * Evaluate a modulation pattern by parameter hash.
+     * Convenience wrapper that looks up the slot by hash.
+     * 
+     * @param hash The parameter name hash (from hashString)
+     * @param cycle The cycle position
+     * @return The evaluated value
+     */
+    inline float eval(uint32_t hash, double cycle) {
         return evalSlot(getControlPtr(hash), cycle);
     }
-
-    // --- Scalar parameter access (SET_PARAM) ---
+    
+    /**
+     * Query a trigger pattern for events in a time range.
+     * Calls the callback for each event with its sample offset within the buffer.
+     * Events are discrete occurrences (notes, triggers) with onset times.
+     * 
+     * @param slot The control slot containing the trigger pattern
+     * @param startBars The start of the query range in bars (monotonically increasing)
+     * @param endBars The end of the query range in bars
+     * @param samplesPerBar Samples per bar (for converting cycle position to sample offset)
+     * @param bufferSize Size of the audio buffer (for clamping offset)
+     * @param onEvent Callback: void(const Event<float>& event, int sampleOffset)
+     */
+    template<typename Callback>
+    inline void querySlot(ControlSlot* slot, double startBars, double endBars,
+                          double samplesPerBar, int bufferSize, Callback onEvent) {
+        if (!slot || !slot->pattern) return;
+        auto events = slot->pattern->query(startBars, endBars);
+        for (const auto& e : events) {
+            // Convert onset (in bars) to sample offset within buffer
+            double relativePos = e.onset - std::floor(startBars);
+            if (relativePos < 0) relativePos += 1.0;
+            int offset = static_cast<int>(relativePos * samplesPerBar);
+            offset = std::max(0, std::min(bufferSize - 1, offset));
+            onEvent(e, offset);
+        }
+    }
+    
+    /**
+     * Query a trigger pattern by parameter hash.
+     * Convenience wrapper that looks up the slot by hash.
+     */
+    template<typename Callback>
+    inline void query(uint32_t hash, double startBars, double endBars,
+                      double samplesPerBar, int bufferSize, Callback onEvent) {
+        querySlot(getControlPtr(hash), startBars, endBars, samplesPerBar, bufferSize, onEvent);
+    }
+    
+    /**
+     * Convenience: evaluate pattern by hash using the current cycle.
+     * Useful for simple parameter access in process() functions.
+     */
     inline float getParam(uint32_t hash) {
-        return evalPattern(hash, currentCycle);
+        return eval(hash, currentCycle);
     }
 
     std::array<ControlSlot, 256> controls;
@@ -87,7 +145,7 @@ public:
     void pull(ofSoundBuffer& buffer, int index = 0, uint64_t frameCounter = 0,
               double cycle = 0.0, double cycleStep = 0.0) {
         if (lastProcessedFrame == frameCounter && frameCounter != 0) {
-            copyTo(buffer);
+            mixTo(buffer);
             return;
         }
         
@@ -104,21 +162,31 @@ public:
         process(internalBuffer, index, frameCounter, cycle, cycleStep);
         
         lastProcessedFrame = frameCounter;
-        copyTo(buffer);
+        mixTo(buffer);
     }
 
     virtual void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
                          double cycle, double cycleStep) {}
 
-    void copyTo(ofSoundBuffer& dest) {
+    void mixTo(ofSoundBuffer& dest) {
         if (dest.size() == internalBuffer.size()) {
-            std::copy(internalBuffer.getBuffer().begin(), internalBuffer.getBuffer().end(),
-                      dest.getBuffer().begin());
+            float* d = dest.getBuffer().data();
+            float* s = internalBuffer.getBuffer().data();
+            for (size_t i = 0; i < dest.size(); i++) {
+                d[i] += s[i];
+            }
         }
     }
 
     ofSoundBuffer internalBuffer;
     uint64_t lastProcessedFrame = 0;
+    
+    // Shared audio state
+    std::atomic<double> playhead{0.0};
+    size_t totalSamples = 0;
+    int channels = 0;
+    const float* data = nullptr;
+    std::shared_ptr<void> dataOwner;
 
     virtual void addInput(AudioProcessor* p, int toInput, int fromOutput) {
         if (toInput >= 0 && toInput < MAX_INPUTS) {

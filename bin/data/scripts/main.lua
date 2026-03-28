@@ -4,7 +4,7 @@ local screen = videoout():on()
 local vmx = videomix():on():connect(screen)
 
 local speakers = audioout():on()
-local amx = audiomix():on():connect(speakers):gain(1*midi(17,1))
+local amx = audiomix():on():connect(speakers):gain(1) -- *midi(17,1)
 
 bpm(200)
 
@@ -22,13 +22,14 @@ for i = 1, count do
     -- noise(f, s): perlin drift
     -- local mix = noise(1, i)
     -- each sampler oscillates at i
-    local mix =  gpad("a") + midi(82,1) + midinote(36,10) + miditouch(36,10)
-    
+    local mix =  gpad("triangle") + midi(82,1) + midinote(36,10) + miditouch(36,10)
+    local gly = gpad("ly"):scale(1,-1)
+    local glx = gpad("lx"):scale(-1,1)
     -- create samplers
     local s = sampler(asset.name):path(asset.path)
               :gain(mix)
               :opacity(mix)
-              :speed(midi(74,1):scale(0,10) + gax("ly"))
+              :speed(1+midi(74,1):scale(0,10) + gly + glx)
               :on()
 
     -- connect and configure mixer tracks

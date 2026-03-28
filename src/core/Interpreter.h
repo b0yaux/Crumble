@@ -77,10 +77,9 @@ private:
     static int lua_listDirectory(lua_State* L);
     static int lua_fileExists(lua_State* L);
     static int lua_resolvePath(lua_State* L);
+    static int lua_setAlias(lua_State* L);
     static int lua_setGenerator(lua_State* L);
     static int lua_setActive(lua_State* L);
     static int lua_getBank(lua_State* L);
     static int lua_setTempo(lua_State* L);
-    static int lua_midi(lua_State* L);
-    static int lua_oscin(lua_State* L);
 };

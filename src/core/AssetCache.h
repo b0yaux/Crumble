@@ -10,6 +10,13 @@
 #include <string>
 #include <vector>
 
+struct DecodedAudio {
+    std::vector<float> data;
+    size_t numFrames = 0;
+    int channels = 0;
+    int sampleRate = 0;
+};
+
 /**
  * AssetCache provides a centralized, thread-safe deduplication layer for heavy assets.
  * It uses a template-based "Typed Manager" pattern to allow generic access (get<T>)
@@ -87,6 +94,8 @@ public:
     std::shared_ptr<ofxAudioFile> getAudio(const std::string& path) {
         return get<ofxAudioFile>(path);
     }
+
+    std::shared_ptr<DecodedAudio> getEmbeddedAudio(const std::string& videoPath, int targetRate = 44100);
 
     /**
      * Removes assets that are no longer referenced by any Node.
