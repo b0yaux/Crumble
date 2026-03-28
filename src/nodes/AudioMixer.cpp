@@ -17,8 +17,6 @@ public:
         sumBuf.set(0);
     }
 
-
-
     void addInput(AudioProcessor* p, int toInput, int fromOutput) override {
         AudioProcessor::addInput(p, toInput, fromOutput);
         std::string name = "gain_" + std::to_string(toInput);
@@ -28,76 +26,42 @@ public:
     void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
                  double cycle, double cycleStep) override {
         float masterGain = evalSlot(masterGainSlot, cycle);
-        
-        int connectedInputs = 0;
+
         for (int i = 0; i < MAX_INPUTS; i++) {
             auto& input = inputs[i];
             if (input.processor) {
-                connectedInputs++;
-                // Only reallocate when the host changes buffer geometry (rare).
                 if (sumBuf.getNumFrames() != buffer.getNumFrames() ||
                     sumBuf.getNumChannels() != buffer.getNumChannels()) {
                     sumBuf.allocate(buffer.getNumFrames(), buffer.getNumChannels());
                     sumBuf.setSampleRate(buffer.getSampleRate());
                 }
                 sumBuf.set(0);
-                
-                // Pass cycle/cycleStep down the graph
+
                 input.processor->pull(sumBuf, input.fromOutput, frameCounter, cycle, cycleStep);
-                
-                float inputRMS = sumBuf.getRMSAmplitude();
-                
+
                 float* pSum = sumBuf.getBuffer().data();
                 float* pOut = buffer.getBuffer().data();
                 int numChannels = buffer.getNumChannels();
-                
+
                 for (size_t f = 0; f < buffer.getNumFrames(); f++) {
                     double sampleCycle = cycle + f * cycleStep;
                     float gain = evalSlot(inputGainSlots[i], sampleCycle);
-                    
-                    for (int c = 0; c < numChannels; c++) {
-                        pOut[f * numChannels + c] += pSum[f * numChannels + c] * gain;
-                    }
-                }
-                
-            connectedInputs++;
-            for (int i = 0; i < MAX_INPUTS; i++) {
-                auto& input = inputs[i];
-                if (input.processor) {
-                    connectedInputs++;
-                    // Only reallocate when the host changes buffer geometry (rare).
-                    if (sumBuf.getNumFrames() != buffer.getNumFrames() ||
-                        sumBuf.getNumChannels() != buffer.getNumChannels()) {
-                        sumBuf.allocate(buffer.getNumFrames(), buffer.getNumChannels());
-                    sumBuf.setSampleRate(buffer.getSampleRate());
-                    sumBuf.set(0);
-                }
-                
-                // Pass cycle/cycleStep down the graph
-                input.processor->pull(sumBuf, input.fromOutput, frameCounter, cycle, cycleStep);
-                
-                float* pSum = sumBuf.getBuffer().data();
-                float* pOut = buffer.getBuffer().data();
-                int numChannels = buffer.getNumChannels();
-                
-                for (size_t f = 0; f < buffer.getNumFrames(); f++) {
-                    double sampleCycle = cycle + f * cycleStep;
-                    float gain = evalSlot(inputGainSlots[i], sampleCycle);
-                    
+
                     for (int c = 0; c < numChannels; c++) {
                         pOut[f * numChannels + c] += pSum[f * numChannels + c] * gain;
                     }
                 }
             }
-            
-            float masterGain = evalSlot(masterGainSlot, cycle);
-            if (masterGain != 1.0f) {
-                float* pOut = buffer.getBuffer().data();
-                for (size_t k = 0; k < buffer.size(); k++) {
-                    pOut[k] *= masterGain;
-                }
+        }
+
+        if (masterGain != 1.0f) {
+            float* pOut = buffer.getBuffer().data();
+            for (size_t k = 0; k < buffer.size(); k++) {
+                pOut[k] *= masterGain;
             }
-    
+        }
+    }
+
 private:
     ofSoundBuffer sumBuf;
 };
@@ -120,7 +84,6 @@ std::string AudioMixer::getDisplayName() const {
 }
 
 void AudioMixer::onParameterChanged(const std::string& paramName) {
-    // Node::onParameterChanged handles all params generically via slotMap.
     Node::onParameterChanged(paramName);
 }
 
@@ -133,10 +96,8 @@ void AudioMixer::onInputConnected(int index) {
             p->set(name, 0.8f, 0.0f, 1.0f);
             parameters->add(*p);
             inputGains.push_back(p);
-            
-            // Register the parameter name and sync the value.
+
             if (audioProcessor) {
-                // Sync initial value using name-based SET_PARAM
                 crumble::ProcessorCommand cmd;
                 cmd.type = crumble::ProcessorCommand::SET_PARAM;
                 cmd.paramHash = crumble::hashString(name.c_str());
