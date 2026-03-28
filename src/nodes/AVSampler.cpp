@@ -208,15 +208,18 @@ void AVSampler::triggerSample(int index) {
     
     ofLogNotice("AVSampler") << "triggerSample(" << index << ") -> path: " << newPath << " (bankName: " << bankName << ")";
     
-    // Only reload if path changed
+    // Reload if path changed
     if (path.get() != newPath) {
         path.set(newPath);
         onParameterChanged("path");
     }
     
-    // Seek to trigger position
-    videoSource.setPosition(triggerPosition.get());
-    audioSource.setRelativePosition(triggerPosition.get());
+    // ALWAYS re-seek to trigger position for true re-trigger effect
+    // This ensures that repeated triggers (e.g., "0 0 ~ 0") restart playback
+    float trigPos = triggerPosition.get();
+    ofLogNotice("AVSampler") << "RETRIGGER: seeking to pos=" << trigPos << " (unmuting)";
+    videoSource.setPosition(trigPos);
+    audioSource.setRelativePosition(trigPos);
     audioSource.setMuted(false);
     
     // Ensure playing
