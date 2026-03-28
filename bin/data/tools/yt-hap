@@ -1,39 +1,30 @@
 #!/bin/zsh
-# Crumble yt-hap: YouTube to HAP Converter
-# =======================================
-# Downloads and encodes videos for the Crumble A/V engine.
+# yt-hap: YouTube to HAP Converter
+# Downloads and encodes videos for A/V performance.
 
 set -e
 
 # --- Configuration ---
-DEFAULT_OUTPUT_DIR="${CRUMBLE_VIDEOS:-$HOME/Videos/Crumble}"
+DEFAULT_OUTPUT_DIR="${VIDEOS_DIR:-$HOME/Videos/HAP}"
 
-# --- Helper: Check/Install Dependencies ---
 check_dependencies() {
-    # Check yt-dlp
     if ! command -v yt-dlp &> /dev/null; then
-        echo "🔍 Checking dependencies..."
-        echo "📦 yt-dlp missing. Installing via Homebrew..."
+        echo "yt-dlp missing. Installing via Homebrew..."
         brew install yt-dlp
     fi
 
-    # Check ffmpeg with HAP support
     if ! ffmpeg -encoders 2>/dev/null | grep -q "hap"; then
-        echo "🔍 Checking dependencies..."
-        echo "⚠️  FFmpeg with HAP support not found."
-        echo "📦 Installing ffmpeg-full (includes HAP codec)..."
-        
+        echo "FFmpeg with HAP support not found. Installing ffmpeg-full..."
         if command -v brew &> /dev/null; then
             brew install ffmpeg-full
             brew link ffmpeg-full --force
         else
-            echo "❌ Homebrew not found. Please install ffmpeg with HAP support manually."
+            echo "Error: Homebrew not found. Please install ffmpeg with HAP support manually."
             exit 1
         fi
     fi
 }
 
-# --- Core Logic ---
 convert_video() {
     local url="$1"
     local name="$2"
@@ -42,7 +33,7 @@ convert_video() {
 
     mkdir -p "$output_dir"
     
-    echo "📥 Downloading: $url"
+    echo "Downloading: $url"
     yt-dlp -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
            -o "$output_dir/${name}.%(ext)s" \
            "$url"
@@ -53,43 +44,37 @@ convert_video() {
         local output_file="$output_dir/${name}.mov"
         
         if [[ "$mode" == "mjpeg" ]]; then
-            echo "🎬 Converting to Photo-JPEG..."
+            echo "Converting to Photo-JPEG..."
             ffmpeg -i "$downloaded" -c:v mjpeg -q:v 3 -c:a pcm_s16le "$output_file" -y
             rm "$downloaded"
-            echo "✨ Done (MJPEG): $output_file"
+            echo "Done (MJPEG): $output_file"
         else
-            echo "🎬 Converting to HAP..."
-            # Hap encoding with 4 chunks for better performance in ofxHapPlayer
+            echo "Converting to HAP..."
             if ffmpeg -i "$downloaded" -c:v hap -format hap_q -chunks 4 -c:a pcm_s16le "$output_file" -y; then
                 rm "$downloaded"
-                echo "✨ Done (HAP): $output_file"
+                echo "Done (HAP): $output_file"
             else
-                echo "⚠️  HAP encoding failed. Falling back to Photo-JPEG..."
+                echo "HAP encoding failed. Falling back to Photo-JPEG..."
                 local mjpeg_fallback="${output_file%.mov}_mjpeg.mov"
                 ffmpeg -i "$downloaded" -c:v mjpeg -q:v 3 -c:a pcm_s16le "$mjpeg_fallback" -y
                 rm "$downloaded"
-                echo "✅ Done (MJPEG): $mjpeg_fallback"
+                echo "Done (MJPEG): $mjpeg_fallback"
             fi
         fi
     else
-        echo "❌ Download failed."
+        echo "Error: Download failed."
         exit 1
     fi
 }
 
-# --- Main CLI ---
 usage() {
-    echo "Crumble yt-hap Tool"
+    echo "yt-hap"
     echo "Usage: yt-hap [options] <youtube_url> [output_name]"
     echo ""
     echo "Options:"
     echo "  -q, --quick    Use timestamp as name"
-    echo "  -j, --jpeg     Force Photo-JPEG encoding (no HAP)"
+    echo "  -j, --jpeg     Force Photo-JPEG encoding"
     echo "  -h, --help     Show this help"
-    echo ""
-    echo "Example:"
-    echo "  yt-hap https://youtu.be/dQw4w9WgXcQ rickroll"
-    echo "  yt-hap -q https://youtu.be/dQw4w9WgXcQ"
     exit 0
 }
 
@@ -98,7 +83,6 @@ NAME_INPUT=""
 URL=""
 QUICK="false"
 
-# Simple parser
 while [[ $# -gt 0 ]]; do
     case $1 in
         -h|--help) usage ;;
@@ -123,13 +107,11 @@ fi
 check_dependencies
 
 if [[ "$QUICK" == "true" ]]; then
-    FINAL_NAME="crumble_$(date +%s)"
+    FINAL_NAME="clip_$(date +%s)"
 elif [[ -n "$NAME_INPUT" ]]; then
     FINAL_NAME="$NAME_INPUT"
 else
-    # Use yt-dlp to get a clean title if no name provided
-    echo "🔎 Fetching video title..."
-    # Get title, convert to lowercase, replace non-alphanumeric with underscores
+    echo "Fetching title..."
     FINAL_NAME=$(yt-dlp --get-filename -o "%(title)s" "$URL" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g' | sed 's/__+/_/g' | sed 's/^_//' | sed 's/_$//')
 fi
 
