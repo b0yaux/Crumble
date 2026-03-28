@@ -12,13 +12,12 @@ public:
 
     AudioMixerProcessor() {
         masterGainSlot = getControlPtr(crumble::hashString("gain"));
-        // Pre-allocate to the default buffer size (256 frames, stereo) so the
-        // size check in process() is a no-op in the common case.  The guard
-        // below still handles any session that uses a non-default buffer size.
         sumBuf.allocate(256, 2);
         sumBuf.setSampleRate(44100);
         sumBuf.set(0);
     }
+
+
 
     void addInput(AudioProcessor* p, int toInput, int fromOutput) override {
         AudioProcessor::addInput(p, toInput, fromOutput);
@@ -61,32 +60,46 @@ public:
                     }
                 }
                 
-                static int mixDiagCounter = 0;
-                if (++mixDiagCounter % 6000 == 0) {
-                    float outRMS = 0;
-                    for (size_t k = 0; k < buffer.size(); k++) {
-                        outRMS += buffer[k] * buffer[k];
+            connectedInputs++;
+            for (int i = 0; i < MAX_INPUTS; i++) {
+                auto& input = inputs[i];
+                if (input.processor) {
+                    connectedInputs++;
+                    // Only reallocate when the host changes buffer geometry (rare).
+                    if (sumBuf.getNumFrames() != buffer.getNumFrames() ||
+                        sumBuf.getNumChannels() != buffer.getNumChannels()) {
+                        sumBuf.allocate(buffer.getNumFrames(), buffer.getNumChannels());
+                    sumBuf.setSampleRate(buffer.getSampleRate());
+                    sumBuf.set(0);
+                }
+                
+                // Pass cycle/cycleStep down the graph
+                input.processor->pull(sumBuf, input.fromOutput, frameCounter, cycle, cycleStep);
+                
+                float* pSum = sumBuf.getBuffer().data();
+                float* pOut = buffer.getBuffer().data();
+                int numChannels = buffer.getNumChannels();
+                
+                for (size_t f = 0; f < buffer.getNumFrames(); f++) {
+                    double sampleCycle = cycle + f * cycleStep;
+                    float gain = evalSlot(inputGainSlots[i], sampleCycle);
+                    
+                    for (int c = 0; c < numChannels; c++) {
+                        pOut[f * numChannels + c] += pSum[f * numChannels + c] * gain;
                     }
-                    outRMS = std::sqrt(outRMS / buffer.size());
-                    // Write to a file-like approach: use a static atomic
-                    static std::atomic<float> s_diagRMS{0};
-                    static std::atomic<int> s_diagInputs{0};
-                    s_diagRMS.store(outRMS);
-                    s_diagInputs.store(connectedInputs);
                 }
             }
-        }
-        
-        if (masterGain != 1.0f) {
-            float* pOut = buffer.getBuffer().data();
-            for (size_t k = 0; k < buffer.size(); k++) {
-                pOut[k] *= masterGain;
+            
+            float masterGain = evalSlot(masterGainSlot, cycle);
+            if (masterGain != 1.0f) {
+                float* pOut = buffer.getBuffer().data();
+                for (size_t k = 0; k < buffer.size(); k++) {
+                    pOut[k] *= masterGain;
+                }
             }
-        }
-    }
     
 private:
-    ofSoundBuffer sumBuf; // Instance-private summation buffer
+    ofSoundBuffer sumBuf;
 };
 
 } // namespace crumble

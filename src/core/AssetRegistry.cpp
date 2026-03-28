@@ -126,23 +126,18 @@ std::string AssetRegistry::resolve(const std::string& logicalPath, const std::st
         auto it = banks.find(bankName);
         if (it != banks.end()) {
             const auto& bank = it->second;
-            ofLogNotice("AssetRegistry") << "Bank lookup: " << bankName << " has " << bank.size() << " items";
-            
-            // Try as index first
+
             try {
                 size_t idx = std::stoi(selector);
                 if (idx < bank.size()) {
                     const LogicalAsset& a = bank[idx];
                     std::string result = (typeHint == "audio") ? a.audioPath : a.videoPath;
-                    ofLogNotice("AssetRegistry") << "Resolved " << logicalPath << " (" << typeHint << ") -> " << result;
                     if (!result.empty()) return result;
                 }
             } catch (...) {
-                // Not a number, try as name within bank
                 for (const auto& a : bank) {
                     if (a.name == selector) {
                         std::string result = (typeHint == "audio") ? a.audioPath : a.videoPath;
-                        ofLogNotice("AssetRegistry") << "Resolved " << logicalPath << " (" << typeHint << ") -> " << result;
                         if (!result.empty()) return result;
                     }
                 }
@@ -160,18 +155,13 @@ std::string AssetRegistry::resolve(const std::string& logicalPath, const std::st
     // 3. Check user-defined aliases
     auto aliasIt = aliases.find(logicalPath);
     if (aliasIt != aliases.end()) {
-        // Alias maps to logical path - recursively resolve
-        ofLogNotice("AssetRegistry") << "Alias found: " << logicalPath << " -> " << aliasIt->second;
-        std::string result = resolve(aliasIt->second, typeHint);
-        ofLogNotice("AssetRegistry") << "Alias resolved: " << aliasIt->second << " -> " << result;
-        return result;
+        return resolve(aliasIt->second, typeHint);
     }
 
-    // 4. Fallback to raw path (failed to resolve)
+    // 4. Fallback
     return "";
 }
 
 void AssetRegistry::registerAlias(const std::string& alias, const std::string& target) {
     aliases[alias] = target;
-    ofLogNotice("AssetRegistry") << "Registered alias: " << alias << " -> " << target;
 }

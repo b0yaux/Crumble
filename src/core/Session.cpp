@@ -103,11 +103,6 @@ void Session::audioOut(ofSoundBuffer& buffer) {
                     // Update static value directly without disturbing pattern
                     if (auto* slot = ap->getControlPtr(cmd.paramHash)) {
                         slot->value.store(cmd.value, std::memory_order_relaxed);
-                        if (cmd.paramHash == crumble::hashString("gain")) {
-                            ofLogNotice("Session") << "SET_PARAM gain: nodeId=" << cmd.nodeId
-                                                   << " val=" << cmd.value
-                                                   << " stored=" << slot->value.load();
-                        }
                     }
                 }
                 break;
@@ -177,26 +172,8 @@ void Session::audioOut(ofSoundBuffer& buffer) {
     transport.update(dt);
     frameCounter++;
 
-    // 5. Wait-Free DSP Traversal — pull from every registered audio endpoint.
-    // Endpoints register themselves via REGISTER_ENDPOINT (e.g. SpeakersOutput).
-    // The list is maintained exclusively on this thread so no lock is needed.
-    static int lastProcessorCount = 0;
-    if ((int)activeAudioProcessors.size() != lastProcessorCount) {
-        ofLogNotice("Session") << "Shadow audio processors registered: " << activeAudioProcessors.size();
-        ofLogNotice("Session") << "Hardware callback drivers (audio endpoints): " << audioEndpoints.size();
-        lastProcessorCount = activeAudioProcessors.size();
-    }
     for (auto* ep : audioEndpoints) {
         ep->pull(buffer, 0, frameCounter, blockBars, barsStep);
-    }
-
-    // Master Diagnostic: Check if any audio is leaving the system
-    static int silenceCounter = 0;
-    float energy = buffer.getRMSAmplitude();
-    if (energy > 0.0001f) {
-        silenceCounter = 0;
-    } else {
-        silenceCounter++;
     }
 }
 
@@ -314,12 +291,6 @@ void Session::update(float dt) {
     // 3. Evaluate Video Processors (Shadow Graph)
     double blockBars = transport.bars;
     double barsStep = 0.0; // Pattern interp on video thread is K-rate (once per frame)
-    
-    static int lastVideoProcessorCount = 0;
-    if ((int)activeVideoProcessors.size() != lastVideoProcessorCount) {
-        ofLogNotice("Session") << "Shadow video processors registered: " << activeVideoProcessors.size();
-        lastVideoProcessorCount = activeVideoProcessors.size();
-    }
     
     for (auto* vp : activeVideoProcessors) {
         vp->currentCycle = blockBars; // Update cycle for pattern-aware getParam()

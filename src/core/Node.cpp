@@ -219,10 +219,6 @@ void Node::onParameterChanged(const std::string& paramName) {
         cmd.type = crumble::ProcessorCommand::SET_PARAM;
         cmd.paramHash = crumble::hashString(paramName.c_str());
         cmd.value = val;
-        if (paramName == "gain") {
-            ofLogNotice("Node") << "onParameterChanged(" << paramName << ") sending SET_PARAM: val=" << val
-                                 << " nodeId=" << nodeId;
-        }
         pushCommand(cmd);
 
         {

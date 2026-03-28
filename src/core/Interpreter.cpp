@@ -559,10 +559,9 @@ int Interpreter::lua_setGenerator(lua_State* L) {
     }
     node->touched = true;
     auto pat = parsePattern(L, 3);
-    ofLogNotice("Interpreter") << "lua_setGenerator: node=" << node->name << " param=" << paramName << " pattern=" << (pat ? pat->getSignature() : "null");
     if (pat) {
         node->modulate(paramName, pat);
-        node->onParameterChanged(paramName);  // Force pattern to be sent to audio thread
+        node->onParameterChanged(paramName);
     }
     return 0;
 }

@@ -159,6 +159,8 @@ local dr = sp("k s k ~") -- Creates a sampler playing a pattern of aliases
 
 #### Pattern Library
 
+**Generators:**
+
 | Function | Description |
 |----------|-------------|
 | `osc(f)` | Sine wave (frequency `f` in cycles-per-bar) |
@@ -166,11 +168,17 @@ local dr = sp("k s k ~") -- Creates a sampler playing a pattern of aliases
 | `noise(f, s)`| Deterministic stochastic noise (frequency `f`, optional seed `s`) |
 | `seq("...")`| Discrete step sequencer |
 | `sp("...")`| **Strudel-style sampler pattern** using aliases |
-| `fast(n, p)`| Speed up pattern `p` by factor `n` (constant or pattern) |
-| `slow(n, p)`| Slow down pattern `p` by factor `n` (constant or pattern) |
-| `shift(o, p)`| Offset phase by `o` (0.0 to 1.0) |
-| `scale(l, h, p)`| Map pattern range to [low, high] |
-| `snap(s, p)`| Quantize output into `s` steps |
+
+**Transforms (method syntax — chain on any pattern):**
+
+| Method | Description |
+|--------|-------------|
+| `p:fast(n)` | Speed up by factor `n` (constant or pattern) |
+| `p:slow(n)` | Slow down by factor `n` (constant or pattern) |
+| `p:shift(o)` | Offset phase by `o` (0.0 to 1.0) |
+| `p:scale(l, h)` | Map output range to [low, high] |
+| `p:snap(s)` | Quantize output into `s` steps |
+| `p:abs()` | Absolute value |
 | `p1 * p2` | Multiply two patterns (Amplitude Modulation) |
 | `p1 + p2` | Add two patterns (Offset/Mixing) |
 
