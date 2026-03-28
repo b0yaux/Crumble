@@ -118,6 +118,9 @@ public:
     }
 
     void handleCommand(const ProcessorCommand& cmd) override {
+        // Handle core parameter and pattern updates via base class
+        AudioProcessor::handleCommand(cmd);
+
         if (cmd.type == ProcessorCommand::LOAD_BUFFER) {
             dataOwner   = cmd.dataOwner;
             data        = cmd.audioData;
@@ -208,40 +211,17 @@ void AudioSource::load(const std::string& audioPath) {
 }
 
 void AudioSource::loadEmbedded(const std::string& videoPath) {
-    if (!audioProcessor) {
-        ofLogWarning("AudioSource") << "loadEmbedded: audioProcessor is null";
-        return;
-    }
+    if (!audioProcessor) return;
 
     auto* cache = getCache();
-    if (!cache) {
-        ofLogError("AudioSource") << "loadEmbedded: no cache available";
-        return;
-    }
+    if (!cache) return;
 
+    // Decode embedded audio via custom ffmpeg logic in AssetCache
     int targetRate = g_session ? g_session->getSampleRate() : 44100;
     auto decoded = cache->getEmbeddedAudio(videoPath, targetRate);
-    if (!decoded || decoded->numFrames == 0) {
-        ofLogError("AudioSource") << "Failed to get embedded audio for: " << videoPath;
-        return;
-    }
+    if (!decoded || decoded->numFrames == 0) return;
 
-    ofLogNotice("AudioSource") << "loadEmbedded: " << decoded->numFrames
-                               << " frames, " << decoded->channels
-                               << " ch, " << decoded->sampleRate << " Hz, data="
-                               << (void*)decoded->data.data();
-
-    const float* d = decoded->data.data();
-    ofLogNotice("AudioSource") << "sample check: [0]=" << d[0]
-                               << " [1]=" << d[1]
-                               << " [2]=" << d[2]
-                               << " [3]=" << d[3]
-                               << " [4]=" << d[4]
-                               << " [100]=" << d[100];
-
-    embeddedAudioFrames = decoded->numFrames;
-    embeddedAudioChannels = decoded->channels;
-
+    // Push buffer pointer and metadata to the audio thread
     crumble::ProcessorCommand cmd;
     cmd.type           = crumble::ProcessorCommand::LOAD_BUFFER;
     cmd.nodeId         = nodeId;
@@ -251,10 +231,8 @@ void AudioSource::loadEmbedded(const std::string& videoPath) {
     cmd.totalSamples   = decoded->numFrames;
     cmd.channels       = decoded->channels;
     pushCommand(cmd);
-
-    ofLogNotice("AudioSource") << "LOAD_BUFFER pushed: nodeId=" << nodeId
-                               << " totalSamples=" << decoded->numFrames
-                               << " channels=" << decoded->channels;
+    
+    ofLogNotice("AudioSource") << "Embedded audio loaded: " << decoded->numFrames << " frames";
 }
 
 crumble::AudioProcessor* AudioSource::createAudioProcessor() {

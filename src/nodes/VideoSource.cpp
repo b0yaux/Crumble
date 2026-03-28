@@ -182,6 +182,12 @@ void VideoSource::onParameterChanged(const std::string& paramName) {
     }
 }
 
+void VideoSource::update(float dt) {
+    if (getPlayer().isLoaded()) {
+        getPlayer().update();
+    }
+}
+
 ofTexture* VideoSource::processVideo(int index) {
     if (index != 0) return nullptr;
     if (getPlayer().isLoaded()) {

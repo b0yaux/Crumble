@@ -150,36 +150,14 @@ void AVSampler::update(float dt) {
     }
 
     if (audioSource.audioProcessor) {
-        // SINGLE-TRUTH MODEL: Audio playhead is the authority, video slaves to it
+        // SINGLE-TRUTH SYNC: Audio playhead is the authority. 
+        // We calculate the current relative position from the audio thread's playhead.
         double currentPos = audioSource.getRelativePosition();
         
-        // Always sync video to audio position (single-truth: audio thread drives everything)
+        // Slave the video player to the audio position.
+        // In EXTERNAL mode, this ensures perfect A/V sync without drift.
         videoSource.setPosition((float)currentPos);
         position.set((float)currentPos);
-        
-        static int diagCounter = 0;
-        if (++diagCounter % 300 == 0) {
-            auto* ap = audioSource.audioProcessor;
-            if (ap) {
-                auto* gainSlot = ap->getControlPtr(crumble::hashString("gain"));
-                auto* activeSlot = ap->getControlPtr(crumble::hashString("active"));
-                auto* playingSlot = ap->getControlPtr(crumble::hashString("playing"));
-                bool hasInputs = false;
-                for (int i = 0; i < crumble::AudioProcessor::MAX_INPUTS; i++) {
-                    if (ap->inputs[i].processor) { hasInputs = true; break; }
-                }
-                ofLogNotice("AVSampler") << "diag: pos=" << currentPos
-                    << " data=" << (void*)ap->data
-                    << " totalSamples=" << ap->totalSamples
-                    << " ch=" << ap->channels
-                    << " playhead=" << ap->playhead.load()
-                    << " gain=" << (gainSlot ? gainSlot->value.load() : -1)
-                    << " active=" << (activeSlot ? activeSlot->value.load() : -1)
-                    << " playing=" << (playingSlot ? playingSlot->value.load() : -1)
-                    << " muted=" << audioSource.getMuted()
-                    << " hasUpstreamInputs=" << hasInputs;
-            }
-        }
     } else {
         if (playing.get() && !videoSource.isPlaying()) {
             videoSource.play();
@@ -187,6 +165,7 @@ void AVSampler::update(float dt) {
         position.set(videoSource.getPosition());
     }
 
+    // Keep the video player heartbeat alive for decoding.
     videoSource.update(dt);
     masterPlayhead = audioSource.getRelativePosition();
 }

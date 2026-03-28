@@ -15,6 +15,7 @@ public:
     ofParameter<int> clockMode;
 
     crumble::VideoProcessor* createVideoProcessor() override;
+    void update(float dt) override;
     ofTexture* processVideo(int index = 0) override;
 
     // Returns filename for UI display
