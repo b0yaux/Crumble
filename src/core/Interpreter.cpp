@@ -489,25 +489,6 @@ int Interpreter::lua_setActive(lua_State* L) {
     return 0;
 }
 
-int Interpreter::lua_listDirectory(lua_State* L) {
-    std::string path = luaL_checkstring(L, 1);
-    ofDirectory dir(path);
-    dir.listDir();
-    lua_newtable(L);
-    for (size_t i = 0; i < dir.size(); ++i) {
-        lua_pushinteger(L, i + 1);
-        lua_pushstring(L, dir.getPath(i).c_str());
-        lua_settable(L, -3);
-    }
-    return 1;
-}
-
-int Interpreter::lua_fileExists(lua_State* L) {
-    std::string path = luaL_checkstring(L, 1);
-    lua_pushboolean(L, ofFile(path).exists());
-    return 1;
-}
-
 int Interpreter::lua_resolvePath(lua_State* L) {
     std::string path = luaL_checkstring(L, 1);
     std::string hint = "";

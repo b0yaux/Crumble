@@ -74,8 +74,6 @@ private:
     static int lua_getParam(lua_State* L);
     static int lua_setParam(lua_State* L);
     static int lua_clear(lua_State* L);
-    static int lua_listDirectory(lua_State* L);
-    static int lua_fileExists(lua_State* L);
     static int lua_resolvePath(lua_State* L);
     static int lua_setAlias(lua_State* L);
     static int lua_setGenerator(lua_State* L);

@@ -71,20 +71,12 @@ static bool decodeAudioFromVideo(const std::string& path, DecodedAudio& out, int
         return false;
     }
 
-    ofLogNotice("AssetCache") << "decodeAudio: codec=" << dec->name
-                              << " fmt=" << av_get_sample_fmt_name((AVSampleFormat)ctx->sample_fmt)
-                              << " inRate=" << ctx->sample_rate
-                              << " inCh=" << ctx->ch_layout.nb_channels
-                              << " targetRate=" << targetRate
-                              << " outCh=" << ch_layout.nb_channels;
-
     AVPacket* pkt = av_packet_alloc();
     AVFrame* frame = av_frame_alloc();
     std::vector<float> samples;
     out.channels = inChannels;
     out.sampleRate = targetRate;
 
-    int frameNum = 0;
     while (av_read_frame(fmt_ctx, pkt) >= 0) {
         if (pkt->stream_index == audio_idx) {
             if (avcodec_send_packet(ctx, pkt) >= 0) {
@@ -98,36 +90,6 @@ static bool decodeAudioFromVideo(const std::string& path, DecodedAudio& out, int
                     int converted = swr_convert(swr, &outBuf, outCount,
                                                 (const uint8_t**)frame->extended_data,
                                                 frame->nb_samples);
-
-                    if (frameNum < 3) {
-                        const float* raw = (const float*)frame->extended_data[0];
-                        bool isPlanar = av_sample_fmt_is_planar((AVSampleFormat)frame->format);
-                        ofLogNotice("AssetCache") << "  frame#" << frameNum
-                            << " nb_samples=" << frame->nb_samples
-                            << " format=" << av_get_sample_fmt_name((AVSampleFormat)frame->format)
-                            << " planar=" << isPlanar
-                            << " nch=" << nch
-                            << " outCount=" << outCount
-                            << " converted=" << converted;
-                        int checkN = std::min(frame->nb_samples * nch, 8);
-                        for (int i = 0; i < checkN; i++) {
-                            if (isPlanar) {
-                                int ch = i / frame->nb_samples;
-                                int smp = i % frame->nb_samples;
-                                const float* chData = (const float*)frame->extended_data[ch];
-                                ofLogNotice("AssetCache") << "    raw[" << i << "] ch" << ch << "[" << smp << "]=" << chData[smp];
-                            } else {
-                                ofLogNotice("AssetCache") << "    raw[" << i << "]=" << raw[i];
-                            }
-                        }
-                        if (converted > 0) {
-                            float* f = reinterpret_cast<float*>(outBuf);
-                            for (int i = 0; i < std::min(converted * nch, 8); i++) {
-                                ofLogNotice("AssetCache") << "    resampled[" << i << "]=" << f[i];
-                            }
-                        }
-                    }
-                    frameNum++;
 
                     if (converted > 0) {
                         float* f = reinterpret_cast<float*>(outBuf);

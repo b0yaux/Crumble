@@ -2,26 +2,32 @@
 
 Simple audio+video live-scriptable node-graph system built with openFrameworks and Lua.
 
-## Requirements
+## Installation
 
-### macOS
 ```bash
-# Install dependencies
 brew install ffmpeg sdl2
+```
 
-# Clone Crumble into your openFrameworks apps folder
-cd /path/to/openFrameworks/apps/myApps
-git clone https://github.com/YOUR_USERNAME/Crumble.git
+Clone into your openFrameworks `apps/myApps` folder:
+```bash
+cd $OF_ROOT/apps/myApps
+git clone https://github.com/b0yaux/Crumble.git
+```
 
-# Install ofxHapPlayer (uses system ffmpeg)
-cd /path/to/openFrameworks/addons
+Install the ofxHapPlayer addon (uses system ffmpeg from Homebrew):
+```bash
+cd $OF_ROOT/addons
 git clone https://github.com/b0yaux/ofxHapPlayer.git
+```
 
-# Build
+Build and run:
+```bash
 cd Crumble
 make Release
 make RunRelease
 ```
+
+> `$OF_ROOT` is your openFrameworks installation path (e.g. `~/works/of_v0.12.1_osx_release`).
 
 ## Quick Start
 
@@ -45,16 +51,22 @@ make RunRelease     # loads bin/data/config.json
 | `-c, --config` | Config file path | `config.json` |
 | `-s, --script` | Override entry script (relative to `bin/data/` or absolute) | (from config) |
 | `-t, --title` | Window title | (none) |
+| `-a, --run-all` | Launch one instance per `.lua` file in a directory | (none) |
 
 ### Multi-Instance
 
-Run multiple Crumble instances with different scripts:
+Run one Crumble instance per script — all from a single command:
 
 ```bash
-# Terminal 1
-./Crumble -s scripts/drums.lua -t "Drums"
+./Crumble -a scripts/
+# Launches: main.lua, stratum.lua, Nous.lua, ...
+# Ctrl+C kills all instances at once
+```
 
-# Terminal 2
+Or run individual scripts in separate terminals:
+
+```bash
+./Crumble -s scripts/drums.lua -t "Drums"
 ./Crumble -s scripts/melody.lua -t "Melody"
 ```
 
@@ -337,17 +349,6 @@ This enables stable live-coding: editing the current script preserves playback s
 
 - **Null-Safety**: Setting parameters to `nil` or passing `nil` to routing functions logs a warning without crashing the application.
 - **State Preservation**: The C++ rendering engine remains active and maintains the last valid graph state when a Lua script encounters runtime errors.
-
-## Requirements
-
-### macOS
-```bash
-brew install ffmpeg sdl2
-cd /path/to/openFrameworks/addons
-git clone https://github.com/b0yaux/ofxHapPlayer.git
-```
-
-Uses system ffmpeg from Homebrew. The ofxHapPlayer fork includes the macOS fix.
 
 ## Shortcuts
 

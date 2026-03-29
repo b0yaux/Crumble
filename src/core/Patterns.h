@@ -86,8 +86,7 @@ struct Event {
 
 };
 
-/**
- * Pattern: A stateless function from Time to Events.
+ * Pattern transforms: stateless functions from Pattern to Pattern.
  * 
  * Tidal/Strudel model: A pattern is a query function that returns
  * all events with onsets in a given time range.

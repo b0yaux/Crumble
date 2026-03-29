@@ -18,7 +18,7 @@ aliases({
 
 lfo1 = sine(1/16):scale(0,64)
 
-bpm(60)
+bpm(120)
 -- Create samplers with presentation settings
 local drum = sampler("drums:0"):connect(avmix):blend(1)
 :n(seq("0"):fast(2)):mix(1)
