@@ -2,7 +2,6 @@
 #include "ofMain.h"
 #include "ofxLua.h"
 #include "Session.h"
-#include "Graph.h"
 
 // Global Interpreter pointer for callback access
 extern class Interpreter* g_interpreter;

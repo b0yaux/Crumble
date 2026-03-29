@@ -1,7 +1,7 @@
 #pragma once
 #include "ofMain.h"
 #include "Graph.h"
-#include "AssetCache.h"
+#include "AudioCache.h"
 #include "Transport.h"
 #include "InputBindings.h"
 #include "ProcessorCommand.h"
@@ -28,7 +28,7 @@ public:
     ~Session();
 
     // --- Asset Management ---
-    AssetCache& getCache() { return assetCache; }
+    AudioCache& getCache() { return audioCache; }
 
     // --- Graph primitives ---
     Node* addNode(const std::string& type, const std::string& name = "");
@@ -82,19 +82,21 @@ public:
     void registerAudioEndpoint(crumble::AudioProcessor* ap);
 
 private:
+    static constexpr int COMMAND_QUEUE_CAPACITY = 1024;
+
     Graph graph;
-    AssetCache assetCache;
+    AudioCache audioCache;
     Transport transport;
     crumble::InputBindings inputBindings;
     uint64_t frameCounter = 0;
     ofSoundStream soundStream;
 
     // The "Air-Gap" Queues (Audio Thread)
-    crumble::SPSCQueue<crumble::ProcessorCommand> audioCommandQueue{1024};
-    crumble::SPSCQueue<crumble::AudioProcessor*> audioReleaseQueue{1024};
+    crumble::SPSCQueue<crumble::ProcessorCommand> audioCommandQueue{COMMAND_QUEUE_CAPACITY};
+    crumble::SPSCQueue<crumble::AudioProcessor*> audioReleaseQueue{COMMAND_QUEUE_CAPACITY};
     // Commands containing displaced patterns from the audio thread are enqueued here
     // so their destructors run on the main thread, not inside the real-time callback.
-    crumble::SPSCQueue<crumble::ProcessorCommand> commandGarbageQueue{1024};
+    crumble::SPSCQueue<crumble::ProcessorCommand> commandGarbageQueue{COMMAND_QUEUE_CAPACITY};
     // unordered_set makes the alive() O(1) check inside audioOut() constant-time
     // regardless of how many processors are registered.
     std::unordered_set<crumble::AudioProcessor*> activeAudioProcessors;
@@ -105,8 +107,8 @@ private:
     std::vector<crumble::AudioProcessor*> audioEndpoints;
 
     // The "Air-Gap" Queues (Video - Evaluated on Main Thread)
-    crumble::SPSCQueue<crumble::ProcessorCommand> videoCommandQueue{1024};
-    crumble::SPSCQueue<crumble::VideoProcessor*> videoReleaseQueue{1024};
+    crumble::SPSCQueue<crumble::ProcessorCommand> videoCommandQueue{COMMAND_QUEUE_CAPACITY};
+    crumble::SPSCQueue<crumble::VideoProcessor*> videoReleaseQueue{COMMAND_QUEUE_CAPACITY};
     // unordered_set for O(1) alive() check in Session::update()
     std::unordered_set<crumble::VideoProcessor*> activeVideoProcessors;
     

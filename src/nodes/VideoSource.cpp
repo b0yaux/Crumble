@@ -222,7 +222,7 @@ void VideoSource::pause() {
 }
 
 bool VideoSource::isPlaying() const {
-    return const_cast<VideoSource*>(this)->getPlayer().isPlaying();
+    return getPlayer().isPlaying();
 }
 
 void VideoSource::setFrame(int frame) {
@@ -234,15 +234,15 @@ void VideoSource::setPosition(float pct) {
 }
 
 int VideoSource::getCurrentFrame() const {
-    return const_cast<VideoSource*>(this)->getPlayer().getCurrentFrame();
+    return getPlayer().getCurrentFrame();
 }
 
 int VideoSource::getTotalFrames() const {
-    return const_cast<VideoSource*>(this)->getPlayer().getTotalNumFrames();
+    return getPlayer().getTotalNumFrames();
 }
 
 float VideoSource::getPosition() const {
-    return const_cast<VideoSource*>(this)->getPlayer().getPosition();
+    return getPlayer().getPosition();
 }
 
 void VideoSource::setLoop(bool shouldLoop) {

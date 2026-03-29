@@ -11,7 +11,6 @@ globals = {
 
     -- Pattern generators
     "osc", "sine", "ramp", "saw", "noise", "seq", "sp",
-    "rand",
 
     -- Hardware input
     "midi", "midinote", "miditouch", "channeltouch", "oscin",

@@ -10,7 +10,7 @@
 
 // Forward declarations — full headers included in Graph.cpp
 class Outlet;
-class AssetCache;
+class AudioCache;
 class Transport;
 
 namespace crumble {
@@ -104,7 +104,7 @@ public:
     std::string resolvePath(const std::string& path, const std::string& hint = "") const override;
 
     // Asset cache access — proxies to Session without exposing Session.h to node files
-    AssetCache* getCache() const;
+    AudioCache* getCache() const;
     
     void setTransport(Transport* t) { rootTransport = t; }
     Transport& getTransport();

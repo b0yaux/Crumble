@@ -1,5 +1,4 @@
-#ifndef CRUMBLE_PROCESSOR_COMMAND_H
-#define CRUMBLE_PROCESSOR_COMMAND_H
+#pragma once
 
 #include <string>
 #include <memory>
@@ -22,10 +21,11 @@ class AudioProcessor;
 class VideoProcessor;
 
 /**
- * ProcessorCommand: A POD-like structure for wait-free communication.
+ * ProcessorCommand: A lightweight structure for wait-free communication.
  * Contains instructions from the UI/Lua thread to the shadow processor layer
- * (both AudioProcessor and VideoProcessor).  Travels through SPSC queues;
- * keep it cheap to copy and free of non-trivial destructors on the hot path.
+ * (both AudioProcessor and VideoProcessor).  Travels through SPSC queues.
+ * Note: contains shared_ptrs (displacedPattern, dataOwner) which are
+ * move-only on the producer side; the hot path avoids them.
  */
 struct ProcessorCommand {
     enum Type {
@@ -36,7 +36,6 @@ struct ProcessorCommand {
         DISCONNECT_NODES,
         SET_PARAM,
         SET_PATTERN,        // Install a Pattern object on the audio/video thread for parameter name
-        SET_GRAPH_REF,
         LOAD_BUFFER,
         RELEASE_BUFFER,
         SET_RELATIVE_POS,   // Jump to a relative position (0.0-1.0)
@@ -74,5 +73,3 @@ struct ProcessorCommand {
 };
 
 } // namespace crumble
-
-#endif // CRUMBLE_PROCESSOR_COMMAND_H

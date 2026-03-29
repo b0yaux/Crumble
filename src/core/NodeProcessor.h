@@ -1,12 +1,9 @@
 #pragma once
 #include "ofSoundBuffer.h"
 #include "ofTexture.h"
-#include "ofFbo.h"
 #include <atomic>
 #include <array>
-#include <string>
 #include <memory>
-#include <unordered_map>
 #include "ProcessorCommand.h"
 
 namespace crumble {
@@ -23,6 +20,7 @@ struct ControlSlot {
 class NodeProcessor {
 public:
     static constexpr int MAX_INPUTS = 128;
+    static constexpr int MAX_CONTROL_SLOTS = 256;
     
     NodeProcessor() = default;
     virtual ~NodeProcessor() = default;
@@ -103,14 +101,14 @@ public:
         return eval(hash, currentCycle);
     }
 
-    std::array<ControlSlot, 256> controls;
+    std::array<ControlSlot, MAX_CONTROL_SLOTS> controls;
     int numControls = 0;
 
     ControlSlot* getControlPtr(uint32_t hash) {
         for (int i = 0; i < numControls; i++) {
             if (controls[i].hash == hash) return &controls[i];
         }
-        if (numControls < 256) {
+        if (numControls < MAX_CONTROL_SLOTS) {
             controls[numControls].hash = hash;
             return &controls[numControls++];
         }

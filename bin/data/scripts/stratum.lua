@@ -11,7 +11,7 @@ local amix = audiomix("amix"):connect(speakers):on()
 -- 2. Data-driven loading from AssetRegistry
 local bankName = "superstratum_video-data"
 local assets = getBank(bankName)
-local maxClips = math.min(#assets, 128)
+local maxClips = math.min(#assets, 64)
 
 -- 3. Create AVSampler nodes for unified A/V playback
 for i = 1, maxClips do

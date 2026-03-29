@@ -12,7 +12,7 @@ class ofSoundBuffer;
 class ofTexture;
 template<typename T> class ofParameter;
 class ofParameterGroup;
-class AssetCache;
+class AudioCache;
 class ofxAudioFile;
 
 // Standard JSON from of
@@ -103,7 +103,7 @@ public:
     virtual std::string resolvePath(const std::string& path, const std::string& typeHint = "") const;
 
     // Asset cache access — proxies through graph to Session without exposing Session.h to node files
-    AssetCache* getCache() const;
+    AudioCache* getCache() const;
     std::shared_ptr<ofxAudioFile> getAudioAsset(const std::string& path) const;
     
     std::shared_ptr<ofParameterGroup> parameters;

@@ -7,46 +7,74 @@ VideoCache& VideoCache::get() {
 }
 
 std::shared_ptr<VideoCache::CachedVideo> VideoCache::acquire(const std::string& path) {
-    std::lock_guard<std::mutex> lock(mutex);
-    
-    // Check if already cached
-    auto it = cache.find(path);
-    if (it != cache.end()) {
-        it->second->lastUsed = std::chrono::steady_clock::now();
-        ofLogNotice("VideoCache") << "Cache hit: " << path;
-        return it->second;
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        auto it = cache.find(path);
+        if (it != cache.end()) {
+            it->second->lastUsed = std::chrono::steady_clock::now();
+            ofLogNotice("VideoCache") << "Cache hit: " << path;
+            return it->second;
+        }
     }
-    
-    // Load and cache
+
     ofLogNotice("VideoCache") << "Cache miss, loading: " << path;
     auto cached = std::make_shared<CachedVideo>();
     cached->player = std::make_shared<ofxHapPlayer>();
-    
+
     if (!cached->player->load(path)) {
         ofLogError("VideoCache") << "Failed to load: " << path;
         return nullptr;
     }
-    
+
     cached->player->closeAudio();
-    
-    // Give the demuxer a moment to find streams (it's async)
-    // We poll for up to 500ms
+
+    // ofxHapPlayer::load() returns before decoding finishes.
+    // No async callback API exists, so we poll until ready (blocks main thread).
+    // First load of each file stalls ~50-200ms; subsequent accesses are instant (cache hit).
     int retry = 0;
     while (!cached->player->isLoaded() && retry < 50) {
         ofSleepMillis(10);
         retry++;
     }
-    
+
     cached->hasAudio = (cached->player->getAudioOutput() != nullptr);
     cached->lastUsed = std::chrono::steady_clock::now();
-    cache[path] = cached;
-    
+
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        cache[path] = cached;
+    }
+
     ofLogNotice("VideoCache") << "Cached video: " << path << " hasAudio=" << cached->hasAudio << " (loaded in " << (retry*10) << "ms)";
     return cached;
 }
 
 void VideoCache::release(const std::string& path) {
-    // Currently a no-op, but could implement LRU eviction here
+    std::lock_guard<std::mutex> lock(mutex);
+    auto it = cache.find(path);
+    if (it != cache.end()) {
+        ofLogNotice("VideoCache") << "Releasing: " << path;
+        cache.erase(it);
+    }
+}
+
+void VideoCache::prune(float maxAgeSeconds) {
+    std::lock_guard<std::mutex> lock(mutex);
+    auto now = std::chrono::steady_clock::now();
+    float maxAgeMs = maxAgeSeconds * 1000.0f;
+
+    for (auto it = cache.begin(); it != cache.end(); ) {
+        auto& entry = it->second;
+        float ageMs = std::chrono::duration<float, std::milli>(now - entry->lastUsed).count();
+
+        if (ageMs > maxAgeMs && entry->player.use_count() <= 1) {
+            ofLogNotice("VideoCache") << "Pruning unused: " << it->first
+                                      << " (age: " << (ageMs / 1000.0f) << "s)";
+            it = cache.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 void VideoCache::clear() {

@@ -1,4 +1,4 @@
-#include "AssetCache.h"
+#include "AudioCache.h"
 #include "ofLog.h"
 
 extern "C" {
@@ -15,18 +15,18 @@ namespace {
 static bool decodeAudioFromVideo(const std::string& path, DecodedAudio& out, int targetRate) {
     AVFormatContext* fmt_ctx = nullptr;
     if (avformat_open_input(&fmt_ctx, path.c_str(), nullptr, nullptr) != 0) {
-        ofLogError("AssetCache") << "decodeAudio: failed to open " << path;
+        ofLogError("AudioCache") << "decodeAudio: failed to open " << path;
         return false;
     }
     if (avformat_find_stream_info(fmt_ctx, nullptr) < 0) {
-        ofLogError("AssetCache") << "decodeAudio: no stream info " << path;
+        ofLogError("AudioCache") << "decodeAudio: no stream info " << path;
         avformat_close_input(&fmt_ctx);
         return false;
     }
 
     int audio_idx = av_find_best_stream(fmt_ctx, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
     if (audio_idx < 0) {
-        ofLogError("AssetCache") << "decodeAudio: no audio stream " << path;
+        ofLogError("AudioCache") << "decodeAudio: no audio stream " << path;
         avformat_close_input(&fmt_ctx);
         return false;
     }
@@ -37,7 +37,7 @@ static bool decodeAudioFromVideo(const std::string& path, DecodedAudio& out, int
     int inRate = par->sample_rate;
 
     if (inChannels <= 0 || inRate <= 0) {
-        ofLogError("AssetCache") << "decodeAudio: bad params " << inChannels << "ch " << inRate << "Hz " << path;
+        ofLogError("AudioCache") << "decodeAudio: bad params " << inChannels << "ch " << inRate << "Hz " << path;
         avformat_close_input(&fmt_ctx);
         return false;
     }
@@ -46,14 +46,14 @@ static bool decodeAudioFromVideo(const std::string& path, DecodedAudio& out, int
 
     const AVCodec* dec = avcodec_find_decoder(par->codec_id);
     if (!dec) {
-        ofLogError("AssetCache") << "decodeAudio: unsupported codec " << path;
+        ofLogError("AudioCache") << "decodeAudio: unsupported codec " << path;
         avformat_close_input(&fmt_ctx);
         return false;
     }
 
     AVCodecContext* ctx = avcodec_alloc_context3(nullptr);
     if (!ctx || avcodec_parameters_to_context(ctx, par) < 0 || avcodec_open2(ctx, dec, nullptr) < 0) {
-        ofLogError("AssetCache") << "decodeAudio: codec open failed " << path;
+        ofLogError("AudioCache") << "decodeAudio: codec open failed " << path;
         if (ctx) avcodec_free_context(&ctx);
         avformat_close_input(&fmt_ctx);
         return false;
@@ -64,7 +64,7 @@ static bool decodeAudioFromVideo(const std::string& path, DecodedAudio& out, int
                             &ch_layout, AV_SAMPLE_FMT_FLT, targetRate,
                             &ctx->ch_layout, (AVSampleFormat)ctx->sample_fmt, ctx->sample_rate,
                             0, nullptr) < 0 || !swr || swr_init(swr) < 0) {
-        ofLogError("AssetCache") << "decodeAudio: resampler init failed " << path;
+        ofLogError("AudioCache") << "decodeAudio: resampler init failed " << path;
         if (swr) swr_free(&swr);
         avcodec_free_context(&ctx);
         avformat_close_input(&fmt_ctx);
@@ -126,7 +126,41 @@ static bool decodeAudioFromVideo(const std::string& path, DecodedAudio& out, int
 
 } // anonymous namespace
 
-std::shared_ptr<DecodedAudio> AssetCache::getEmbeddedAudio(const std::string& videoPath, int targetRate) {
+std::shared_ptr<ofxAudioFile> AudioCache::getAudio(const std::string& path) {
+    std::lock_guard<std::mutex> lock(mutex);
+
+    std::string absolutePath = path;
+    std::string resolved = AssetRegistry::get().resolve(path, "audio");
+    if (!resolved.empty()) {
+        absolutePath = resolved;
+    } else {
+        absolutePath = ConfigManager::get().resolvePath(path);
+    }
+    if (absolutePath.empty()) return nullptr;
+
+    auto it = audioFiles.find(absolutePath);
+    if (it != audioFiles.end()) {
+        it->second.lastUsedTime = ofGetElapsedTimef();
+        return std::static_pointer_cast<ofxAudioFile>(it->second.asset);
+    }
+
+    ofLogNotice("AudioCache") << "Loading audio: " << absolutePath;
+    auto audioFile = std::make_shared<ofxAudioFile>();
+    audioFile->load(absolutePath);
+    if (!audioFile->loaded()) {
+        ofLogError("AudioCache") << "Failed to load audio: " << absolutePath;
+        return nullptr;
+    }
+
+    AudioEntry entry;
+    entry.asset = audioFile;
+    entry.lastUsedTime = ofGetElapsedTimef();
+    audioFiles[absolutePath] = entry;
+
+    return audioFile;
+}
+
+std::shared_ptr<DecodedAudio> AudioCache::getEmbeddedAudio(const std::string& videoPath, int targetRate) {
     std::lock_guard<std::mutex> lock(mutex);
 
     std::string absolutePath = videoPath;
@@ -138,34 +172,61 @@ std::shared_ptr<DecodedAudio> AssetCache::getEmbeddedAudio(const std::string& vi
     }
     if (absolutePath.empty()) return nullptr;
 
-    auto typeIdx = std::type_index(typeid(DecodedAudio));
-    auto& typeCache = caches[typeIdx];
-    auto it = typeCache.find(absolutePath);
-    if (it != typeCache.end()) {
+    auto it = embeddedAudio.find(absolutePath);
+    if (it != embeddedAudio.end()) {
         auto cached = std::static_pointer_cast<DecodedAudio>(it->second.asset);
         if (cached->sampleRate == targetRate) {
             it->second.lastUsedTime = ofGetElapsedTimef();
             return cached;
         }
-        typeCache.erase(it);
+        embeddedAudio.erase(it);
     }
 
-    ofLogNotice("AssetCache") << "Decoding embedded audio: " << absolutePath
+    ofLogNotice("AudioCache") << "Decoding embedded audio: " << absolutePath
                               << " (target rate: " << targetRate << " Hz)";
 
     auto decoded = std::make_shared<DecodedAudio>();
     if (!decodeAudioFromVideo(absolutePath, *decoded, targetRate)) {
-        ofLogError("AssetCache") << "Failed to decode embedded audio: " << absolutePath;
+        ofLogError("AudioCache") << "Failed to decode embedded audio: " << absolutePath;
         return nullptr;
     }
 
-    ofLogNotice("AssetCache") << "Decoded " << decoded->numFrames << " frames, "
+    ofLogNotice("AudioCache") << "Decoded " << decoded->numFrames << " frames, "
                               << decoded->channels << " ch, " << decoded->sampleRate << " Hz";
 
-    AssetEntry entry;
+    AudioEntry entry;
     entry.asset = decoded;
     entry.lastUsedTime = ofGetElapsedTimef();
-    typeCache[absolutePath] = entry;
+    embeddedAudio[absolutePath] = entry;
 
     return decoded;
+}
+
+void AudioCache::prune(float maxAgeSeconds) {
+    std::lock_guard<std::mutex> lock(mutex);
+    float now = ofGetElapsedTimef();
+
+    for (auto it = audioFiles.begin(); it != audioFiles.end(); ) {
+        if (it->second.asset.use_count() <= 1 && (now - it->second.lastUsedTime) > maxAgeSeconds) {
+            ofLogNotice("AudioCache") << "Pruning unused audio: " << it->first;
+            it = audioFiles.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    for (auto it = embeddedAudio.begin(); it != embeddedAudio.end(); ) {
+        if (it->second.asset.use_count() <= 1 && (now - it->second.lastUsedTime) > maxAgeSeconds) {
+            ofLogNotice("AudioCache") << "Pruning unused embedded audio: " << it->first;
+            it = embeddedAudio.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+void AudioCache::clear() {
+    std::lock_guard<std::mutex> lock(mutex);
+    audioFiles.clear();
+    embeddedAudio.clear();
 }

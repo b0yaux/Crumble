@@ -188,9 +188,10 @@ void InputBindings::cleanup() {
 }
 
 int InputBindings::getMidiIndex(int statusOffset, int chan, int num) {
+    int so = std::max(0, std::min(2, statusOffset));
     int c = std::max(1, std::min(16, chan)) - 1;
     int n = std::max(0, std::min(127, num));
-    return (statusOffset * 16 * 128) + (c * 128) + n;
+    return (so * 16 * 128) + (c * 128) + n;
 }
 
 std::atomic<float>* InputBindings::getMidiBinding(int statusOffset, int chan, int num) {

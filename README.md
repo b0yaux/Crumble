@@ -180,7 +180,6 @@ local dr = sp("k s k ~") -- Creates a sampler playing a pattern of aliases
 | `noise(f, s)` | Deterministic stochastic noise (frequency `f`, optional seed `s`) |
 | `seq("...")` | Discrete step sequencer |
 | `sp("...")` | **Strudel-style sampler pattern** using aliases |
-| `rand(s)` | Deterministic random constant (0.0-1.0, optional seed `s`) |
 
 **Transforms (method syntax — chain on any pattern):**
 

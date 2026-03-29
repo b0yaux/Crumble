@@ -16,7 +16,7 @@ aliases({
     s = "drums:1"
 })
 
-lfo1 = sine(1/16):scale(0,64)
+local lfo1 = sine(1/16):scale(0,64)
 
 bpm(120)
 -- Create samplers with presentation settings

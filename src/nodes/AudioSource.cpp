@@ -3,7 +3,7 @@
 #include "../core/NodeProcessor.h"
 #include "../core/ProcessorCommand.h"
 #include "../core/AssetRegistry.h"
-#include "../core/AssetCache.h"
+#include "../core/AudioCache.h"
 #include "../core/Session.h"
 
 namespace crumble {
@@ -216,7 +216,7 @@ void AudioSource::loadEmbedded(const std::string& videoPath) {
     auto* cache = getCache();
     if (!cache) return;
 
-    // Decode embedded audio via custom ffmpeg logic in AssetCache
+    // Decode embedded audio via custom ffmpeg logic in AudioCache
     int targetRate = g_session ? g_session->getSampleRate() : 44100;
     auto decoded = cache->getEmbeddedAudio(videoPath, targetRate);
     if (!decoded || decoded->numFrames == 0) return;

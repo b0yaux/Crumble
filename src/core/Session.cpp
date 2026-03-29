@@ -1,6 +1,8 @@
 #include "ofMain.h"
 #include "Session.h"
 #include "NodeProcessor.h"
+#include "AudioCache.h"
+#include "VideoCache.h"
 #include "../nodes/AudioOutput.h"
 #include <algorithm>
 
@@ -306,6 +308,9 @@ void Session::update(float dt) {
     
     graph.prepare(ctx);
     graph.update(dt);
+
+    audioCache.prune(30.0f);
+    VideoCache::get().prune(30.0f);
 }
 
 void Session::draw() {

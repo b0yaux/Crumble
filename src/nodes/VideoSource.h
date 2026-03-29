@@ -49,6 +49,7 @@ public:
     // Audio access for embedded audio streams (used by AVSampler)
     bool hasEmbeddedAudio() const { return _hasAudio; }
     ofxHapPlayer& getPlayer() { return currentPlayer ? *currentPlayer : localPlayer; }
+    const ofxHapPlayer& getPlayer() const { return currentPlayer ? *currentPlayer : localPlayer; }
     
     // Serialization
     ofJson serialize() const override;

@@ -26,10 +26,17 @@ public:
     std::shared_ptr<CachedVideo> acquire(const std::string& path);
     
     /**
-     * Release a cached video back to the pool (optional, for LRU management).
-     * Currently does nothing but can be used for memory management later.
+     * Remove a specific entry from the cache.
+     * Safe to call even if a VideoSource still references the player
+     * — the shared_ptr keeps it alive until the source releases it.
      */
     void release(const std::string& path);
+    
+    /**
+     * Evict entries not used in the last maxAgeSeconds and not referenced
+     * by any VideoSource (player use_count == 1 means cache-only reference).
+     */
+    void prune(float maxAgeSeconds = 30.0f);
     
     /**
      * Clear all cached videos to free memory.

@@ -2,7 +2,7 @@
 #include "Node.h"
 #include "Graph.h"
 #include "Session.h"
-#include "AssetCache.h"
+#include "AudioCache.h"
 #include "ofxAudioFile.h"
 #include "NodeProcessor.h"
 #include "ProcessorCommand.h"
@@ -240,7 +240,7 @@ std::string Node::resolvePath(const std::string& path, const std::string& typeHi
     return path;
 }
 
-AssetCache* Node::getCache() const {
+AudioCache* Node::getCache() const {
     if (graph) return graph->getCache();
     return nullptr;
 }

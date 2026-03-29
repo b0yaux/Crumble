@@ -298,6 +298,9 @@ function NodeMeta:__newindex(key, value)
                 return lastIdx
             end
             if type(dst) == "table" and not dst.id then
+                -- Returns last track index. All destinations must have the same
+                -- number of existing connections for the returned index to be valid
+                -- for every destination (auto-index increments in lockstep).
                 local lastIdx = 0
                 for _, d in ipairs(dst) do lastIdx = connect(src, d, paramsOrOut, inIdx) end
                 return lastIdx

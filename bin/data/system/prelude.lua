@@ -92,13 +92,6 @@ function seq(str) return makeGen({type="seq", val=str}) end
 function osc(f) return sine(f) end
 function ramp(f) return saw(f) end
 
--- Utilities
-function rand(s) 
-    local x = (s or 0) * 1103515245 + 12345
-    x = (math.floor(x / 65536) % 32768) / 32768.0
-    return x
-end
-
 -- =============================================================================
 -- EXTERNAL HARDWARE INPUT
 -- Real-time modulation from MIDI, OSC, or Gamepad.

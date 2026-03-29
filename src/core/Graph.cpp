@@ -552,7 +552,7 @@ bool Graph::loadFromFile(const std::string& path) {
     return fromJson(json);
 }
 
-AssetCache* Graph::getCache() const {
+AudioCache* Graph::getCache() const {
     if (g_session) return &g_session->getCache();
     if (graph) return graph->getCache(); // nested subgraph: walk up to the root
     return nullptr;

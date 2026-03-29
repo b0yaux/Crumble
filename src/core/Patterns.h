@@ -1,14 +1,8 @@
 #pragma once
 #include <vector>
 #include <string>
-#include <sstream>
 #include <cmath>
-#include <memory>
-#include <atomic>
-#include <unordered_map>
-#include <algorithm>
 #include <optional>
-#include <functional>
 
 /**
  * Event: A single value with temporal metadata.

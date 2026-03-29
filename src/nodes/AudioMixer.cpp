@@ -134,4 +134,7 @@ ofJson AudioMixer::serialize() const {
 
 void AudioMixer::deserialize(const ofJson& json) {
     ofDeserialize(json, *parameters);
+    // NOTE: numActiveInputs is serialized but not restored here.
+    // Not an issue currently — Lua scripts rebuild the graph on every load,
+    // so deserialize() is never called in normal operation.
 }
