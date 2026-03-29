@@ -1,13 +1,8 @@
 #pragma once
 #include "../core/Node.h"
-#include "ofxAudioFile.h"
-#include <atomic>
 #include <string>
-#include <vector>
-#include <memory>
 
 namespace crumble {
-    class NodeProcessor;
     class AudioProcessor;
 }
 
@@ -48,8 +43,4 @@ public:
 private:
     void onPathChanged(std::string& p);
     std::string loadedPath;
-    std::shared_ptr<ofxAudioFile> sharedLoader;
-    std::vector<float> embeddedAudioData;
-    size_t embeddedAudioFrames = 0;
-    int embeddedAudioChannels = 0;
 };

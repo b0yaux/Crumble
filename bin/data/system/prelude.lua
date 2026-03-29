@@ -17,13 +17,20 @@ BLEND = {
 -- CORE NODE FACTORIES
 -- =============================================================================
 
-function sampler(n, p) 
-    local params = p or {}
+local function makeSampler(n, p, prefix)
+    local params = (type(p) == "table") and p or {}
     if type(n) == "string" and not params.path then
-        params.path = n  -- Auto-set path from name
+        params.path = n
     end
-    return addNode("sampler", n, params, "sampler") 
+    if type(p) == "string" then
+        params.n = p
+    end
+    return addNode("sampler", n, params, prefix)
 end
+
+function sampler(n, p) return makeSampler(n, p, "sampler") end
+function s(n, p)        return makeSampler(n, p, "s") end
+
 function audio(n, p)   return addNode("audio", n, p, "audio") end
 function video(n, p)   return addNode("video", n, p, "video") end
 
@@ -37,24 +44,10 @@ function inlet(n, p)  return addNode("inlet", n, p, "inlet") end
 function outlet(n, p) return addNode("outlet", n, p, "outlet") end
 function graph(n, p)  return addNode("graph", n, p, "graph") end
 
--- Aliases for convenience
 function amix(n, p) return addNode("audiomix", n, p, "amix") end
 function vmix(n, p) return addNode("videomix", n, p, "vmix") end
 function aout(n, p) return addNode("audioout", n, p, "aout") end
 function vout(n, p) return addNode("videoout", n, p, "vout") end
-function s(n, p) 
-    local params = {}
-    if type(n) == "string" and not params.path then
-        params.path = n  -- Auto-set path from name (alias resolution happens in C++)
-    end
-    if type(p) == "string" then
-        -- Second arg is pattern string for n param
-        params.n = p
-    elseif type(p) == "table" then
-        params = p
-    end
-    return addNode("sampler", n, params, "s") 
-end
 
 -- Pattern sampler: s("k s k") creates sampler with pattern of sample names
 -- Each step resolves its alias at trigger time
@@ -92,7 +85,7 @@ end
 -- Oscillators
 function sine(f) return makeGen({type="osc", val=f or 1}) end
 function saw(f)  return makeGen({type="ramp", val=f or 1}) end
-function noise(f, s) return makeGen({type="noise", val=f or 1, s=s or 0}) end
+function noise(f, s) return makeGen({type="noise", f=f or 1, s=s or 0}) end
 function seq(str) return makeGen({type="seq", val=str}) end
 
 -- Hydra-compatible aliases

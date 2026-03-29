@@ -340,7 +340,7 @@ void Graph::updateRenderList() {
         if (node && node->canDraw) renderList.push_back(node.get());
     }
     std::sort(renderList.begin(), renderList.end(), [](Node* a, Node* b) {
-        if (a->drawLayer != b->drawLayer) return a->drawLayer < b->drawLayer;
+        if (a->drawLayer->get() != b->drawLayer->get()) return a->drawLayer->get() < b->drawLayer->get();
         return a->nodeId < b->nodeId;
     });
 }
