@@ -265,6 +265,13 @@ void Graph::removeNode(int nodeId) {
         pruneBoundaries(outlets);
         pruneBoundaries(inlets);
 
+        for (auto& [paramName, targets] : proxyParams) {
+            targets.erase(
+                std::remove_if(targets.begin(), targets.end(),
+                    [nodeId](const ProxyTarget& t) { return t.childId == nodeId; }),
+                targets.end());
+        }
+
         nodeToDestroy = std::move(it->second);
         wasDrawable = nodeToDestroy->canDraw;
         nodes.erase(it);
@@ -308,6 +315,7 @@ void Graph::clear() {
         renderList.clear();
         outlets.clear();
         inlets.clear();
+        proxyParams.clear();
         if (onClear) onClear();
         onUpdate = nullptr;
         onClear = nullptr;
@@ -589,4 +597,16 @@ void Graph::addInlet(int nodeId, int index) {
 
     std::lock_guard<std::recursive_mutex> lock(audioMutex);
     inlets.push_back({index, node});
+}
+
+void Graph::addProxyTarget(const std::string& parentParam, int childId, const std::string& childParam) {
+    // Allow multiple children to share the same parent param name
+    // (e.g. expose("path", a) + expose("path", v) both register under "path").
+    proxyParams[parentParam].push_back({childId, childParam});
+}
+
+std::vector<Graph::ProxyTarget> Graph::getProxyTargets(const std::string& parentParam) const {
+    auto it = proxyParams.find(parentParam);
+    if (it != proxyParams.end()) return it->second;
+    return {};
 }

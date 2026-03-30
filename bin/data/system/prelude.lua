@@ -185,6 +185,77 @@ function gamepadbutton(id) return makeGen({type="gamepadbutton", id=id or 0}) en
 function gamepadaxis(id) return makeGen({type="gamepadaxis", id=id or 0}) end
 
 -- =============================================================================
--- PATTERN COMPOSITION
+-- PARAMETER PROXY FOR SUB-GRAPHS
+-- expose() maps parent-facing parameter names to internal child node parameters.
+-- Used inside sub-graph scripts (e.g. avsampler.lua) so the parent can set
+-- parameters on children through the Graph node.
+--
+-- When the parent does s.speed = 1.5, the C++ layer looks up proxy targets
+-- for "speed" on the Graph and forwards the value to each mapped child.
+--
+-- Forms (dispatched by first argument type):
+--
+--   String-first:
+--     expose("speed", a)                                  -- same name, single child
+--     expose("speed", a, "rate")                          -- name mapping
+--     expose("intensity", {a, "level"}, {v, "brightness"}) -- custom compound param
+--
+--   Node-first (batch, one child, multiple same-name params):
+--     expose(a, "speed", "path", "loop")
+--
+--   Tuple-based (batch, any combination):
+--     expose({a, "speed"}, {v, "speed"})
+--     expose({a, "speed"}, {a, "path"}, {v, "opacity"})
+--
+-- Multi-target (string-first) creates a custom parent-facing parameter that
+-- fans out to multiple children with potentially different child param names:
+--   s.intensity = 0.5  →  a.level = 0.5 AND v.brightness = 0.5
+--
+-- For prelude methods like mix() that fan out at the Lua level
+-- (mix() calls _set(id, "gain", ...) + _set(id, "opacity", ...)), use
+-- individual exposes with the child param names:
+--   expose("gain", a) + expose("opacity", v)
 -- =============================================================================
--- p:scale(min, max), p:shift(amount), p + q, p * q, p:snap(quantum)
+
+function expose(first, second, ...)
+
+    -- Node-first batch: expose(node, "param1", "param2", ...)
+    -- All params registered with same name on the given child.
+    if type(first) == "table" and first.id then
+        for _, paramName in ipairs({second, ...}) do
+            if type(paramName) == "string" then
+                _exposeParam(first.id, paramName, paramName)
+            end
+        end
+        return
+    end
+
+    -- Tuple-based batch: expose({node, "param"}, {node, "param"}, ...)
+    -- Each tuple is a same-name expose. Mix children and params freely.
+    if type(first) == "table" and not first.id then
+        for _, pair in ipairs({first, second, ...}) do
+            if type(pair) == "table" and type(pair[1]) == "table" and pair[1].id
+               and type(pair[2]) == "string" then
+                _exposeParam(pair[1].id, pair[2], pair[2])
+            end
+        end
+        return
+    end
+
+    -- String-first: single, mapped, or multi-target
+    if type(first) == "string" then
+        local parentParam = first
+        if type(second) == "table" and second.id then
+            -- expose("speed", a) or expose("speed", a, "rate")
+            local childParam = ...
+            _exposeParam(second.id, parentParam, childParam or parentParam)
+        elseif type(second) == "table" then
+            -- expose("intensity", {a, "level"}, {v, "brightness"})
+            for _, pair in ipairs({second, ...}) do
+                if type(pair) == "table" and pair.id and type(pair[2]) == "string" then
+                    _exposeParam(pair.id, parentParam, pair[2])
+                end
+            end
+        end
+    end
+end

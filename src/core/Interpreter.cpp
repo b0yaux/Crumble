@@ -251,6 +251,7 @@ void Interpreter::bindSessionAPI() {
     lua_register(L, "_playhead", lua_playhead);
     lua_register(L, "_outlet", lua_outlet);
     lua_register(L, "_inlet", lua_inlet);
+    lua_register(L, "_exposeParam", lua_exposeParam);
     
     std::string helper = R"(
         session = {}
@@ -522,6 +523,37 @@ int Interpreter::lua_setParam(lua_State* L) {
     Node* node = graph->getNode(nodeIdx);
     if (!node) return 0;
     node->touched = true;
+
+    // Proxy forwarding for sub-graphs (T2.3).
+    // If the target node is a Graph with expose() mappings for paramName,
+    // forward the value to each mapped child instead of setting on the Graph.
+    // This lets parent scripts do s.speed = 1.5 on a sub-graph and have it
+    // reach the internal AudioSource/VideoSource children.
+    if (auto* g = dynamic_cast<Graph*>(node)) {
+        auto targets = g->getProxyTargets(paramName);
+        if (!targets.empty()) {
+            node->clearModulator(paramName);
+            for (auto& [childId, childParam] : targets) {
+                Node* child = g->getNode(childId);
+                if (!child) continue;
+                child->clearModulator(childParam);
+                if (child->parameters->contains(childParam)) {
+                    auto& p = child->parameters->get(childParam);
+                    if (lua_isboolean(L, 3)) p.cast<bool>().set(lua_toboolean(L, 3));
+                    else if (lua_isnumber(L, 3)) {
+                        double val = lua_tonumber(L, 3);
+                        if (p.type() == typeid(ofParameter<int>).name()) p.cast<int>().set((int)val);
+                        else if (p.type() == typeid(ofParameter<float>).name()) p.cast<float>().set((float)val);
+                        else if (p.type() == typeid(ofParameter<double>).name()) p.cast<double>().set(val);
+                        else if (p.type() == typeid(ofParameter<bool>).name()) p.cast<bool>().set(val > 0.5);
+                    } else if (lua_isstring(L, 3)) p.fromString(lua_tostring(L, 3));
+                    child->onParameterChanged(childParam);
+                }
+            }
+            return 0;
+        }
+    }
+
     node->clearModulator(paramName);
     if (node->parameters->contains(paramName)) {
         auto& p = node->parameters->get(paramName);
@@ -608,10 +640,27 @@ int Interpreter::lua_setGenerator(lua_State* L) {
     }
     node->touched = true;
     auto pat = parsePattern(L, 3);
-    if (pat) {
-        node->modulate(paramName, pat);
-        node->onParameterChanged(paramName);
+    if (!pat) return 0;
+
+    // Proxy forwarding for sub-graphs (T2.3).
+    // Forward the parsed pattern to each mapped child via modulate().
+    // Same pattern object is shared (stateless contract) — no copy needed.
+    if (auto* g = dynamic_cast<Graph*>(node)) {
+        auto targets = g->getProxyTargets(paramName);
+        if (!targets.empty()) {
+            for (auto& [childId, childParam] : targets) {
+                Node* child = g->getNode(childId);
+                if (child) {
+                    child->modulate(childParam, pat);
+                    child->onParameterChanged(childParam);
+                }
+            }
+            return 0;
+        }
     }
+
+    node->modulate(paramName, pat);
+    node->onParameterChanged(paramName);
     return 0;
 }
 
@@ -790,5 +839,21 @@ int Interpreter::lua_inlet(lua_State* L) {
     if (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) index = (int)luaL_checkinteger(L, 2);
     Graph* graph = getCurrentGraph();
     if (graph) graph->addInlet(nodeId, index);
+    return 0;
+}
+
+int Interpreter::lua_exposeParam(lua_State* L) {
+    if (!s_currentSession) return 0;
+    if (lua_isnil(L, 1) || lua_isnil(L, 2) || lua_isnil(L, 3)) {
+        ofLogWarning("Interpreter") << "_exposeParam: childNodeId, parentParam, or childParam is nil";
+        return 0;
+    }
+    int childNodeId = (int)luaL_checkinteger(L, 1);
+    std::string parentParam = luaL_checkstring(L, 2);
+    std::string childParam = luaL_checkstring(L, 3);
+    Graph* graph = getCurrentGraph();
+    if (graph) {
+        graph->addProxyTarget(parentParam, childNodeId, childParam);
+    }
     return 0;
 }

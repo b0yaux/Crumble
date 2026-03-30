@@ -82,6 +82,15 @@ public:
     void addOutlet(int nodeId, int index);
     void addInlet(int nodeId, int index);
 
+    // --- Parameter proxy for sub-graphs (expose()) ---
+    // When a sub-graph script calls expose("speed", childNode), this maps
+    // "speed" on the Graph to childNode's "speed" parameter. The parent
+    // sets graph.speed = 1.5 and the C++ interception layer forwards to
+    // the child. Multiple children can share the same parent param name.
+    struct ProxyTarget { int childId; std::string childParam; };
+    void addProxyTarget(const std::string& parentParam, int childId, const std::string& childParam);
+    std::vector<ProxyTarget> getProxyTargets(const std::string& parentParam) const;
+
     // --- Factory Support ---
     static void registerNodeType(const std::string& type, NodeCreator creator);
     static void setScriptExecutor(ScriptExecutor executor) { s_scriptExecutor = executor; }
@@ -143,4 +152,9 @@ private:
     // Inlet/outlet vectors — lightweight boundary declarations for sub-graph routing.
     std::vector<Boundary> outlets;
     std::vector<Boundary> inlets;
+
+    // Parameter proxy map — maps a parent-facing param name to a list of
+    // (childNodeId, childParam) pairs. Populated by expose() in sub-graph scripts.
+    // Cleared on clear(), pruned on removeNode().
+    std::unordered_map<std::string, std::vector<ProxyTarget>> proxyParams;
 };
