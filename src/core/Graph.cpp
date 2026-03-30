@@ -1,7 +1,5 @@
 #include <deque>
 #include "Graph.h"
-#include "../nodes/subgraph/Outlet.h"
-#include "../nodes/subgraph/Inlet.h"
 #include "Session.h"
 #include "Transport.h"
 #include "AssetRegistry.h"
@@ -45,20 +43,16 @@ void Graph::prepare(const Context& ctx) {
     }
 }
 
-Node* Graph::getTargetNode(int toInput) {
-    for (auto& [id, n] : nodes) {
-        if (auto* inlet = dynamic_cast<Inlet*>(n.get())) {
-            if (inlet->inletIndex == toInput) return n.get();
-        }
+Node* Graph::resolveInput(int toInput) {
+    for (auto& port : inlets) {
+        if (port.index == toInput && port.node) return port.node;
     }
     return this;
 }
 
-Node* Graph::getSourceNode(int fromOutput) {
-    for (auto& [id, n] : nodes) {
-        if (auto* outlet = dynamic_cast<Outlet*>(n.get())) {
-            if (outlet->outletIndex == fromOutput) return n.get();
-        }
+Node* Graph::resolveOutput(int fromOutput) {
+    for (auto& port : outlets) {
+        if (port.index == fromOutput && port.node) return port.node;
     }
     return this;
 }
@@ -104,8 +98,8 @@ bool Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
         to->setInputNode(toInput, from);
         to->onInputConnected(toInput);
         
-        Node* actualTo = to->getTargetNode(toInput);
-        Node* actualFrom = from ? from->getSourceNode(fromOutput) : nullptr;
+        Node* actualTo = to->resolveInput(toInput);
+        Node* actualFrom = from ? from->resolveOutput(fromOutput) : nullptr;
         
         // Wait-free Shadow Connection (Audio)
         crumble::ProcessorCommand cmd;
@@ -131,7 +125,6 @@ bool Graph::connect(int fromNode, int toNode, int fromOutput, int toInput) {
     }
     
     executionDirty = true;
-    updateConnectionCache();
     return true;
 }
 
@@ -163,7 +156,7 @@ void Graph::disconnect(int toNode, int toInput) {
     if (to) {
         to->setInputNode(toInput, nullptr);
         
-        Node* actualTo = to->getTargetNode(toInput);
+        Node* actualTo = to->resolveInput(toInput);
         
         // Wait-free Shadow Disconnection (Audio)
         crumble::ProcessorCommand cmd;
@@ -190,7 +183,6 @@ void Graph::disconnect(int toNode, int toInput) {
         connections.end()
     );
     executionDirty = true;
-    updateConnectionCache();
 }
 
 void Graph::compactInputIndices(int toNode, int removedInput) {
@@ -201,7 +193,6 @@ void Graph::compactInputIndices(int toNode, int removedInput) {
         }
     }
     executionDirty = true;
-    updateConnectionCache();
 }
 
 void Graph::removeNode(int nodeId) {
@@ -214,7 +205,6 @@ void Graph::removeNode(int nodeId) {
     {
         std::lock_guard<std::recursive_mutex> lock(audioMutex);
         
-        // 1. Identify all connections being severed (incoming and outgoing)
         std::vector<std::pair<int, int>> toDisconnect;
         for (const auto& conn : connections) {
             if (conn.fromNode == nodeId || conn.toNode == nodeId) {
@@ -222,22 +212,26 @@ void Graph::removeNode(int nodeId) {
             }
         }
 
-        // 2. Sever them. disconnect() handles both shadow and main thread state.
         for (const auto& pair : toDisconnect) {
             disconnect(pair.first, pair.second);
         }
 
-        outletRegistry.erase(nodeId);
-        
+        auto pruneBoundaries = [nodeId](std::vector<Graph::Boundary>& ports) {
+            ports.erase(
+                std::remove_if(ports.begin(), ports.end(),
+                    [nodeId](const Graph::Boundary& p) { return p.node && p.node->nodeId == nodeId; }),
+                ports.end());
+        };
+        pruneBoundaries(outlets);
+        pruneBoundaries(inlets);
+
         nodeToDestroy = std::move(it->second);
         wasDrawable = nodeToDestroy->canDraw;
         nodes.erase(it);
         
         executionDirty = true;
-        updateConnectionCache();
     }
     
-    // Deleting the node triggers ~Node(), which sends REMOVE_NODE
     nodeToDestroy.reset(); 
     if (wasDrawable) updateRenderList();
 }
@@ -247,14 +241,11 @@ void Graph::clear() {
     {
         std::lock_guard<std::recursive_mutex> lock(audioMutex);
         
-        // 1. Identify all connections and sever them on the shadow thread.
-        // This is CRITICAL to prevent dangling pointers in the shadow processor inputs.
         for (const auto& conn : connections) {
             Node* to = getNode(conn.toNode);
             if (to) {
-                Node* actualTo = to->getTargetNode(conn.toInput);
+                Node* actualTo = to->resolveInput(conn.toInput);
                 
-                // Wait-free Shadow Disconnection (Audio)
                 crumble::ProcessorCommand cmd;
                 cmd.type = crumble::ProcessorCommand::DISCONNECT_NODES;
                 cmd.targetAudioProcessor = actualTo->getAudioProcessor();
@@ -262,7 +253,6 @@ void Graph::clear() {
                 cmd.toInput = conn.toInput;
                 pushCommand(cmd);
                 
-                // Wait-free Shadow Disconnection (Video)
                 crumble::ProcessorCommand videoCmd;
                 videoCmd.type = crumble::ProcessorCommand::DISCONNECT_NODES;
                 videoCmd.targetVideoProcessor = actualTo->getVideoProcessor();
@@ -274,52 +264,19 @@ void Graph::clear() {
         
         nodesToDestroy = std::move(nodes);
         connections.clear();
-        cachedInputs.clear();
-        cachedOutputs.clear();
         renderList.clear();
-        outletRegistry.clear();
+        outlets.clear();
+        inlets.clear();
+        onUpdate = nullptr;
         executionDirty = true;
-    }
-}
-
-std::vector<Connection> Graph::getInputConnections(int nodeId) const {
-    std::lock_guard<std::recursive_mutex> lock(audioMutex);
-    std::vector<Connection> result;
-    for (const auto& conn : connections) {
-        if (conn.toNode == nodeId) result.push_back(conn);
-    }
-    return result;
-}
-
-std::vector<Connection> Graph::getOutputConnections(int nodeId) const {
-    std::lock_guard<std::recursive_mutex> lock(audioMutex);
-    std::vector<Connection> result;
-    for (const auto& conn : connections) {
-        if (conn.fromNode == nodeId) result.push_back(conn);
-    }
-    return result;
-}
-
-const std::vector<Connection>& Graph::getInputConnectionsRef(int nodeId) const {
-    static const std::vector<Connection> empty;
-    auto it = cachedInputs.find(nodeId);
-    if (it != cachedInputs.end()) return it->second;
-    return empty;
-}
-
-void Graph::updateConnectionCache() {
-    std::lock_guard<std::recursive_mutex> lock(audioMutex);
-    cachedInputs.clear();
-    cachedOutputs.clear();
-    for (const auto& conn : connections) {
-        cachedInputs[conn.toNode].push_back(conn);
-        cachedOutputs[conn.fromNode].push_back(conn);
     }
 }
 
 void Graph::update(float dt) {
     if (executionDirty) validateTopology();
     
+    if (onUpdate) onUpdate();
+
     for (int nodeId : traversalOrder) {
         auto it = nodes.find(nodeId);
         if (it != nodes.end() && it->second) {
@@ -346,17 +303,19 @@ void Graph::updateRenderList() {
 }
 
 ofTexture* Graph::processVideo(int index) {
-    for (auto& [id, outlet] : outletRegistry) {
-        if (outlet && outlet->outletIndex == index) return outlet->getVideoOutput();
+    for (auto& port : outlets) {
+        if (port.index == index && port.node) {
+            return port.node->getVideoOutput();
+        }
     }
     return nullptr;
 }
 
 void Graph::processAudio(ofSoundBuffer& buffer, int index) {
     std::lock_guard<std::recursive_mutex> lock(audioMutex);
-    for (auto& [id, outlet] : outletRegistry) {
-        if (outlet && outlet->outletIndex == index) {
-            outlet->pullAudio(buffer);
+    for (auto& port : outlets) {
+        if (port.index == index && port.node) {
+            port.node->pullAudio(buffer);
             return;
         }
     }
@@ -447,9 +406,6 @@ Node* Graph::createNode(const std::string& type, const std::string& name) {
 
     {
         std::lock_guard<std::recursive_mutex> lock(audioMutex);
-        if (auto* outlet = dynamic_cast<Outlet*>(ptr)) {
-            outletRegistry[ptr->nodeId] = outlet;
-        }
         nodes[node->nodeId] = std::move(node);
     }
     executionDirty = true;
@@ -580,10 +536,26 @@ void Graph::onNodeLayerChanged(int& layer) { updateRenderList(); }
 Graph* Graph::getParentGraph() const { return graph; }
 Node* Graph::getContainingNode() const { return const_cast<Graph*>(this); }
 
-void Graph::registerOutlet(Outlet* outlet) {
-    if (outlet) outletRegistry[outlet->nodeId] = outlet;
+void Graph::addOutlet(int nodeId, int index) {
+    Node* node = getNode(nodeId);
+    if (!node || node->graph != this) return;
+
+    std::lock_guard<std::recursive_mutex> lock(audioMutex);
+    outlets.erase(
+        std::remove_if(outlets.begin(), outlets.end(),
+            [index](const Boundary& p) { return p.index == index; }),
+        outlets.end());
+    outlets.push_back({index, node});
 }
 
-void Graph::unregisterOutlet(int nodeId) {
-    outletRegistry.erase(nodeId);
+void Graph::addInlet(int nodeId, int index) {
+    Node* node = getNode(nodeId);
+    if (!node || node->graph != this) return;
+
+    std::lock_guard<std::recursive_mutex> lock(audioMutex);
+    inlets.erase(
+        std::remove_if(inlets.begin(), inlets.end(),
+            [index](const Boundary& p) { return p.index == index; }),
+        inlets.end());
+    inlets.push_back({index, node});
 }

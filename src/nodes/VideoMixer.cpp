@@ -264,24 +264,16 @@ void VideoMixer::onInputConnected(int toInput) {
 }
 
 int VideoMixer::getConnectedLayerCount() const {
-    if (!graph) return 0;
-    auto inputs = graph->getInputConnections(nodeId);
     int connected = 0;
-    for (const auto& conn : inputs) {
-        if (conn.toInput < numActiveLayers) connected++;
+    for (const auto& [slot, node] : inputNodes) {
+        if (slot < numActiveLayers) connected++;
     }
     return connected;
 }
 
 Node* VideoMixer::getLayerSource(int layerIndex) const {
-    if (!graph || layerIndex < 0 || layerIndex >= numActiveLayers) return nullptr;
-    auto inputs = graph->getInputConnections(nodeId);
-    for (const auto& conn : inputs) {
-        if (conn.toInput == layerIndex) {
-            return graph->getNode(conn.fromNode);
-        }
-    }
-    return nullptr;
+    if (layerIndex < 0 || layerIndex >= numActiveLayers) return nullptr;
+    return getInputNode(layerIndex);
 }
 
 std::string VideoMixer::getLayerSourceName(int layerIndex) const {

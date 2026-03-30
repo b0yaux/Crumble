@@ -43,6 +43,8 @@ public:
     // Call the global 'update(t)' function if it exists
     void update(const Transport& t);
     
+    static void unref(int ref);
+    
     // ofxLuaListener callbacks
     void errorReceived(std::string& msg) override;
 
@@ -80,4 +82,6 @@ private:
     static int lua_getBank(lua_State* L);
     static int lua_setTempo(lua_State* L);
     static int lua_playhead(lua_State* L);
+    static int lua_outlet(lua_State* L);
+    static int lua_inlet(lua_State* L);
 };

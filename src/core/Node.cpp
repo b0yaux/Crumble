@@ -152,7 +152,8 @@ Control Node::getControl(ofParameter<float>& param) const {
 }
 
 void Node::setInputNode(int slot, Node* node) {
-    inputNodes[slot] = node;
+    if (node) inputNodes[slot] = node;
+    else inputNodes.erase(slot);
 }
 
 Node* Node::getInputNode(int slot) const {

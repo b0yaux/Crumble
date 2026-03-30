@@ -9,7 +9,6 @@
 #include <mutex>
 
 // Forward declarations — full headers included in Graph.cpp
-class Outlet;
 class AudioCache;
 class Transport;
 
@@ -65,23 +64,19 @@ public:
     bool connect(int fromNode, int toNode, int fromOutput = 0, int toInput = 0);
     void disconnect(int toNode, int toInput);
     void compactInputIndices(int toNode, int removedInput);
-
-    std::vector<Connection> getInputConnections(int nodeId) const;
-    std::vector<Connection> getOutputConnections(int nodeId) const;
-    
-    /**
-     * Optimized access for the audio thread.
-     */
-    const std::vector<Connection>& getInputConnectionsRef(int nodeId) const;
     const std::vector<Connection>& getConnections() const { return connections; }
 
     // --- Navigation ---
     Graph* getParentGraph() const;
     Node* getContainingNode() const;
 
-    // --- Routing overrides ---
-    Node* getTargetNode(int toInput) override;
-    Node* getSourceNode(int fromOutput) override;
+    // --- Routing overrides (sub-graph boundary resolution) ---
+    Node* resolveInput(int toInput) override;
+    Node* resolveOutput(int fromOutput) override;
+
+    // --- Boundary declarations (inlet/outlet) ---
+    void addOutlet(int nodeId, int index);
+    void addInlet(int nodeId, int index);
 
     // --- Factory Support ---
     static void registerNodeType(const std::string& type, NodeCreator creator);
@@ -109,10 +104,17 @@ public:
     
     void setTransport(Transport* t) { rootTransport = t; }
     Transport& getTransport();
+    
+    std::function<void()> onUpdate;
 
     std::recursive_mutex& getAudioMutex() { return audioMutex; }
 
 private:
+    struct Boundary {
+        int index = 0;
+        Node* node = nullptr;
+    };
+    
     Transport* rootTransport = nullptr;
     std::unordered_map<int, std::unique_ptr<Node>> nodes;
     std::vector<Connection> connections;
@@ -131,16 +133,11 @@ private:
     void onScriptChanged(std::string& path);
     ofParameter<std::string> scriptParam;
     
+    int updateFuncRef = -1; // Lua reference to the script's update() function
+    
     mutable std::recursive_mutex audioMutex;
 
-    // Connection caches for audio thread
-    std::unordered_map<int, std::vector<Connection>> cachedInputs;
-    std::unordered_map<int, std::vector<Connection>> cachedOutputs;
-    void updateConnectionCache();
-
-    // Outlet registry — keyed by nodeId, populated by createNode/removeNode/clear.
-    // Eliminates the per-frame O(N) type-string scan in processAudio/processVideo.
-    std::unordered_map<int, Outlet*> outletRegistry;
-    void registerOutlet(Outlet* outlet);
-    void unregisterOutlet(int nodeId);
+    // Inlet/outlet vectors — lightweight boundary declarations for sub-graph routing.
+    std::vector<Boundary> outlets;
+    std::vector<Boundary> inlets;
 };

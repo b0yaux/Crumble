@@ -81,16 +81,65 @@ bool Interpreter::runScript(const std::string& path) {
     return success;
 }
 
+void Interpreter::unref(int ref) {
+    if (g_interpreter && ref != LUA_NOREF) {
+        luaL_unref(g_interpreter->lua, LUA_REGISTRYINDEX, ref);
+    }
+}
+
 bool Interpreter::runScriptInGraph(const std::string& path, Graph* nestedGraph) {
     if (!session || !nestedGraph) return false;
     
     s_currentSession = session;
     GraphContext ctx(nestedGraph);
+
+    lua_State* L = lua;
+    
+    // Save existing global 'update' to restore it later
+    lua_getglobal(L, "update");
+    int savedUpdateRef = luaL_ref(L, LUA_REGISTRYINDEX);
+    
+    // Clear global 'update' before running script
+    lua_pushnil(L);
+    lua_setglobal(L, "update");
     
     // Reset auto-indexing for nested graph execution
     lua.doString("_autoIndices = {}; _autoNames = {}");
     
     bool success = lua.doScript(path, true);
+
+    // Check if script defined a new 'update' function
+    lua_getglobal(L, "update");
+    if (lua_isfunction(L, -1)) {
+        int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+        
+        auto refPtr = std::shared_ptr<int>(new int(ref), [](int* p) {
+            Interpreter::unref(*p);
+            delete p;
+        });
+
+        nestedGraph->onUpdate = [this, refPtr, nestedGraph]() {
+            GraphContext innerCtx(nestedGraph);
+            lua_State* L = lua;
+            lua_rawgeti(L, LUA_REGISTRYINDEX, *refPtr);
+            if (lua_isfunction(L, -1)) {
+                if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+                    std::string err = lua_tostring(L, -1);
+                    ofLogError("Lua") << "Error in subgraph update: " << err;
+                    lua_pop(L, 1);
+                }
+            } else {
+                lua_pop(L, 1);
+            }
+        };
+    } else {
+        lua_pop(L, 1);
+    }
+    
+    // Restore the saved global 'update'
+    lua_rawgeti(L, LUA_REGISTRYINDEX, savedUpdateRef);
+    lua_setglobal(L, "update");
+    luaL_unref(L, LUA_REGISTRYINDEX, savedUpdateRef);
     
     s_currentSession = nullptr;
     return success;
@@ -181,6 +230,8 @@ void Interpreter::bindSessionAPI() {
     lua_register(L, "_getBank", lua_getBank);
     lua_register(L, "_setTempo", lua_setTempo);
     lua_register(L, "_playhead", lua_playhead);
+    lua_register(L, "_outlet", lua_outlet);
+    lua_register(L, "_inlet", lua_inlet);
     
     std::string helper = R"(
         session = {}
@@ -219,6 +270,8 @@ function NodeMeta:__newindex(key, value)
             elseif k == "on" then return function(self) _setActive(self.id, true) return self end
             elseif k == "mute" then return function(self) _setActive(self.id, false) return self end
             elseif k == "unmute" then return function(self) _setActive(self.id, true) return self end
+            elseif k == "outlet" then return function(self, idx) _outlet(self.id, idx or 0) return self end
+            elseif k == "inlet" then return function(self, idx) _inlet(self.id, idx or 0) return self end
             elseif k == "mix" then
                 return function(self, val)
                     if type(val) == "table" and val._isGen then
@@ -699,4 +752,24 @@ int Interpreter::lua_playhead(lua_State* L) {
     if (auto* v = dynamic_cast<VideoSource*>(node)) { lua_pushnumber(L, v->getPosition()); return 1; }
     lua_pushnumber(L, 0.0);
     return 1;
+}
+
+int Interpreter::lua_outlet(lua_State* L) {
+    if (!s_currentSession) return 0;
+    int index = 0;
+    int nodeId = (int)luaL_checkinteger(L, 1);
+    if (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) index = (int)luaL_checkinteger(L, 2);
+    Graph* graph = getCurrentGraph();
+    if (graph) graph->addOutlet(nodeId, index);
+    return 0;
+}
+
+int Interpreter::lua_inlet(lua_State* L) {
+    if (!s_currentSession) return 0;
+    int index = 0;
+    int nodeId = (int)luaL_checkinteger(L, 1);
+    if (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) index = (int)luaL_checkinteger(L, 2);
+    Graph* graph = getCurrentGraph();
+    if (graph) graph->addInlet(nodeId, index);
+    return 0;
 }

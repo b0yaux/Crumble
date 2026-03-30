@@ -62,8 +62,6 @@ function videomix(n, p) return addNode("videomix", n, p, "videomix") end
 function audioout(n, p) return addNode("audioout", n, p, "audioout") end
 function videoout(n, p) return addNode("videoout", n, p, "videoout") end
 
-function inlet(n, p)  return addNode("inlet", n, p, "inlet") end
-function outlet(n, p) return addNode("outlet", n, p, "outlet") end
 function graph(n, p)  return addNode("graph", n, p, "graph") end
 
 function amix(n, p) return addNode("audiomix", n, p, "amix") end

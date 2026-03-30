@@ -7,8 +7,6 @@
 #include "../nodes/AudioSource.h"
 #include "../nodes/AudioMixer.h"
 #include "../nodes/AVSampler.h"
-#include "../nodes/subgraph/Inlet.h"
-#include "../nodes/subgraph/Outlet.h"
 
 namespace crumble {
 
@@ -36,12 +34,6 @@ void registerNodes(Session& s) {
     });
     s.registerNodeType("sampler", []() {
         return std::make_unique<AVSampler>();
-    });
-    s.registerNodeType("inlet", []() {
-        return std::make_unique<Inlet>();
-    });
-    s.registerNodeType("outlet", []() {
-        return std::make_unique<Outlet>();
     });
 }
 
