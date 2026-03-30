@@ -3,7 +3,6 @@
 #include "../core/NodeProcessor.h"
 #include "../core/Graph.h"
 #include "../core/Session.h"
-#include "../core/Patterns.h"
 #include "../core/AssetRegistry.h"
 
 AVSampler::AVSampler() {
@@ -171,23 +170,15 @@ void AVSampler::update(float dt) {
 }
 
 void AVSampler::triggerSample(int index) {
-    // Build path from bank name and index
     std::string newPath;
     if (!bankName.empty()) {
-        // Bank mode: bank:index
         newPath = bankName + ":" + std::to_string(index);
-    } else if (!path.get().empty()) {
-        // Single-file mode: keep existing path, just restart
-        // Path was set directly (e.g., "travaux" or "/path/to/file")
-        newPath = path.get();
     } else {
-        // No path set yet, use index as path
-        newPath = std::to_string(index);
+        newPath = path.get().empty() ? std::to_string(index) : path.get();
     }
     
-    ofLogNotice("AVSampler") << "triggerSample(" << index << ") -> path: " << newPath << " (bankName: " << bankName << ")";
+    ofLogNotice("AVSampler") << "triggerSample(" << index << ") -> path: " << newPath;
     
-    // Reload if path changed
     if (path.get() != newPath) {
         path.set(newPath);
         onParameterChanged("path");
@@ -237,32 +228,6 @@ void AVSampler::silenceSample() {
     audioSource.setMuted(true);
 }
 
-void AVSampler::modulate(const std::string& paramName, std::shared_ptr<Pattern<float>> pat) {
-    // Extract bank name from trigger patterns for sample sequencing
-    if (paramName == "n" || paramName == "index") {
-        if (auto* seqPat = dynamic_cast<patterns::Seq*>(pat.get())) {
-            std::string sig = seqPat->getSignature();
-            size_t secondColon = sig.find(':', sig.find(':') + 1);
-            if (secondColon != std::string::npos) {
-                bankName = sig.substr(secondColon + 1);
-            }
-        }
-        // Send trigger pattern directly to audio processor ("n" is not a regular parameter)
-        if (audioProcessor) {
-            crumble::ProcessorCommand cmd;
-            cmd.type = crumble::ProcessorCommand::SET_PATTERN;
-            cmd.paramHash = crumble::hashString("n");
-            cmd.pattern = pat;
-            pushCommand(cmd);
-        }
-        // Store for queries
-        Node::modulate(paramName, pat);
-        return;
-    }
-    // Pass through to unified pattern system
-    Node::modulate(paramName, pat);
-}
-
 void AVSampler::setupProcessor() {
     audioSource.nodeId = nodeId;
     videoSource.nodeId = nodeId;
@@ -289,6 +254,13 @@ std::string AVSampler::getDisplayName() const {
 
 void AVSampler::onParameterChanged(const std::string& paramName) {
     if (paramName == "path") {
+        auto pat = getPattern("path");
+        if (pat) {
+            Node::onParameterChanged(paramName);
+            return;
+        }
+        
+        // Static path: resolve and load media files
         std::string pathVal = path.get();
         if (pathVal.empty()) return;
         std::string vid = resolvePath(pathVal, "video");
@@ -305,8 +277,8 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
             loadedVideoPath = vid;
             loadedAudioPath = "";
             masterPlayhead = 0.0;
-            ofLogNotice("AVSampler") << "Calling loadEmbedded for: " << vid;
-            audioSource.loadEmbedded(vid);
+            ofLogNotice("AVSampler") << "Loading embedded audio via load for: " << vid;
+            audioSource.load(vid);
         } else if (!isEmbedded) {
             if (!aud.empty() && aud != loadedAudioPath) {
                 ofLogNotice("AVSampler") << "Loading audio: " << aud;

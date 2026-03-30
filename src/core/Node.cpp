@@ -97,8 +97,8 @@ void Node::pushCommand(crumble::ProcessorCommand cmd) {
 }
 
 void Node::prepare(const Context& ctx) {
-    if (lastPreparedCycle == ctx.cycle && ctx.frames > 1) return;
-    lastPreparedCycle = ctx.cycle;
+    if (lastCtx.cycle == ctx.cycle && ctx.frames > 1) return;
+    lastCtx = ctx;
 
     std::lock_guard<std::recursive_mutex> lock(modMutex);
 
@@ -220,17 +220,17 @@ void Node::onParameterChanged(const std::string& paramName) {
         cmd.paramHash = crumble::hashString(paramName.c_str());
         cmd.value = val;
         pushCommand(cmd);
+    }
 
-        {
-            std::lock_guard<std::recursive_mutex> lock(modMutex);
-            auto it = modulators.find(paramName);
-            if (it != modulators.end()) {
-                crumble::ProcessorCommand patCmd;
-                patCmd.type = crumble::ProcessorCommand::SET_PATTERN;
-                patCmd.paramHash = crumble::hashString(paramName.c_str());
-                patCmd.pattern = it->second;
-                pushCommand(patCmd);
-            }
+    {
+        std::lock_guard<std::recursive_mutex> lock(modMutex);
+        auto it = modulators.find(paramName);
+        if (it != modulators.end()) {
+            crumble::ProcessorCommand patCmd;
+            patCmd.type = crumble::ProcessorCommand::SET_PATTERN;
+            patCmd.paramHash = crumble::hashString(paramName.c_str());
+            patCmd.pattern = it->second;
+            pushCommand(patCmd);
         }
     }
 }

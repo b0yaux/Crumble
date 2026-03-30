@@ -1,5 +1,5 @@
 -- loquebeat.lua - Test embedded audio+video from single .mov file
--- Test alias + sp() pattern syntax
+-- Test alias + pattern syntax
 
 -- Setup outputs
 local screen = videoout():on()
@@ -21,6 +21,6 @@ local lfo1 = sine(1/16):scale(0,64)
 bpm(120)
 -- Create samplers with presentation settings
 local drum = sampler("drums:0"):connect(avmix):blend(1)
-:n(seq("0"):fast(2)):mix(1)
+    :path(seq("0"):fast(2)):mix(1)
 local trvx = sampler("travaux"):connect(avmix):blend(1)
-:n(seq("0"):slow(4)):mix(seq("1 0.3"):fast(lfo1)) -- Beats 2 & 4
+    :path(seq("0"):slow(4)):mix(seq("1 0.3"):fast(lfo1))

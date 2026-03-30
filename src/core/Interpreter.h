@@ -79,4 +79,5 @@ private:
     static int lua_setActive(lua_State* L);
     static int lua_getBank(lua_State* L);
     static int lua_setTempo(lua_State* L);
+    static int lua_playhead(lua_State* L);
 };

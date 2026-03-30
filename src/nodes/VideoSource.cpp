@@ -183,6 +183,26 @@ void VideoSource::onParameterChanged(const std::string& paramName) {
 }
 
 void VideoSource::update(float dt) {
+    auto pat = getPattern("path");
+    if (pat) {
+        if (lastTriggerBars < 0) lastTriggerBars = lastCtx.cycle;
+        if (lastTriggerBars > lastCtx.cycle + 1.0) lastTriggerBars = lastCtx.cycle;
+
+        double start = lastTriggerBars;
+        double end = start + lastCtx.cycleStep;
+        auto events = pat->query(start, end);
+        for (const auto& e : events) {
+            if (e.isRest) continue;
+            if (e.ref) {
+                load(*(e.ref));
+            } else {
+                load(std::to_string(static_cast<int>(std::floor(e.value))));
+            }
+            setPosition(0.0f);
+        }
+        lastTriggerBars = end;
+    }
+
     if (getPlayer().isLoaded()) {
         getPlayer().update();
     }

@@ -130,7 +130,7 @@ protected:
     
     mutable std::recursive_mutex modMutex;
     mutable std::unordered_map<std::string, ofSoundBuffer> controlBuffers;
-    double lastPreparedCycle = -1.0; 
+    Context lastCtx;
 };
 
 template<typename T>

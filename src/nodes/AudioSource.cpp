@@ -32,7 +32,7 @@ public:
         loopSlot = getControlPtr(crumble::hashString("loop"));
         speedSlot = getControlPtr(crumble::hashString("speed"));
         gainSlot = getControlPtr(crumble::hashString("gain"));
-        triggerSlot = getControlPtr(crumble::hashString("n"));
+        triggerSlot = getControlPtr(crumble::hashString("path"));
     }
 
     void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
@@ -55,17 +55,15 @@ public:
                     pendingTrigger.store(-1);
                     std::lock_guard<std::mutex> lock(pendingPathMutex);
                     hasPendingTriggerPath.store(false);
-                } else if (e.name) {
+                } else if (e.ref) {
                     pendingRest.store(false);
-                    std::string resolved = AssetRegistry::get().resolve(*(e.name), "audio");
-                    if (!resolved.empty()) {
-                        std::lock_guard<std::mutex> lock(pendingPathMutex);
-                        size_t len = std::min(resolved.length(), sizeof(pendingTriggerPathBuf) - 1);
-                        memcpy(pendingTriggerPathBuf, resolved.c_str(), len);
-                        pendingTriggerPathBuf[len] = '\0';
-                        hasPendingTriggerPath.store(true);
-                        pendingTrigger.store(-1);
-                    }
+                    std::string ref = *(e.ref);
+                    std::lock_guard<std::mutex> lock(pendingPathMutex);
+                    size_t len = std::min(ref.length(), sizeof(pendingTriggerPathBuf) - 1);
+                    memcpy(pendingTriggerPathBuf, ref.c_str(), len);
+                    pendingTriggerPathBuf[len] = '\0';
+                    hasPendingTriggerPath.store(true);
+                    pendingTrigger.store(-1);
                 } else {
                     pendingRest.store(false);
                     pendingTrigger.store(static_cast<int>(std::floor(e.value)));
@@ -189,6 +187,7 @@ void AudioSource::load(const std::string& audioPath) {
 
     std::string ext = ofToLower(ofFilePath::getFileExt(resolved));
     if (ext == "mov" || ext == "hap" || ext == "mp4") {
+        loadEmbedded(resolved);
         return;
     }
 
@@ -244,6 +243,26 @@ void AudioSource::processAudio(ofSoundBuffer& buffer, int index) {
 
 void AudioSource::onParameterChanged(const std::string& paramName) {
     Node::onParameterChanged(paramName);
+}
+
+void AudioSource::update(float dt) {
+    if (!audioProcessor) return;
+
+    auto* pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
+    if (!pProc) return;
+
+    if (pProc->hasPendingPath()) {
+        std::string resolvedPath = pProc->getPendingPath();
+        if (!resolvedPath.empty()) {
+            load(resolvedPath);
+            setRelativePosition(0.0);
+            setMuted(false);
+        }
+    } else if (pProc->hasPendingTrigger()) {
+        pProc->clearPendingTrigger();
+        setRelativePosition(0.0);
+        setMuted(false);
+    }
 }
 
 std::string AudioSource::getDisplayName() const {

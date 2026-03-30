@@ -17,8 +17,8 @@ public:
     ofParameter<bool> playing;
 
     void processAudio(ofSoundBuffer& buffer, int index = 0) override;
+    void update(float dt) override;
     void load(const std::string& path);
-    void loadEmbedded(const std::string& videoPath);
     std::string getDisplayName() const override;
 
     ofJson serialize() const override;
@@ -42,5 +42,6 @@ public:
 
 private:
     void onPathChanged(std::string& p);
+    void loadEmbedded(const std::string& videoPath);
     std::string loadedPath;
 };

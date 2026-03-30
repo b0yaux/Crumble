@@ -14,14 +14,13 @@ struct Event {
     double onset;              // When this event starts (0.0-1.0 cycle)
     double duration;           // How long it lasts (0.0-1.0 cycle)
     bool isRest = false;       // Is this a rest?
-    std::optional<std::string> name;  // Optional name token for runtime resolution
-    std::optional<std::string> bank;  // Optional bank for names
+    std::optional<std::string> ref;  // Opaque reference string (e.g. "drums:0", "bd", "/path.wav")
     
     Event(T v, double o, double d = 0.0, bool r = false)
         : value(v), onset(o), duration(d), isRest(r) {}
     
-    Event(T v, double o, double d, bool r, const std::string& n, const std::string& b = "")
-        : value(v), onset(o), duration(d), isRest(r), name(n), bank(b) {}
+    Event(T v, double o, double d, bool r, const std::string& r_)
+        : value(v), onset(o), duration(d), isRest(r), ref(r_) {}
     
     // Check if a cycle position falls within this event
     bool contains(double cycle) const {
@@ -253,32 +252,16 @@ namespace patterns {
     struct Step {
         enum Type { REST, NUMBER, NAME };
         Type type;
-        float value;           // Valid if type == NUMBER
-        std::string name;      // Valid if type == NAME
-        std::string bank;      // For bank:notation
+        float value;
+        std::string ref;
         
         Step() : type(REST), value(0.0f) {}
         explicit Step(float v) : type(NUMBER), value(v) {}
-        explicit Step(const std::string& n, const std::string& b = "") 
-            : type(NAME), value(0.0f), name(n), bank(b) {}
+        explicit Step(const std::string& r) 
+            : type(NAME), value(0.0f), ref(r) {}
         
         static Step makeRest() { return Step(); }
         bool isRest() const { return type == REST; }
-        
-        // Resolve to a numeric value using the provided resolver function
-        // resolver(name, bank) -> optional<float>
-        template<typename Resolver>
-        float resolve(Resolver&& resolver) const {
-            switch (type) {
-                case REST: return REST_VALUE;
-                case NUMBER: return value;
-                case NAME: {
-                    auto resolved = resolver(name, bank);
-                    return resolved.value_or(0.0f);
-                }
-            }
-            return 0.0f;
-        }
     };
 
     class Seq : public Pattern<float> {
@@ -345,9 +328,8 @@ namespace patterns {
                     bool rest = step.isRest();
                     
                     if (step.type == Step::NAME && !rest) {
-                        // Named sample - include name/bank for runtime resolution
-                        float val = 0.0f;  // Will be resolved at trigger time
-                        events.emplace_back(val, onset, stepDuration, false, step.name, step.bank);
+                        float val = 0.0f;
+                        events.emplace_back(val, onset, stepDuration, false, step.ref);
                     } else {
                         // Numeric value or rest
                         float val = (step.type == Step::NUMBER) ? step.value : 0.0f;
@@ -392,39 +374,14 @@ namespace patterns {
                     for (int r = 0; r < count; ++r) {
                         steps.push_back(step);
                     }
-                } else if (token.find(':') != std::string::npos) {
-                    // Bank:index or bank:name notation: drums:0 or drums:bd
-                    size_t colonPos = token.find(':');
-                    std::string explicitBank = token.substr(0, colonPos);
-                    std::string indexOrName = token.substr(colonPos + 1);
-                    
-                    if (!explicitBank.empty()) {
-                        defaultBank = explicitBank;
-                    }
-                    
-                    // Try to parse as number first
-                    try {
-                        size_t pos;
-                        float val = std::stof(indexOrName, &pos);
-                        if (pos == indexOrName.size()) {
-                            steps.push_back(Step(val));
-                        } else {
-                            // It's a name with a bank
-                            steps.push_back(Step(indexOrName, defaultBank));
-                        }
-                    } catch (...) {
-                        // It's a name
-                        steps.push_back(Step(indexOrName, defaultBank));
-                    }
                 } else {
-                    // Regular value or named sample
+                    // Regular value or named sample (including bank:name notation)
                     steps.push_back(parseStep(token));
                 }
             }
         }
 
         Step parseStep(const std::string& token) {
-            // Try to parse as number
             try {
                 size_t pos;
                 float val = std::stof(token, &pos);
@@ -433,8 +390,10 @@ namespace patterns {
                 }
             } catch (...) {}
             
-            // It's a name - will be resolved at trigger time
-            return Step(token, defaultBank);
+            if (!defaultBank.empty() && token.find(':') == std::string::npos) {
+                return Step(defaultBank + ":" + token);
+            }
+            return Step(token);
         }
 
         std::vector<std::string> tokenize(const std::string& input) {

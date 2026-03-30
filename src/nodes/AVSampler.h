@@ -53,9 +53,6 @@ public:
     void triggerSampleWithPath(const std::string& resolvedPath);
     void silenceSample();
     
-    // Override to extract bank name from trigger patterns
-    void modulate(const std::string& paramName, std::shared_ptr<Pattern<float>> pat) override;
-    
 private:
     // Internal sources - owned and synchronized by this node
     AudioSource audioSource;

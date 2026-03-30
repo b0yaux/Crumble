@@ -76,4 +76,5 @@ private:
     std::shared_ptr<ofxHapPlayer> currentPlayer;
     ofxHapPlayer localPlayer; // Fallback if not in cache
     bool _hasAudio = false;
+    double lastTriggerBars = -1.0;
 };

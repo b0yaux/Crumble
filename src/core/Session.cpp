@@ -302,7 +302,8 @@ void Session::update(float dt) {
     // 4. Update UI Graph
     Context ctx;
     ctx.cycle = blockBars;
-    ctx.cycleStep = 0; 
+    double barsPerSecond = (transport.bpm / 60.0) / transport.beatsPerBar;
+    ctx.cycleStep = dt * barsPerSecond;
     ctx.frames = 1;
     ctx.dt = dt;
     

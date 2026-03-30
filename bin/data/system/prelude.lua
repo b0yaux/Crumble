@@ -19,20 +19,42 @@ BLEND = {
 
 local function makeSampler(n, p, prefix)
     local params = (type(p) == "table") and p or {}
-    if type(n) == "string" and not params.path then
-        params.path = n
-    end
+    local patternArg = nil
+    
     if type(p) == "string" then
-        params.n = p
+        patternArg = p
+        if not params.path then params.path = n end
+    elseif type(n) == "string" and not params.path then
+        local _, count = n:gsub("%S+", "")
+        if count >= 2 then
+            params.path = n:match("^([^%s]+)")
+            patternArg = n
+        else
+            params.path = n
+        end
     end
-    return addNode("sampler", n, params, prefix)
+    
+    local node = addNode("sampler", n, params, prefix)
+    if node and patternArg then
+        node.path = makeGen({type="seq", val=patternArg})
+    end
+    return node
 end
 
 function sampler(n, p) return makeSampler(n, p, "sampler") end
 function s(n, p)        return makeSampler(n, p, "s") end
 
-function audio(n, p)   return addNode("audio", n, p, "audio") end
-function video(n, p)   return addNode("video", n, p, "video") end
+function audio(n, p)
+    local params = (type(p) == "table") and p or {}
+    if type(n) == "string" then params.path = n end
+    return addNode("audio", n, params, "audio")
+end
+
+function video(n, p)
+    local params = (type(p) == "table") and p or {}
+    if type(n) == "string" then params.path = n end
+    return addNode("video", n, params, "video")
+end
 
 function audiomix(n, p) return addNode("audiomix", n, p, "audiomix") end
 function videomix(n, p) return addNode("videomix", n, p, "videomix") end
@@ -48,19 +70,6 @@ function amix(n, p) return addNode("audiomix", n, p, "amix") end
 function vmix(n, p) return addNode("videomix", n, p, "vmix") end
 function aout(n, p) return addNode("audioout", n, p, "aout") end
 function vout(n, p) return addNode("videoout", n, p, "vout") end
-
--- Pattern sampler: s("k s k") creates sampler with pattern of sample names
--- Each step resolves its alias at trigger time
-function sp(pattern)
-    if type(pattern) ~= "string" then return nil end
-    
-    -- Extract first token as initial path
-    local firstToken = pattern:match("^([^%s]+)")
-    if not firstToken then return nil end
-    
-    -- Create sampler with first token as path, rest as pattern
-    return s(firstToken, pattern)
-end
 
 -- =============================================================================
 -- SAMPLE ALIASES

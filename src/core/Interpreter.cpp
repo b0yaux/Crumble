@@ -2,6 +2,8 @@
 #include "Config.h"
 #include "AssetRegistry.h"
 #include "PatternMath.h"
+#include "../nodes/AudioSource.h"
+#include "../nodes/VideoSource.h"
 
 Session* Interpreter::s_currentSession = nullptr;
 thread_local std::vector<Graph*> Interpreter::s_graphStack;
@@ -178,6 +180,7 @@ void Interpreter::bindSessionAPI() {
     lua_register(L, "_setAlias", lua_setAlias);
     lua_register(L, "_getBank", lua_getBank);
     lua_register(L, "_setTempo", lua_setTempo);
+    lua_register(L, "_playhead", lua_playhead);
     
     std::string helper = R"(
         session = {}
@@ -192,18 +195,7 @@ function NodeMeta:__newindex(key, value)
             if key == "id" or key == "type" or key == "name" then
                 rawset(self, key, value)
             elseif type(value) == "string" then
-                -- Pattern-accepting parameters (mini-notation auto-convert)
-                local patternParams = {n=true, speed=true, gain=true, opacity=true, 
-                                       cutoff=true, resonance=true, active=true,
-                                       position=true, loop=true, playing=true}
-                if patternParams[key] then
-                    -- Auto-convert mini-notation strings to patterns
-                    local pat = makeGen({type = "seq", val = value})
-                    _setGen(self.id, key, pat)
-                else
-                    -- Path and other params stay as strings
-                    _set(self.id, key, value)
-                end
+                _set(self.id, key, value)
             elseif type(value) == "table" and value._isGen then
                 _setGen(self.id, key, value)
             else
@@ -290,6 +282,7 @@ function NodeMeta:__newindex(key, value)
         end
 
         function getBank(name) return _getBank(name) end
+        function playhead(n) return _playhead(n.id or n) end
 
         function connect(src, dst, paramsOrOut, inIdx)
             if type(src) == "table" and not src.id then
@@ -694,4 +687,16 @@ int Interpreter::lua_setTempo(lua_State* L) {
     if (!s_currentSession) return 0;
     s_currentSession->getTransport().bpm = (float)luaL_checknumber(L, 1);
     return 0;
+}
+
+int Interpreter::lua_playhead(lua_State* L) {
+    if (!s_currentSession) { lua_pushnumber(L, 0.0); return 1; }
+    int nodeIdx = (int)luaL_checkinteger(L, 1);
+    Graph* graph = getCurrentGraph();
+    Node* node = graph ? graph->getNode(nodeIdx) : nullptr;
+    if (!node) { lua_pushnumber(L, 0.0); return 1; }
+    if (auto* a = dynamic_cast<AudioSource*>(node)) { lua_pushnumber(L, a->getRelativePosition()); return 1; }
+    if (auto* v = dynamic_cast<VideoSource*>(node)) { lua_pushnumber(L, v->getPosition()); return 1; }
+    lua_pushnumber(L, 0.0);
+    return 1;
 }
