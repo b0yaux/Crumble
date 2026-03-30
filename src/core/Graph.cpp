@@ -558,6 +558,12 @@ AudioCache* Graph::getCache() const {
     return nullptr;
 }
 
+int Graph::getSampleRate() const {
+    if (g_session) return g_session->getSampleRate();
+    if (graph) return graph->getSampleRate();
+    return 44100;
+}
+
 std::string Graph::resolvePath(const std::string& path, const std::string& hint) const {
     if (path.empty()) return "";
     std::string resolved = AssetRegistry::get().resolve(path, hint);

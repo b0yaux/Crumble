@@ -1,9 +1,6 @@
 #include "AVSampler.h"
 #include "ofMain.h"
 #include "../core/NodeProcessor.h"
-#include "../core/Graph.h"
-#include "../core/Session.h"
-#include "../core/AssetRegistry.h"
 
 AVSampler::AVSampler() {
     type = "sampler";
@@ -267,8 +264,8 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
         std::string vid = resolvePath(pathVal, "video");
         std::string aud = resolvePath(pathVal, "audio");
 
-        if (audioSource.bank.get().empty()) audioSource.bank.set(pathVal);
-        if (videoSource.bank.get().empty()) videoSource.bank.set(pathVal);
+        if (audioSource.bank.get().empty()) audioSource.bank.set(Node::extractBank(pathVal));
+        if (videoSource.bank.get().empty()) videoSource.bank.set(Node::extractBank(pathVal));
         
         bool isEmbedded = (aud == vid && !vid.empty());
         

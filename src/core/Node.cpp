@@ -240,9 +240,20 @@ std::string Node::resolvePath(const std::string& path, const std::string& typeHi
     return path;
 }
 
+std::string Node::extractBank(const std::string& path) {
+    if (path.empty() || path.find('/') != std::string::npos) return "";
+    size_t colon = path.find(':');
+    return (colon != std::string::npos) ? path.substr(0, colon) : path;
+}
+
 AudioCache* Node::getCache() const {
     if (graph) return graph->getCache();
     return nullptr;
+}
+
+int Node::getSampleRate() const {
+    if (graph) return graph->getSampleRate();
+    return 44100;
 }
 
 std::shared_ptr<ofxAudioFile> Node::getAudioAsset(const std::string& path) const {

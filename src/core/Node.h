@@ -102,8 +102,11 @@ public:
     Node* getInputNode(int slot) const;
     virtual std::string resolvePath(const std::string& path, const std::string& typeHint = "") const;
 
+    static std::string extractBank(const std::string& path);
+
     // Asset cache access — proxies through graph to Session without exposing Session.h to node files
     AudioCache* getCache() const;
+    int getSampleRate() const;
     std::shared_ptr<ofxAudioFile> getAudioAsset(const std::string& path) const;
     
     std::shared_ptr<ofParameterGroup> parameters;

@@ -2,9 +2,7 @@
 #include "AudioSource.h"
 #include "../core/NodeProcessor.h"
 #include "../core/ProcessorCommand.h"
-#include "../core/AssetRegistry.h"
 #include "../core/AudioCache.h"
-#include "../core/Session.h"
 
 namespace crumble {
 
@@ -178,20 +176,13 @@ AudioSource::~AudioSource() {
 
 void AudioSource::onPathChanged(std::string& p) {
     if (!p.empty()) {
-        if (bank.get().empty()) {
-            size_t colonPos = p.find(':');
-            if (colonPos != std::string::npos) {
-                bank.set(p.substr(0, colonPos));
-            } else if (p.find('/') == std::string::npos) {
-                bank.set(p);
-            }
-        }
+        if (bank.get().empty()) bank.set(Node::extractBank(p));
         load(p);
     }
 }
 
 void AudioSource::load(const std::string& audioPath) {
-    std::string resolved = AssetRegistry::get().resolve(audioPath, "audio");
+    std::string resolved = resolvePath(audioPath, "audio");
     if (resolved.empty()) return;
 
     std::string ext = ofToLower(ofFilePath::getFileExt(resolved));
@@ -225,7 +216,7 @@ void AudioSource::loadEmbedded(const std::string& videoPath) {
     if (!cache) return;
 
     // Decode embedded audio via custom ffmpeg logic in AudioCache
-    int targetRate = g_session ? g_session->getSampleRate() : 44100;
+    int targetRate = getSampleRate();
     auto decoded = cache->getEmbeddedAudio(videoPath, targetRate);
     if (!decoded || decoded->numFrames == 0) return;
 

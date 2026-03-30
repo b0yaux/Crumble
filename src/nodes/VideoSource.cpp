@@ -109,14 +109,7 @@ void VideoSource::onClockModeChanged(int& mode) {
 
 void VideoSource::onPathChanged(std::string& p) {
     if (!p.empty() && p != loadedPath) {
-        if (bank.get().empty()) {
-            size_t colonPos = p.find(':');
-            if (colonPos != std::string::npos) {
-                bank.set(p.substr(0, colonPos));
-            } else if (p.find('/') == std::string::npos) {
-                bank.set(p);
-            }
-        }
+        if (bank.get().empty()) bank.set(Node::extractBank(p));
         load(p);
     }
 }

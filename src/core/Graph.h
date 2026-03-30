@@ -105,6 +105,7 @@ public:
 
     // Asset cache access — proxies to Session without exposing Session.h to node files
     AudioCache* getCache() const;
+    int getSampleRate() const;
     
     void setTransport(Transport* t) { rootTransport = t; }
     Transport& getTransport();
