@@ -106,6 +106,7 @@ public:
     Transport& getTransport();
     
     std::function<void()> onUpdate;
+    std::function<void()> onClear;
 
     std::recursive_mutex& getAudioMutex() { return audioMutex; }
 
@@ -132,8 +133,6 @@ private:
     
     void onScriptChanged(std::string& path);
     ofParameter<std::string> scriptParam;
-    
-    int updateFuncRef = -1; // Lua reference to the script's update() function
     
     mutable std::recursive_mutex audioMutex;
 

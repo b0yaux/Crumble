@@ -95,54 +95,73 @@ bool Interpreter::runScriptInGraph(const std::string& path, Graph* nestedGraph) 
 
     lua_State* L = lua;
     
-    // Save existing global 'update' to restore it later
-    lua_getglobal(L, "update");
-    int savedUpdateRef = luaL_ref(L, LUA_REGISTRYINDEX);
+    // 1. Create sub-graph environment table
+    lua_newtable(L); 
+    int envIdx = lua_gettop(L);
     
-    // Clear global 'update' before running script
-    lua_pushnil(L);
-    lua_setglobal(L, "update");
+    // 2. env.__index = _G
+    lua_newtable(L);
+    lua_getglobal(L, "_G");
+    lua_setfield(L, -2, "__index");
+    lua_setmetatable(L, envIdx);
     
-    // Reset auto-indexing for nested graph execution
-    lua.doString("_autoIndices = {}; _autoNames = {}");
+    // 3. Load script chunk
+    if (luaL_loadfile(L, ofToDataPath(path).c_str()) != LUA_OK) {
+        std::string err = lua_tostring(L, -1);
+        ofLogError("Lua") << "Error loading subgraph script: " << err;
+        lua_pop(L, 2); // pop error and env table
+        return false;
+    }
     
-    bool success = lua.doScript(path, true);
+    // 4. Set chunk's _ENV = env
+    lua_pushvalue(L, envIdx);
+    lua_setupvalue(L, -2, 1);
+    
+    // 5. Run the script
+    if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+        std::string err = lua_tostring(L, -1);
+        ofLogError("Lua") << "Error running subgraph script: " << err;
+        lua_pop(L, 2); // pop error and env table
+        return false;
+    }
 
-    // Check if script defined a new 'update' function
-    lua_getglobal(L, "update");
+    // 6. Check for 'update' inside the environment
+    lua_pushvalue(L, envIdx);
+    lua_getfield(L, -1, "update");
+    int updateRef = LUA_NOREF;
     if (lua_isfunction(L, -1)) {
-        int ref = luaL_ref(L, LUA_REGISTRYINDEX);
-        
-        auto refPtr = std::shared_ptr<int>(new int(ref), [](int* p) {
-            Interpreter::unref(*p);
-            delete p;
-        });
-
-        nestedGraph->onUpdate = [this, refPtr, nestedGraph]() {
-            GraphContext innerCtx(nestedGraph);
-            lua_State* L = lua;
-            lua_rawgeti(L, LUA_REGISTRYINDEX, *refPtr);
-            if (lua_isfunction(L, -1)) {
-                if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
-                    std::string err = lua_tostring(L, -1);
-                    ofLogError("Lua") << "Error in subgraph update: " << err;
-                    lua_pop(L, 1);
-                }
-            } else {
-                lua_pop(L, 1);
-            }
-        };
+        updateRef = luaL_ref(L, LUA_REGISTRYINDEX);
     } else {
         lua_pop(L, 1);
     }
     
-    // Restore the saved global 'update'
-    lua_rawgeti(L, LUA_REGISTRYINDEX, savedUpdateRef);
-    lua_setglobal(L, "update");
-    luaL_unref(L, LUA_REGISTRYINDEX, savedUpdateRef);
+    // 7. Store the environment table itself as a reference (crucial for T2.3)
+    int envRef = luaL_ref(L, LUA_REGISTRYINDEX);
+
+    // 8. Bind lifecycle hooks
+    nestedGraph->onUpdate = [this, updateRef, nestedGraph]() {
+        if (updateRef == LUA_NOREF) return;
+        GraphContext innerCtx(nestedGraph);
+        lua_State* L = lua;
+        lua_rawgeti(L, LUA_REGISTRYINDEX, updateRef);
+        if (lua_isfunction(L, -1)) {
+            if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+                std::string err = lua_tostring(L, -1);
+                ofLogError("Lua") << "Error in subgraph update: " << err;
+                lua_pop(L, 1);
+            }
+        } else {
+            lua_pop(L, 1);
+        }
+    };
+
+    nestedGraph->onClear = [updateRef, envRef]() {
+        Interpreter::unref(updateRef);
+        Interpreter::unref(envRef);
+    };
     
     s_currentSession = nullptr;
-    return success;
+    return true;
 }
 
 void Interpreter::executeInNestedGraph(const std::string& path, Graph* nestedGraph) {

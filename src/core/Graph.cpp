@@ -28,6 +28,7 @@ Graph::Graph() {
 
 Graph::~Graph() {
     scriptParam.removeListener(this, &Graph::onScriptChanged);
+    if (onClear) onClear();
     clear();
 }
 
@@ -267,7 +268,9 @@ void Graph::clear() {
         renderList.clear();
         outlets.clear();
         inlets.clear();
+        if (onClear) onClear();
         onUpdate = nullptr;
+        onClear = nullptr;
         executionDirty = true;
     }
 }
