@@ -43,6 +43,7 @@ public:
     void update(float dt) override;
     void draw() override;
     void processAudio(ofSoundBuffer& buffer, int index = 0) override;
+    void onParameterChanged(const std::string& paramName) override;
 
     // --- Node Management ---
     Node* createNode(const std::string& type, const std::string& name = "");

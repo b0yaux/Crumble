@@ -33,11 +33,10 @@ Graph::~Graph() {
 }
 
 void Graph::prepare(const Context& ctx) {
-    // 1. Prepare self (modulators on the graph node itself)
+    if (!active->get()) return;
+
     Node::prepare(ctx);
     
-    // 2. Recursive Prepare: Prepare all internal nodes.
-    // This ensures all patterns in the graph are calculated exactly once.
     std::lock_guard<std::recursive_mutex> lock(audioMutex);
     for (auto& [id, node] : nodes) {
         if (node) node->prepare(ctx);
@@ -324,6 +323,8 @@ void Graph::clear() {
 }
 
 void Graph::update(float dt) {
+    if (!active->get()) return;
+
     if (executionDirty) validateTopology();
     
     if (onUpdate) onUpdate();
@@ -609,4 +610,19 @@ std::vector<Graph::ProxyTarget> Graph::getProxyTargets(const std::string& parent
     auto it = proxyParams.find(parentParam);
     if (it != proxyParams.end()) return it->second;
     return {};
+}
+
+void Graph::onParameterChanged(const std::string& paramName) {
+    if (paramName == "active") {
+        bool val = active->get();
+        std::lock_guard<std::recursive_mutex> lock(audioMutex);
+        for (auto& [id, node] : nodes) {
+            if (node) {
+                node->active->set(val);
+                node->onParameterChanged("active");
+            }
+        }
+        return;
+    }
+    Node::onParameterChanged(paramName);
 }
