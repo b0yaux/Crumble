@@ -1,6 +1,5 @@
 #pragma once
 #include "../core/Node.h"
-#include "../core/Patterns.h"
 #include "VideoSource.h"
 #include "AudioSource.h"
 
@@ -71,7 +70,4 @@ private:
     // Master playhead (in samples, converted as needed for each source)
     double masterPlayhead = 0.0;
     std::string loadedAudioPath, loadedVideoPath;
-    
-    // Bank name for pattern triggering
-    std::string bankName;
 };

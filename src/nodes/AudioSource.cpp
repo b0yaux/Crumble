@@ -158,6 +158,7 @@ public:
 AudioSource::AudioSource() {
     type = "audio";
     parameters->add(path.set("path", ""));
+    parameters->add(bank.set("bank", ""));
     parameters->add(speed.set("speed", 1.0, -4.0, 4.0));
     parameters->add(loop.set("loop", true));
     parameters->add(playing.set("playing", true));
@@ -177,6 +178,14 @@ AudioSource::~AudioSource() {
 
 void AudioSource::onPathChanged(std::string& p) {
     if (!p.empty()) {
+        if (bank.get().empty()) {
+            size_t colonPos = p.find(':');
+            if (colonPos != std::string::npos) {
+                bank.set(p.substr(0, colonPos));
+            } else if (p.find('/') == std::string::npos) {
+                bank.set(p);
+            }
+        }
         load(p);
     }
 }
@@ -259,7 +268,12 @@ void AudioSource::update(float dt) {
             setMuted(false);
         }
     } else if (pProc->hasPendingTrigger()) {
+        int idx = pProc->getPendingTrigger();
         pProc->clearPendingTrigger();
+        std::string b = bank.get();
+        if (!b.empty()) {
+            load(b + ":" + std::to_string(idx));
+        }
         setRelativePosition(0.0);
         setMuted(false);
     }

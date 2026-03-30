@@ -12,6 +12,7 @@ public:
     ~AudioSource();
     
     ofParameter<std::string> path;
+    ofParameter<std::string> bank;
     ofParameter<float> speed;
     ofParameter<bool> loop;
     ofParameter<bool> playing;

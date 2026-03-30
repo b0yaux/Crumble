@@ -170,9 +170,10 @@ void AVSampler::update(float dt) {
 }
 
 void AVSampler::triggerSample(int index) {
+    std::string b = audioSource.bank.get();
     std::string newPath;
-    if (!bankName.empty()) {
-        newPath = bankName + ":" + std::to_string(index);
+    if (!b.empty()) {
+        newPath = b + ":" + std::to_string(index);
     } else {
         newPath = path.get().empty() ? std::to_string(index) : path.get();
     }
@@ -265,6 +266,9 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
         if (pathVal.empty()) return;
         std::string vid = resolvePath(pathVal, "video");
         std::string aud = resolvePath(pathVal, "audio");
+
+        if (audioSource.bank.get().empty()) audioSource.bank.set(pathVal);
+        if (videoSource.bank.get().empty()) videoSource.bank.set(pathVal);
         
         bool isEmbedded = (aud == vid && !vid.empty());
         

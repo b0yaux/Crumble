@@ -64,6 +64,7 @@ VideoSource::VideoSource() {
     type = "video";
 
     parameters->add(path.set("path", ""));
+    parameters->add(bank.set("bank", ""));
     parameters->add(loop.set("loop", true));
     parameters->add(speed.set("speed", 1.0, -4.0, 4.0));
     parameters->add(playing.set("playing", true));
@@ -108,6 +109,14 @@ void VideoSource::onClockModeChanged(int& mode) {
 
 void VideoSource::onPathChanged(std::string& p) {
     if (!p.empty() && p != loadedPath) {
+        if (bank.get().empty()) {
+            size_t colonPos = p.find(':');
+            if (colonPos != std::string::npos) {
+                bank.set(p.substr(0, colonPos));
+            } else if (p.find('/') == std::string::npos) {
+                bank.set(p);
+            }
+        }
         load(p);
     }
 }
@@ -196,7 +205,11 @@ void VideoSource::update(float dt) {
             if (e.ref) {
                 load(*(e.ref));
             } else {
-                load(std::to_string(static_cast<int>(std::floor(e.value))));
+                int idx = static_cast<int>(std::floor(e.value));
+                std::string b = bank.get();
+                if (!b.empty()) {
+                    load(b + ":" + std::to_string(idx));
+                }
             }
             setPosition(0.0f);
         }
