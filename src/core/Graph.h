@@ -73,6 +73,10 @@ public:
     // --- Routing overrides (sub-graph boundary resolution) ---
     Node* resolveInput(int toInput) override;
     Node* resolveOutput(int fromOutput) override;
+    Node* resolveAudioOutput(int fromOutput) override;
+    Node* resolveVideoOutput(int fromOutput) override;
+    Node* resolveAudioInput(int toInput) override;
+    Node* resolveVideoInput(int toInput) override;
 
     // --- Boundary declarations (inlet/outlet) ---
     void addOutlet(int nodeId, int index);

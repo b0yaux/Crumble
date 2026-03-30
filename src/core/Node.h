@@ -69,10 +69,16 @@ public:
     virtual crumble::AudioProcessor* createAudioProcessor() { return nullptr; }
     virtual crumble::VideoProcessor* createVideoProcessor() { return nullptr; }
 
-    // For routing connections. Subgraphs override this to return their internal port nodes.
-    // Port resolution for sub-graph boundaries. Graphs override to return internal inlet/outlet nodes.
+    // Boundary resolution for sub-graph routing. Graphs override to return internal inlet/outlet nodes.
+    // Untyped: returns the first match or this. Used for setInputNode / topology.
     virtual Node* resolveInput(int toInput) { return this; }
     virtual Node* resolveOutput(int fromOutput) { return this; }
+    // Typed: returns the first match with the corresponding processor, or nullptr.
+    // Default: returns this only if the node has the processor, otherwise nullptr.
+    virtual Node* resolveAudioOutput(int fromOutput) { return audioProcessor ? this : nullptr; }
+    virtual Node* resolveVideoOutput(int fromOutput) { return videoProcessor ? this : nullptr; }
+    virtual Node* resolveAudioInput(int toInput) { return audioProcessor ? this : nullptr; }
+    virtual Node* resolveVideoInput(int toInput) { return videoProcessor ? this : nullptr; }
 
     virtual void setupProcessor();
     crumble::AudioProcessor* getAudioProcessor() { return audioProcessor; }

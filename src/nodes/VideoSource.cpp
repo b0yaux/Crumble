@@ -67,11 +67,13 @@ VideoSource::VideoSource() {
     parameters->add(bank.set("bank", ""));
     parameters->add(loop.set("loop", true));
     parameters->add(speed.set("speed", 1.0, -4.0, 4.0));
+    parameters->add(position.set("position", 0.0, 0.0, 1.0));
     parameters->add(playing.set("playing", true));
     parameters->add(clockMode.set("clockMode", VideoSource::INTERNAL, VideoSource::INTERNAL, VideoSource::EXTERNAL));
 
     path.addListener(this, &VideoSource::onPathChanged);
     clockMode.addListener(this, &VideoSource::onClockModeChanged);
+    position.addListener(this, &VideoSource::onPositionChanged);
 }
 
 crumble::VideoProcessor* VideoSource::createVideoProcessor() {
@@ -105,6 +107,10 @@ void VideoSource::onClockModeChanged(int& mode) {
             }
         }
     }
+}
+
+void VideoSource::onPositionChanged(float& v) {
+    setPosition(v);
 }
 
 void VideoSource::onPathChanged(std::string& p) {

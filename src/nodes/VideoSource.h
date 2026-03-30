@@ -11,6 +11,7 @@ public:
     ofParameter<std::string> path;
     ofParameter<std::string> bank;
     ofParameter<float> speed;
+    ofParameter<float> position;
     ofParameter<bool> loop;
     ofParameter<bool> playing;
     ofParameter<int> clockMode;
@@ -64,6 +65,7 @@ public:
 private:
     void onPathChanged(std::string& path);
     void onClockModeChanged(int& mode);
+    void onPositionChanged(float& v);
 
     // Safe speed setter: never calls setSpeed(0) on the HAP player.
     // The HAP Clock computes pos/rate internally; rate==0 produces +inf
