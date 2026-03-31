@@ -160,6 +160,7 @@ AudioSource::AudioSource() {
     parameters->add(speed.set("speed", 1.0, -4.0, 4.0));
     parameters->add(loop.set("loop", true));
     parameters->add(playing.set("playing", true));
+    parameters->add(position.set("position", 0.0, 0.0, 1.0));
 
     path.addListener(this, &AudioSource::onPathChanged);
 }
@@ -255,7 +256,7 @@ void AudioSource::update(float dt) {
         std::string resolvedPath = pProc->getPendingPath();
         if (!resolvedPath.empty()) {
             load(resolvedPath);
-            setRelativePosition(0.0);
+            setRelativePosition(position.get());
             setMuted(false);
         }
     } else if (pProc->hasPendingTrigger()) {
@@ -265,7 +266,7 @@ void AudioSource::update(float dt) {
         if (!b.empty()) {
             load(b + ":" + std::to_string(idx));
         }
-        setRelativePosition(0.0);
+        setRelativePosition(position.get());
         setMuted(false);
     }
 }

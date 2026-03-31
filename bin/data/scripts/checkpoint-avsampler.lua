@@ -16,7 +16,7 @@ local s1 = graph("clip1", {script = "scripts/nodes/avsampler.lua"}):connect(avmi
 
 -- sampler 2: drums
 local s2 = graph("clip2", {script = "scripts/nodes/avsampler.lua"}):connect(avmix):blend(1)
-    :path(seq("drums:0 ~ drums:0 ~ ~"):slow(9)):mix(0.5 + gpad("circle"))
+    :path(seq("drums:0 ~ drums:0 ~ ~"):slow(9)):mix(gpad("circle"))
     --:mix(noise(1)) -- gain + opacity modulation
 
 -- sampler 3: travaux

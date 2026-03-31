@@ -16,6 +16,7 @@ public:
     ofParameter<float> speed;
     ofParameter<bool> loop;
     ofParameter<bool> playing;
+    ofParameter<float> position;
 
     void processAudio(ofSoundBuffer& buffer, int index = 0) override;
     void update(float dt) override;
