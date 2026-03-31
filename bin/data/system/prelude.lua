@@ -34,9 +34,18 @@ local function makeSampler(n, p, prefix)
         end
     end
     
-    local node = addNode("sampler", n, params, prefix)
-    if node and patternArg then
-        node.path = makeGen({type="seq", val=patternArg})
+    local deferredPath = params.path
+    params.path = nil
+    params.script = "scripts/nodes/avsampler.lua"
+
+    local node = addNode("graph", n, params, prefix)
+    if node then
+        if deferredPath then
+            node.path = deferredPath
+        end
+        if patternArg then
+            node.path = makeGen({type="seq", val=patternArg})
+        end
     end
     return node
 end

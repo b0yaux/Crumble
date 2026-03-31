@@ -1,10 +1,8 @@
 -- perf-avsampler.lua
--- A/B performance test: C++ AVSampler vs Lua sub-graph
--- Toggle USE_SUBGRAPH to switch between paths.
--- Adjust MAX_CLIPS (64 or 120) and USE_PATTERNS.
--- Monitor frame times in console (C++ instrumentation).
+-- Performance test for Lua sub-graph AVSampler (sampler() = graph node).
+-- Adjust MAX_CLIPS and USE_PATTERNS.
+-- Requires CRUMBLE_PERF 1 in Graph.cpp for frame-time logs.
 
-local USE_SUBGRAPH = true
 local MAX_CLIPS = 120
 local USE_PATTERNS = true
 
@@ -18,18 +16,12 @@ local bankName = "superstratum_video-data"
 local assets = getBank(bankName)
 local maxClips = math.min(#assets, MAX_CLIPS)
 
-local mode = USE_SUBGRAPH and "SUB-GRAPH" or "C++"
 local pats = USE_PATTERNS and "+patterns" or "+static"
-print(string.format("[PERF] Mode: %s %s | Bank: %s | Clips: %d", mode, pats, bankName, maxClips))
+print(string.format("[PERF] sampler() (sub-graph) %s | Bank: %s | Clips: %d", pats, bankName, maxClips))
 
 for i = 1, maxClips do
     local asset = assets[i]
-    local s
-    if USE_SUBGRAPH then
-        s = graph(asset.name, {script = "scripts/nodes/avsampler.lua"})
-    else
-        s = sampler(asset.name)
-    end
+    local s = sampler(asset.name)
     s.path = asset.path
 
     if USE_PATTERNS then
@@ -52,4 +44,4 @@ for i = 1, maxClips do
     end
 end
 
-print(string.format("[PERF] %d nodes created. Watch console for frame-time logs.", maxClips))
+print(string.format("[PERF] %d samplers created. Watch console for PERF: logs.", maxClips))
