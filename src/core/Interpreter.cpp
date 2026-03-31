@@ -90,6 +90,7 @@ void Interpreter::unref(int ref) {
 bool Interpreter::runScriptInGraph(const std::string& path, Graph* nestedGraph) {
     if (!session || !nestedGraph) return false;
     
+    Session* saved = s_currentSession;
     s_currentSession = session;
     GraphContext ctx(nestedGraph);
 
@@ -141,6 +142,8 @@ bool Interpreter::runScriptInGraph(const std::string& path, Graph* nestedGraph) 
     // 8. Bind lifecycle hooks
     nestedGraph->onUpdate = [this, updateRef, nestedGraph]() {
         if (updateRef == LUA_NOREF) return;
+        Session* prevSession = s_currentSession;
+        s_currentSession = session;
         GraphContext innerCtx(nestedGraph);
         lua_State* L = lua;
         lua_rawgeti(L, LUA_REGISTRYINDEX, updateRef);
@@ -153,6 +156,7 @@ bool Interpreter::runScriptInGraph(const std::string& path, Graph* nestedGraph) 
         } else {
             lua_pop(L, 1);
         }
+        s_currentSession = prevSession;
     };
 
     nestedGraph->onClear = [updateRef, envRef]() {
@@ -160,7 +164,7 @@ bool Interpreter::runScriptInGraph(const std::string& path, Graph* nestedGraph) 
         Interpreter::unref(envRef);
     };
     
-    s_currentSession = nullptr;
+    s_currentSession = saved;
     return true;
 }
 
@@ -816,6 +820,9 @@ int Interpreter::lua_playhead(lua_State* L) {
     Graph* graph = getCurrentGraph();
     Node* node = graph ? graph->getNode(nodeIdx) : nullptr;
     if (!node) { lua_pushnumber(L, 0.0); return 1; }
+    if (auto* g = dynamic_cast<Graph*>(node)) {
+        if (auto* resolved = g->resolveAudioOutput(0)) node = resolved;
+    }
     if (auto* a = dynamic_cast<AudioSource*>(node)) { lua_pushnumber(L, a->getRelativePosition()); return 1; }
     if (auto* v = dynamic_cast<VideoSource*>(node)) { lua_pushnumber(L, v->getPosition()); return 1; }
     lua_pushnumber(L, 0.0);

@@ -174,6 +174,8 @@ void VideoSource::load(const std::string& vidPath) {
 }
 
 void VideoSource::onParameterChanged(const std::string& paramName) {
+    Node::onParameterChanged(paramName);
+
     if (!getPlayer().isLoaded()) return;
 
     if (paramName == "speed") {
