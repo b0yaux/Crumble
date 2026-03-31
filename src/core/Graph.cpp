@@ -1,3 +1,5 @@
+#define CRUMBLE_PERF 0
+
 #include <deque>
 #include "Graph.h"
 #include "Session.h"
@@ -6,6 +8,17 @@
 #include "Config.h"
 #include "ProcessorCommand.h"
 #include "NodeProcessor.h"
+
+#if CRUMBLE_PERF
+#include <chrono>
+#include <numeric>
+#include <algorithm>
+static thread_local int g_perfFrameCount = 0;
+static thread_local double g_perfUpdateUs = 0.0;
+static thread_local double g_perfOnUpdateUs = 0.0;
+static thread_local double g_perfAudioUs = 0.0;
+static thread_local int g_perfGraphUpdateCalls = 0;
+#endif
 
 // Static node type registry - shared by all Graph instances
 std::map<std::string, Graph::NodeCreator> Graph::nodeTypes;
@@ -357,11 +370,23 @@ int Graph::endScript() {
 }
 
 void Graph::update(float dt) {
+#if CRUMBLE_PERF
+    auto t0 = std::chrono::steady_clock::now();
+#endif
+
     if (!active->get()) return;
 
     if (executionDirty) validateTopology();
     
+#if CRUMBLE_PERF
+    auto tBeforeOnUpdate = std::chrono::steady_clock::now();
+#endif
     if (onUpdate) onUpdate();
+#if CRUMBLE_PERF
+    auto tAfterOnUpdate = std::chrono::steady_clock::now();
+    auto onUpdateUs = std::chrono::duration<double, std::micro>(tAfterOnUpdate - tBeforeOnUpdate).count();
+    g_perfOnUpdateUs += onUpdateUs;
+#endif
 
     for (int nodeId : traversalOrder) {
         auto it = nodes.find(nodeId);
@@ -369,6 +394,23 @@ void Graph::update(float dt) {
             it->second->update(dt);
         }
     }
+
+#if CRUMBLE_PERF
+    auto t1 = std::chrono::steady_clock::now();
+    g_perfUpdateUs += std::chrono::duration<double, std::micro>(t1 - t0).count();
+    g_perfGraphUpdateCalls++;
+    g_perfFrameCount++;
+    if (g_perfFrameCount >= 60) {
+        ofLogNotice("PERF") << "update: " << g_perfUpdateUs << " us/call ("
+            << g_perfGraphUpdateCalls << " calls/60f) | onUpdate: "
+            << g_perfOnUpdateUs << " us/call | audio: " << g_perfAudioUs << " us/60f";
+        g_perfFrameCount = 0;
+        g_perfUpdateUs = 0.0;
+        g_perfOnUpdateUs = 0.0;
+        g_perfAudioUs = 0.0;
+        g_perfGraphUpdateCalls = 0;
+    }
+#endif
 }
 
 void Graph::draw() {
@@ -395,10 +437,17 @@ ofTexture* Graph::processVideo(int index) {
 }
 
 void Graph::processAudio(ofSoundBuffer& buffer, int index) {
+#if CRUMBLE_PERF
+    auto t0 = std::chrono::steady_clock::now();
+#endif
     std::lock_guard<std::recursive_mutex> lock(audioMutex);
     Node* audioNode = resolveAudioOutput(index);
     if (audioNode) {
         audioNode->pullAudio(buffer);
+#if CRUMBLE_PERF
+        g_perfAudioUs += std::chrono::duration<double, std::micro>(
+            std::chrono::steady_clock::now() - t0).count();
+#endif
         return;
     }
     buffer.set(0);

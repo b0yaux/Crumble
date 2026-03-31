@@ -176,7 +176,9 @@ AudioSource::~AudioSource() {
 }
 
 void AudioSource::onPathChanged(std::string& p) {
-    if (!p.empty()) {
+    // Dedup: skip reload if path unchanged. Prevents redundant loads when
+    // proxy fanout forwards the same static value to multiple children.
+    if (!p.empty() && p != loadedPath) {
         if (bank.get().empty()) bank.set(Node::extractBank(p));
         load(p);
     }
@@ -254,7 +256,10 @@ void AudioSource::update(float dt) {
 
     if (pProc->hasPendingPath()) {
         std::string resolvedPath = pProc->getPendingPath();
-        if (!resolvedPath.empty()) {
+        // Dedup: skip reload if already loaded. Pattern-triggered events
+        // re-fire on every cycle; without this, same-path triggers cause
+        // redundant I/O stalls (T3.2 perf finding).
+        if (!resolvedPath.empty() && resolvedPath != loadedPath) {
             load(resolvedPath);
             setRelativePosition(position.get());
             setMuted(false);

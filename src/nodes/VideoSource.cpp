@@ -192,28 +192,33 @@ void VideoSource::onParameterChanged(const std::string& paramName) {
 }
 
 void VideoSource::update(float dt) {
-    auto pat = getPattern("path");
-    if (pat) {
-        if (lastTriggerBars < 0) lastTriggerBars = lastCtx.cycle;
-        if (lastTriggerBars > lastCtx.cycle + 1.0) lastTriggerBars = lastCtx.cycle;
+    // EXTERNAL mode: video is slaved to an external playhead (e.g. audio).
+    // Skip path pattern evaluation — the master node handles triggers.
+    // Only the initial static load (via onPathChanged) is needed.
+    if (clockMode != EXTERNAL) {
+        auto pat = getPattern("path");
+        if (pat) {
+            if (lastTriggerBars < 0) lastTriggerBars = lastCtx.cycle;
+            if (lastTriggerBars > lastCtx.cycle + 1.0) lastTriggerBars = lastCtx.cycle;
 
-        double start = lastTriggerBars;
-        double end = start + lastCtx.cycleStep;
-        auto events = pat->query(start, end);
-        for (const auto& e : events) {
-            if (e.isRest) continue;
-            if (e.ref) {
-                load(*(e.ref));
-            } else {
-                int idx = static_cast<int>(std::floor(e.value));
-                std::string b = bank.get();
-                if (!b.empty()) {
-                    load(b + ":" + std::to_string(idx));
+            double start = lastTriggerBars;
+            double end = start + lastCtx.cycleStep;
+            auto events = pat->query(start, end);
+            for (const auto& e : events) {
+                if (e.isRest) continue;
+                if (e.ref) {
+                    load(*(e.ref));
+                } else {
+                    int idx = static_cast<int>(std::floor(e.value));
+                    std::string b = bank.get();
+                    if (!b.empty()) {
+                        load(b + ":" + std::to_string(idx));
+                    }
                 }
+                setPosition(0.0f);
             }
-            setPosition(0.0f);
+            lastTriggerBars = end;
         }
-        lastTriggerBars = end;
     }
 
     if (getPlayer().isLoaded()) {
