@@ -339,27 +339,12 @@ void Session::clear() {
 }
 
 void Session::beginScript() {
-    for (auto& [nodeId, node] : graph.getNodes()) {
-        node->touched = false;
-    }
+    graph.beginScript();
 }
 
 void Session::endScript() {
-    std::vector<int> nodeIds;
-    for (const auto& [id, node] : graph.getNodes()) {
-        nodeIds.push_back(id);
-    }
-    int removedCount = 0;
-    for (int nodeId : nodeIds) {
-        if (auto node = graph.getNode(nodeId)) {
-            if (!node->touched) {
-                ofLogNotice("Session") << "Removing untouted node: " << node->name << " (id=" << nodeId << ")";
-                graph.removeNode(nodeId);
-                removedCount++;
-            }
-        }
-    }
-    ofLogNotice("Session") << "endScript: removed " << removedCount << " nodes, remaining: " << graph.getNodeCount();
+    int removed = graph.endScript();
+    ofLogNotice("Session") << "endScript: removed " << removed << " nodes, remaining: " << graph.getNodeCount();
 }
 
 void Session::touchNode(int nodeId) {

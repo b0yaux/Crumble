@@ -28,7 +28,6 @@ Graph::Graph() {
 
 Graph::~Graph() {
     scriptParam.removeListener(this, &Graph::onScriptChanged);
-    if (onClear) onClear();
     clear();
 }
 
@@ -322,6 +321,41 @@ void Graph::clear() {
     }
 }
 
+void Graph::clearEphemeral() {
+    if (onClear) {
+        onClear();
+        onClear = nullptr;
+    }
+    onUpdate = nullptr;
+    outlets.clear();
+    inlets.clear();
+    proxyParams.clear();
+}
+
+void Graph::beginScript() {
+    for (auto& [nodeId, node] : nodes) {
+        node->touched = false;
+    }
+}
+
+int Graph::endScript() {
+    std::vector<int> nodeIds;
+    nodeIds.reserve(nodes.size());
+    for (const auto& [id, node] : nodes) {
+        nodeIds.push_back(id);
+    }
+    int removedCount = 0;
+    for (int nodeId : nodeIds) {
+        if (auto node = getNode(nodeId)) {
+            if (!node->touched) {
+                removeNode(nodeId);
+                removedCount++;
+            }
+        }
+    }
+    return removedCount;
+}
+
 void Graph::update(float dt) {
     if (!active->get()) return;
 
@@ -613,6 +647,7 @@ std::vector<Graph::ProxyTarget> Graph::getProxyTargets(const std::string& parent
 }
 
 void Graph::onParameterChanged(const std::string& paramName) {
+    if (paramName == "script") return;
     if (paramName == "active") {
         bool val = active->get();
         std::lock_guard<std::recursive_mutex> lock(audioMutex);

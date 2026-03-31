@@ -76,7 +76,7 @@ private:
     std::string loadedPath;
     std::string loadedResolvedPath;  // Cache: last resolved path loaded
     float lastSpeed = 1.0f;   // tracks the last speed actually sent to the player
-    std::shared_ptr<ofxHapPlayer> currentPlayer;
+    std::unique_ptr<ofxHapPlayer> currentPlayer;
     ofxHapPlayer localPlayer; // Fallback if not in cache
     bool _hasAudio = false;
     double lastTriggerBars = -1.0;

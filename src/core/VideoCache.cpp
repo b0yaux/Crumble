@@ -6,31 +6,38 @@ VideoCache& VideoCache::get() {
     return instance;
 }
 
-std::shared_ptr<VideoCache::CachedVideo> VideoCache::acquire(const std::string& path) {
+std::unique_ptr<VideoCache::CachedVideo> VideoCache::acquire(const std::string& path) {
+    // Check metadata cache (no player reuse — each call creates an independent player)
     {
         std::lock_guard<std::mutex> lock(mutex);
         auto it = cache.find(path);
-        if (it != cache.end()) {
-            it->second->lastUsed = std::chrono::steady_clock::now();
-            ofLogNotice("VideoCache") << "Cache hit: " << path;
-            return it->second;
+        if (it != cache.end() && it->second.valid) {
+            it->second.lastUsed = std::chrono::steady_clock::now();
+            it->second.acquireCount++;
+            ofLogNotice("VideoCache") << "Cache metadata hit: " << path
+                                      << " (acquire #" << it->second.acquireCount << ")";
         }
     }
 
-    ofLogNotice("VideoCache") << "Cache miss, loading: " << path;
-    auto cached = std::make_shared<CachedVideo>();
-    cached->player = std::make_shared<ofxHapPlayer>();
+    auto cached = std::make_unique<CachedVideo>();
+    cached->player = std::make_unique<ofxHapPlayer>();
 
     if (!cached->player->load(path)) {
         ofLogError("VideoCache") << "Failed to load: " << path;
+
+        // Record failure so subsequent acquires know this path was probed
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            cache[path] = {false, false, std::chrono::steady_clock::now(), 0};
+        }
         return nullptr;
     }
 
     cached->player->closeAudio();
 
     // ofxHapPlayer::load() returns before decoding finishes.
-    // No async callback API exists, so we poll until ready (blocks main thread).
-    // First load of each file stalls ~50-200ms; subsequent accesses are instant (cache hit).
+    // Poll until ready (blocks main thread). OS file cache makes
+    // repeated loads of the same file near-instant after the first.
     int retry = 0;
     while (!cached->player->isLoaded() && retry < 50) {
         ofSleepMillis(10);
@@ -38,14 +45,23 @@ std::shared_ptr<VideoCache::CachedVideo> VideoCache::acquire(const std::string& 
     }
 
     cached->hasAudio = (cached->player->getAudioOutput() != nullptr);
-    cached->lastUsed = std::chrono::steady_clock::now();
+    cached->loaded = true;
 
+    // Store metadata for future acquires (hasAudio, validity)
     {
         std::lock_guard<std::mutex> lock(mutex);
-        cache[path] = cached;
+        auto& entry = cache[path];
+        if (!entry.valid) {
+            entry.hasAudio = cached->hasAudio;
+            entry.valid = true;
+            entry.lastUsed = std::chrono::steady_clock::now();
+            entry.acquireCount = 1;
+            ofLogNotice("VideoCache") << "Cached metadata: " << path
+                                      << " hasAudio=" << cached->hasAudio
+                                      << " (loaded in " << (retry*10) << "ms)";
+        }
     }
 
-    ofLogNotice("VideoCache") << "Cached video: " << path << " hasAudio=" << cached->hasAudio << " (loaded in " << (retry*10) << "ms)";
     return cached;
 }
 
@@ -65,11 +81,12 @@ void VideoCache::prune(float maxAgeSeconds) {
 
     for (auto it = cache.begin(); it != cache.end(); ) {
         auto& entry = it->second;
-        float ageMs = std::chrono::duration<float, std::milli>(now - entry->lastUsed).count();
+        float ageMs = std::chrono::duration<float, std::milli>(now - entry.lastUsed).count();
 
-        if (ageMs > maxAgeMs && entry->player.use_count() <= 1) {
-            ofLogNotice("VideoCache") << "Pruning unused: " << it->first
-                                      << " (age: " << (ageMs / 1000.0f) << "s)";
+        if (ageMs > maxAgeMs) {
+            ofLogNotice("VideoCache") << "Pruning: " << it->first
+                                      << " (age: " << (ageMs / 1000.0f) << "s, "
+                                      << entry.acquireCount << " acquires)";
             it = cache.erase(it);
         } else {
             ++it;

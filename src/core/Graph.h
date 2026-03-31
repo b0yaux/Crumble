@@ -49,6 +49,18 @@ public:
     Node* createNode(const std::string& type, const std::string& name = "");
     void removeNode(int nodeId);
     void clear();
+
+    // Idempotent script reload — mirrors Session::beginScript/endScript
+    // but scoped to this graph's children. Used by sub-graph hot-reload.
+    // beginScript marks all children touched=false.
+    // endScript removes untouched children and returns the count removed.
+    void beginScript();
+    int endScript();
+
+    // Clear script-derived ephemeral state (outlets, proxies, Lua refs)
+    // without destroying children. Called before idempotent sub-graph reload.
+    void clearEphemeral();
+
     void markConnectionsStale();
     void pruneStaleConnections();
 

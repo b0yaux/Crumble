@@ -126,13 +126,12 @@ void VideoSource::load(const std::string& vidPath) {
     
     // Acquire from global cache (or load if not cached)
     auto cached = VideoCache::get().acquire(resolvedPath);
-    if (!cached) {
+    if (!cached || !cached->loaded) {
         ofLogError("VideoSource") << "Failed to acquire video from cache: " << resolvedPath;
         _hasAudio = false;
         return;
     }
     
-    // Check if this is the same video already loaded in this player
     bool isSameVideo = (loadedResolvedPath == resolvedPath);
     
     if (isSameVideo && getPlayer().isLoaded()) {
@@ -154,7 +153,7 @@ void VideoSource::load(const std::string& vidPath) {
     }
     
     // Swap pointers and update processor
-    currentPlayer = cached->player;
+    currentPlayer = std::move(cached->player);
     if (videoProcessor) {
         static_cast<VideoSourceProcessor*>(videoProcessor)->setPlayer(currentPlayer.get());
     }

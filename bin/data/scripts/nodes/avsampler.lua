@@ -11,11 +11,8 @@ v:outlet(0)
 
 v.clockMode = 1
 
-expose(a, "speed", "path")
-expose(v, "speed", "path")
-expose("gain", a)
-expose("opacity", v)
-expose(v, "blend")
+expose(a, "speed", "path", "gain")
+expose(v, "speed", "path", "opacity", "blend")
 -- "active" is NOT exposed — Graph::onParameterChanged("active")
 -- propagates to all children automatically.
 

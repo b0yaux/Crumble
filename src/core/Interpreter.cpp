@@ -95,6 +95,24 @@ bool Interpreter::runScriptInGraph(const std::string& path, Graph* nestedGraph) 
     GraphContext ctx(nestedGraph);
 
     lua_State* L = lua;
+
+    // 0. Clear ephemeral script state (outlets, proxyParams, Lua refs).
+    //    Children are NOT destroyed — they survive for idempotent reuse.
+    nestedGraph->clearEphemeral();
+
+    // Save auto-name counters (shared global) so sub-graph reload
+    // doesn't clobber the parent's or sibling sub-graphs' counters.
+    lua_getglobal(L, "_autoNames");
+    int savedAutoNames = luaL_ref(L, LUA_REGISTRYINDEX);
+    lua_getglobal(L, "_autoIndices");
+    int savedAutoIndices = luaL_ref(L, LUA_REGISTRYINDEX);
+
+    // Reset auto-name counters for stable name generation within this sub-graph
+    lua.doString("_autoIndices = {}; _autoNames = {}; _nameCount = {}");
+
+    // Idempotent reload: mark children, re-execute, GC untouched
+    nestedGraph->beginScript();
+    nestedGraph->markConnectionsStale();
     
     // 1. Create sub-graph environment table
     lua_newtable(L); 
@@ -110,7 +128,9 @@ bool Interpreter::runScriptInGraph(const std::string& path, Graph* nestedGraph) 
     if (luaL_loadfile(L, ofToDataPath(path).c_str()) != LUA_OK) {
         std::string err = lua_tostring(L, -1);
         ofLogError("Lua") << "Error loading subgraph script: " << err;
-        lua_pop(L, 2); // pop error and env table
+        lua_pop(L, 2);
+        restoreAutoNames(L, savedAutoNames, savedAutoIndices);
+        s_currentSession = saved;
         return false;
     }
     
@@ -122,13 +142,20 @@ bool Interpreter::runScriptInGraph(const std::string& path, Graph* nestedGraph) 
     if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
         std::string err = lua_tostring(L, -1);
         ofLogError("Lua") << "Error running subgraph script: " << err;
-        lua_pop(L, 2); // pop error and env table
+        lua_pop(L, 2);
+        nestedGraph->endScript();
+        nestedGraph->pruneStaleConnections();
+        restoreAutoNames(L, savedAutoNames, savedAutoIndices);
+        s_currentSession = saved;
         return false;
     }
 
+    // GC children that weren't re-declared by the script
+    nestedGraph->endScript();
+    nestedGraph->pruneStaleConnections();
+
     // 6. Check for 'update' inside the environment
-    lua_pushvalue(L, envIdx);
-    lua_getfield(L, -1, "update");
+    lua_getfield(L, envIdx, "update");
     int updateRef = LUA_NOREF;
     if (lua_isfunction(L, -1)) {
         updateRef = luaL_ref(L, LUA_REGISTRYINDEX);
@@ -136,7 +163,7 @@ bool Interpreter::runScriptInGraph(const std::string& path, Graph* nestedGraph) 
         lua_pop(L, 1);
     }
     
-    // 7. Store the environment table itself as a reference (crucial for T2.3)
+    // 7. Store the environment table itself as a reference
     int envRef = luaL_ref(L, LUA_REGISTRYINDEX);
 
     // 8. Bind lifecycle hooks
@@ -164,8 +191,19 @@ bool Interpreter::runScriptInGraph(const std::string& path, Graph* nestedGraph) 
         Interpreter::unref(envRef);
     };
     
+    restoreAutoNames(L, savedAutoNames, savedAutoIndices);
     s_currentSession = saved;
     return true;
+}
+
+void Interpreter::restoreAutoNames(lua_State* L, int savedAutoNames, int savedAutoIndices) {
+    lua_rawgeti(L, LUA_REGISTRYINDEX, savedAutoNames);
+    lua_setglobal(L, "_autoNames");
+    luaL_unref(L, LUA_REGISTRYINDEX, savedAutoNames);
+
+    lua_rawgeti(L, LUA_REGISTRYINDEX, savedAutoIndices);
+    lua_setglobal(L, "_autoIndices");
+    luaL_unref(L, LUA_REGISTRYINDEX, savedAutoIndices);
 }
 
 void Interpreter::executeInNestedGraph(const std::string& path, Graph* nestedGraph) {
@@ -320,6 +358,7 @@ function NodeMeta:__newindex(key, value)
 
         _G._allNodes = {}
         _G._autoNames = {}
+        _G._nameCount = {}
         
         local function addNodeInternal(t, n, p)
             local nodeName = n
@@ -327,6 +366,18 @@ function NodeMeta:__newindex(key, value)
                 local prefix = (p or t):lower()
                 _G._autoNames[prefix] = (_G._autoNames[prefix] or 0) + 1
                 nodeName = prefix .. _G._autoNames[prefix]
+            else
+                -- Dedup: when the same name is reused within one script execution
+                -- (e.g. sampler("drums:0") called twice), append a numeric suffix.
+                -- Key is type:name to match C++ idempotent name matching semantics
+                -- (same name + different type = no collision, intentional).
+                -- Counter resets per execution, so reload produces the same
+                -- suffixed names and C++ matches existing nodes.
+                local key = t .. ":" .. n
+                _G._nameCount[key] = (_G._nameCount[key] or 0) + 1
+                if _G._nameCount[key] > 1 then
+                    nodeName = n .. _G._nameCount[key]
+                end
             end
             local id = _addNode(t, nodeName)
             if id then
@@ -356,6 +407,7 @@ function NodeMeta:__newindex(key, value)
             _G._allNodes = {} 
             _G._autoIndices = {} 
             _G._autoNames = {}
+            _G._nameCount = {}
         end
 
         function getBank(name) return _getBank(name) end
