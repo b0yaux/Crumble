@@ -260,6 +260,9 @@ void AudioSource::processAudio(ofSoundBuffer& buffer, int index) {
 void AudioSource::onParameterChanged(const std::string& paramName) {
     Node::onParameterChanged(paramName);
 
+    // Fast-Sync Path: explicit command dispatch for critical playback controls.
+    // This bypasses generic parameter group iteration to guarantee that shadow 
+    // processors adoption of static values is immediate and robust.
     if (paramName == "speed" || paramName == "loop" || paramName == "playing") {
         crumble::ProcessorCommand cmd;
         cmd.type = crumble::ProcessorCommand::SET_PARAM;

@@ -25,6 +25,7 @@ public:
         ofxHapPlayer* p = playerRef.load(std::memory_order_relaxed);
         if (!p || !p->isLoaded()) return;
 
+        // Active parameter controls global bypass.
         if (evalSlot(activeSlot, cycle) < 0.5f) {
             if (!p->isPaused()) p->setPaused(true);
             return;
@@ -34,7 +35,9 @@ public:
         bool isPlaying = evalSlot(playingSlot, cycle) > 0.5f;
         bool isExternal = evalSlot(clockModeSlot, cycle) > 0.5f;
 
-        // EXTERNAL clock mode slaving: stay paused and rely on setPosition()
+        // In slaved mode (clockMode=EXTERNAL), we keep the player paused to prevent its internal 
+        // timer from advancing. The frame is updated manually via setPosition() calls 
+        // issued from the main thread (e.g. slaved to an audio playhead).
         if (isExternal) {
             if (!p->isPaused()) p->setPaused(true);
         } else {

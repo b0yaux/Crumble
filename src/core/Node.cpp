@@ -45,14 +45,20 @@ void Node::setupProcessor() {
     audioProcessor = createAudioProcessor();
     videoProcessor = createVideoProcessor();
 
-    // Initialize both processors from current parameters
+    // Synchronize shadow processor control slots with current parameter values.
+    // This ensures newly created nodes or those re-created during reload start with 
+    // the correct state in the processing threads.
     for (int i = 0; i < (int)parameters->size(); i++) {
+
         auto& param = parameters->get(i);
         float val = 0;
         bool supported = false;
 
         std::string vt = param.valueType();
+        // Robust type mapping: handles compiler-specific mangled names and short codes
+        // to ensure cross-platform parameter synchronization.
         if (vt == "f" || vt == "float" || vt == "d" || vt == "double" || vt == typeid(float).name() || vt == typeid(double).name()) {
+
             val = (float)param.cast<float>().get();
             supported = true;
         } else if (vt == "b" || vt == "bool" || vt == typeid(bool).name()) {

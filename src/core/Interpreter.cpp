@@ -572,7 +572,8 @@ int Interpreter::lua_setParam(lua_State* L) {
     if (!node) return 0;
     node->touched = true;
 
-    // 1. Check for proxy parameters (sub-graphs)
+    // 1. Check for proxy parameters (sub-graphs).
+    // Sub-graphs delegate parameter changes to their children (e.g. AVSampler children).
     if (auto* g = dynamic_cast<Graph*>(node)) {
         auto targets = g->getProxyTargets(paramName);
         if (!targets.empty()) {
@@ -580,7 +581,10 @@ int Interpreter::lua_setParam(lua_State* L) {
             for (auto& [childId, childParam] : targets) {
                 Node* child = g->getNode(childId);
                 if (!child) continue;
+                
+                // Clear existing modulator on child to allow static value override
                 child->clearModulator(childParam);
+                
                 if (child->parameters->contains(childParam)) {
                     auto& p = child->parameters->get(childParam);
                     std::string vt = p.valueType();
@@ -601,6 +605,7 @@ int Interpreter::lua_setParam(lua_State* L) {
                         if (vt == typeid(std::string).name() || vt == "string") {
                             p.fromString(lua_tostring(L, 3));
                         } else {
+                            // Convenience: treat string input to non-string param as a mini-notation sequence
                             auto pat = std::make_shared<patterns::Seq>(lua_tostring(L, 3));
                             child->modulate(childParam, pat);
                         }
