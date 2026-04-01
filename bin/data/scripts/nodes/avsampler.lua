@@ -9,7 +9,7 @@ local v = video("")
 a:outlet(0)
 v:outlet(0)
 
-v.clockMode = 1
+v.clockMode = 1 -- EXTERNAL
 
 expose(a, "speed", "path", "gain", "loop", "position")
 expose(v, "speed", "path", "opacity", "blend")

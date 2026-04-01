@@ -75,6 +75,7 @@ private:
 
     std::string loadedPath;
     std::string loadedResolvedPath;  // Cache: last resolved path loaded
+    std::string lastParamPath;       // Dedup: last path set via parameter (not pattern)
     float lastSpeed = 1.0f;   // tracks the last speed actually sent to the player
     std::unique_ptr<ofxHapPlayer> currentPlayer;
     ofxHapPlayer localPlayer; // Fallback if not in cache

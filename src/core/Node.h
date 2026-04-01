@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <unordered_map>
+#include <unordered_set>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -19,11 +20,9 @@ class ofxAudioFile;
 #include "ofJson.h"
 
 #include "Patterns.h"
+#include "NodeProcessor.h"
 
 namespace crumble {
-    class NodeProcessor;
-    class AudioProcessor;
-    class VideoProcessor;
     struct ProcessorCommand;
 }
 
@@ -125,14 +124,18 @@ public:
 
     virtual void modulate(const std::string& paramName, std::shared_ptr<Pattern<float>> pat);
     void clearModulator(const std::string& paramName);
+    void clearModulators();
+    void clearUntouchedModulators();
     std::shared_ptr<Pattern<float>> getPattern(const std::string& paramName) const;
     
     bool touched = false;
+    std::unordered_set<std::string> modulatorsTouched;
     virtual ofJson serialize() const;
     virtual void deserialize(const ofJson& json);
     virtual void onInputConnected(int toInput) {}
     virtual void onInputDisconnected(int toInput) {}
     virtual void onParameterChanged(const std::string& paramName);
+    virtual void beginScript() {}
     
 protected:
     std::unordered_map<int, Node*> inputNodes;

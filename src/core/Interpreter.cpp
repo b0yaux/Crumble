@@ -68,13 +68,15 @@ bool Interpreter::runScript(const std::string& path) {
     session->beginScript();
     
     // Reset auto-indexing and connections for idempotency
-    lua.doString("_autoIndices = {}; _autoNames = {}");
+    lua.doString("_autoIndices = {}; _autoNames = {}; _nameCount = {}");
     session->getGraph().markConnectionsStale();
     
     bool success = lua.doScript(path, true);
     
     // Clean up nodes that weren't touched (not re-created in script)
     session->endScript();
+    // Clear modulators that survived reload but weren't re-applied by the new script
+    session->getGraph().clearUntouchedModulators();
     session->getGraph().pruneStaleConnections();
     
     s_currentSession = nullptr;
@@ -106,6 +108,8 @@ bool Interpreter::runScriptInGraph(const std::string& path, Graph* nestedGraph) 
     int savedAutoNames = luaL_ref(L, LUA_REGISTRYINDEX);
     lua_getglobal(L, "_autoIndices");
     int savedAutoIndices = luaL_ref(L, LUA_REGISTRYINDEX);
+    lua_getglobal(L, "_nameCount");
+    int savedNameCount = luaL_ref(L, LUA_REGISTRYINDEX);
 
     // Reset auto-name counters for stable name generation within this sub-graph
     lua.doString("_autoIndices = {}; _autoNames = {}; _nameCount = {}");
@@ -129,7 +133,7 @@ bool Interpreter::runScriptInGraph(const std::string& path, Graph* nestedGraph) 
         std::string err = lua_tostring(L, -1);
         ofLogError("Lua") << "Error loading subgraph script: " << err;
         lua_pop(L, 2);
-        restoreAutoNames(L, savedAutoNames, savedAutoIndices);
+        restoreAutoNames(L, savedAutoNames, savedAutoIndices, savedNameCount);
         s_currentSession = saved;
         return false;
     }
@@ -144,14 +148,16 @@ bool Interpreter::runScriptInGraph(const std::string& path, Graph* nestedGraph) 
         ofLogError("Lua") << "Error running subgraph script: " << err;
         lua_pop(L, 2);
         nestedGraph->endScript();
+        nestedGraph->clearUntouchedModulators();
         nestedGraph->pruneStaleConnections();
-        restoreAutoNames(L, savedAutoNames, savedAutoIndices);
+        restoreAutoNames(L, savedAutoNames, savedAutoIndices, savedNameCount);
         s_currentSession = saved;
         return false;
     }
 
     // GC children that weren't re-declared by the script
     nestedGraph->endScript();
+    nestedGraph->clearUntouchedModulators();
     nestedGraph->pruneStaleConnections();
 
     // 6. Check for 'update' inside the environment
@@ -191,12 +197,12 @@ bool Interpreter::runScriptInGraph(const std::string& path, Graph* nestedGraph) 
         Interpreter::unref(envRef);
     };
     
-    restoreAutoNames(L, savedAutoNames, savedAutoIndices);
+    restoreAutoNames(L, savedAutoNames, savedAutoIndices, savedNameCount);
     s_currentSession = saved;
     return true;
 }
 
-void Interpreter::restoreAutoNames(lua_State* L, int savedAutoNames, int savedAutoIndices) {
+void Interpreter::restoreAutoNames(lua_State* L, int savedAutoNames, int savedAutoIndices, int savedNameCount) {
     lua_rawgeti(L, LUA_REGISTRYINDEX, savedAutoNames);
     lua_setglobal(L, "_autoNames");
     luaL_unref(L, LUA_REGISTRYINDEX, savedAutoNames);
@@ -204,6 +210,10 @@ void Interpreter::restoreAutoNames(lua_State* L, int savedAutoNames, int savedAu
     lua_rawgeti(L, LUA_REGISTRYINDEX, savedAutoIndices);
     lua_setglobal(L, "_autoIndices");
     luaL_unref(L, LUA_REGISTRYINDEX, savedAutoIndices);
+
+    lua_rawgeti(L, LUA_REGISTRYINDEX, savedNameCount);
+    lua_setglobal(L, "_nameCount");
+    luaL_unref(L, LUA_REGISTRYINDEX, savedNameCount);
 }
 
 void Interpreter::executeInNestedGraph(const std::string& path, Graph* nestedGraph) {
@@ -369,10 +379,6 @@ function NodeMeta:__newindex(key, value)
             else
                 -- Dedup: when the same name is reused within one script execution
                 -- (e.g. sampler("drums:0") called twice), append a numeric suffix.
-                -- Key is type:name to match C++ idempotent name matching semantics
-                -- (same name + different type = no collision, intentional).
-                -- Counter resets per execution, so reload produces the same
-                -- suffixed names and C++ matches existing nodes.
                 local key = t .. ":" .. n
                 _G._nameCount[key] = (_G._nameCount[key] or 0) + 1
                 if _G._nameCount[key] > 1 then
@@ -420,9 +426,6 @@ function NodeMeta:__newindex(key, value)
                 return lastIdx
             end
             if type(dst) == "table" and not dst.id then
-                -- Returns last track index. All destinations must have the same
-                -- number of existing connections for the returned index to be valid
-                -- for every destination (auto-index increments in lockstep).
                 local lastIdx = 0
                 for _, d in ipairs(dst) do lastIdx = connect(src, d, paramsOrOut, inIdx) end
                 return lastIdx
@@ -500,10 +503,7 @@ Graph* Interpreter::getCurrentGraph() {
 
 int Interpreter::lua_addNode(lua_State* L) {
     if (!s_currentSession) return 0;
-    if (lua_isnil(L, 1)) {
-        ofLogWarning("Interpreter") << "addNode: type argument is nil, ignoring";
-        return 0;
-    }
+    if (lua_isnil(L, 1)) return 0;
     std::string type = luaL_checkstring(L, 1);
     std::string name = "";
     if (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) name = luaL_checkstring(L, 2);
@@ -519,21 +519,15 @@ int Interpreter::lua_addNode(lua_State* L) {
         }
     }
     Node* node = graph->createNode(type, name);
-    if (!node) {
-        ofLogWarning("Interpreter") << "addNode: failed to create node of type '" << type << "'";
-        return 0;
-    }
-    node->touched = true; // CRITICAL: ensure node is not removed at end of script
+    if (!node) return 0;
+    node->touched = true;
     lua_pushinteger(L, node->nodeId);
     return 1;
 }
 
 int Interpreter::lua_connect(lua_State* L) {
     if (!s_currentSession) return 0;
-    if (lua_isnil(L, 1) || lua_isnil(L, 2)) {
-        ofLogWarning("Interpreter") << "connect: source or destination node ID is nil, ignoring";
-        return 0;
-    }
+    if (lua_isnil(L, 1) || lua_isnil(L, 2)) return 0;
     int fromNode = (int)luaL_checkinteger(L, 1);
     int toNode = (int)luaL_checkinteger(L, 2);
     int fromOut = 0, toIn = 0;
@@ -556,10 +550,11 @@ int Interpreter::lua_getParam(lua_State* L) {
     node->touched = true;
     if (node->parameters->contains(paramName)) {
         auto& p = node->parameters->get(paramName);
-        if (p.type() == typeid(ofParameter<float>).name()) lua_pushnumber(L, p.cast<float>().get());
-        else if (p.type() == typeid(ofParameter<int>).name()) lua_pushinteger(L, p.cast<int>().get());
-        else if (p.type() == typeid(ofParameter<bool>).name()) lua_pushboolean(L, p.cast<bool>().get());
-        else if (p.type() == typeid(ofParameter<std::string>).name()) lua_pushstring(L, p.cast<std::string>().get().c_str());
+        std::string vt = p.valueType();
+        if (vt == typeid(float).name()) lua_pushnumber(L, p.cast<float>().get());
+        else if (vt == typeid(int).name()) lua_pushinteger(L, p.cast<int>().get());
+        else if (vt == typeid(bool).name()) lua_pushboolean(L, p.cast<bool>().get());
+        else if (vt == typeid(std::string).name()) lua_pushstring(L, p.cast<std::string>().get().c_str());
         else lua_pushstring(L, p.toString().c_str());
         return 1;
     }
@@ -571,20 +566,13 @@ int Interpreter::lua_setParam(lua_State* L) {
     if (lua_isnil(L, 1) || lua_isnil(L, 2)) return 0;
     int nodeIdx = (int)luaL_checkinteger(L, 1);
     std::string paramName = luaL_checkstring(L, 2);
-    if (lua_isnil(L, 3)) {
-        ofLogWarning("Interpreter") << "lua_setParam: tried to set '" << paramName << "' to nil on node " << nodeIdx << ". Ignoring.";
-        return 0;
-    }
+    if (lua_isnil(L, 3)) return 0;
     Graph* graph = getCurrentGraph();
-    Node* node = graph->getNode(nodeIdx);
+    Node* node = graph ? graph->getNode(nodeIdx) : nullptr;
     if (!node) return 0;
     node->touched = true;
 
-    // Proxy forwarding for sub-graphs (T2.3).
-    // If the target node is a Graph with expose() mappings for paramName,
-    // forward the value to each mapped child instead of setting on the Graph.
-    // This lets parent scripts do s.speed = 1.5 on a sub-graph and have it
-    // reach the internal AudioSource/VideoSource children.
+    // 1. Check for proxy parameters (sub-graphs)
     if (auto* g = dynamic_cast<Graph*>(node)) {
         auto targets = g->getProxyTargets(paramName);
         if (!targets.empty()) {
@@ -595,14 +583,28 @@ int Interpreter::lua_setParam(lua_State* L) {
                 child->clearModulator(childParam);
                 if (child->parameters->contains(childParam)) {
                     auto& p = child->parameters->get(childParam);
-                    if (lua_isboolean(L, 3)) p.cast<bool>().set(lua_toboolean(L, 3));
-                    else if (lua_isnumber(L, 3)) {
+                    std::string vt = p.valueType();
+                    bool isFloat = (vt == "f" || vt == "float" || vt == typeid(float).name());
+                    bool isInt = (vt == "i" || vt == "int" || vt == typeid(int).name());
+                    bool isBool = (vt == "b" || vt == "bool" || vt == typeid(bool).name());
+                    bool isDouble = (vt == "d" || vt == "double" || vt == typeid(double).name());
+
+                    if (lua_isboolean(L, 3)) {
+                        if (isBool) p.cast<bool>().set(lua_toboolean(L, 3));
+                    } else if (lua_isnumber(L, 3)) {
                         double val = lua_tonumber(L, 3);
-                        if (p.type() == typeid(ofParameter<int>).name()) p.cast<int>().set((int)val);
-                        else if (p.type() == typeid(ofParameter<float>).name()) p.cast<float>().set((float)val);
-                        else if (p.type() == typeid(ofParameter<double>).name()) p.cast<double>().set(val);
-                        else if (p.type() == typeid(ofParameter<bool>).name()) p.cast<bool>().set(val > 0.5);
-                    } else if (lua_isstring(L, 3)) p.fromString(lua_tostring(L, 3));
+                        if (isInt) p.cast<int>().set((int)val);
+                        else if (isFloat) p.cast<float>().set((float)val);
+                        else if (isDouble) p.cast<double>().set(val);
+                        else if (isBool) p.cast<bool>().set(val > 0.5);
+                    } else if (lua_isstring(L, 3)) {
+                        if (vt == typeid(std::string).name() || vt == "string") {
+                            p.fromString(lua_tostring(L, 3));
+                        } else {
+                            auto pat = std::make_shared<patterns::Seq>(lua_tostring(L, 3));
+                            child->modulate(childParam, pat);
+                        }
+                    }
                     child->onParameterChanged(childParam);
                 }
             }
@@ -610,17 +612,32 @@ int Interpreter::lua_setParam(lua_State* L) {
         }
     }
 
+    // 2. Normal parameter update
     node->clearModulator(paramName);
     if (node->parameters->contains(paramName)) {
         auto& p = node->parameters->get(paramName);
-        if (lua_isboolean(L, 3)) p.cast<bool>().set(lua_toboolean(L, 3));
-        else if (lua_isnumber(L, 3)) {
+        std::string vt = p.valueType();
+        bool isFloat = (vt == "f" || vt == "float" || vt == typeid(float).name());
+        bool isInt = (vt == "i" || vt == "int" || vt == typeid(int).name());
+        bool isBool = (vt == "b" || vt == "bool" || vt == typeid(bool).name());
+        bool isDouble = (vt == "d" || vt == "double" || vt == typeid(double).name());
+
+        if (lua_isboolean(L, 3)) {
+            if (isBool) p.cast<bool>().set(lua_toboolean(L, 3));
+        } else if (lua_isnumber(L, 3)) {
             double val = lua_tonumber(L, 3);
-            if (p.type() == typeid(ofParameter<int>).name()) p.cast<int>().set((int)val);
-            else if (p.type() == typeid(ofParameter<float>).name()) p.cast<float>().set((float)val);
-            else if (p.type() == typeid(ofParameter<double>).name()) p.cast<double>().set(val);
-            else if (p.type() == typeid(ofParameter<bool>).name()) p.cast<bool>().set(val > 0.5);
-        } else if (lua_isstring(L, 3)) p.fromString(lua_tostring(L, 3));
+            if (isInt) p.cast<int>().set((int)val);
+            else if (isFloat) p.cast<float>().set((float)val);
+            else if (isDouble) p.cast<double>().set(val);
+            else if (isBool) p.cast<bool>().set(val > 0.5);
+        } else if (lua_isstring(L, 3)) {
+            if (vt == typeid(std::string).name() || vt == "string") {
+                p.fromString(lua_tostring(L, 3));
+            } else {
+                auto pat = std::make_shared<patterns::Seq>(lua_tostring(L, 3));
+                node->modulate(paramName, pat);
+            }
+        }
         node->onParameterChanged(paramName);
     }
     return 0;
@@ -690,17 +707,11 @@ int Interpreter::lua_setGenerator(lua_State* L) {
     std::string paramName = luaL_checkstring(L, 2);
     Graph* graph = getCurrentGraph();
     Node* node = graph->getNode(nodeIdx);
-    if (!node) {
-        ofLogWarning("Interpreter") << "lua_setGenerator: node not found " << nodeIdx;
-        return 0;
-    }
+    if (!node) return 0;
     node->touched = true;
     auto pat = parsePattern(L, 3);
     if (!pat) return 0;
 
-    // Proxy forwarding for sub-graphs (T2.3).
-    // Forward the parsed pattern to each mapped child via modulate().
-    // Same pattern object is shared (stateless contract) — no copy needed.
     if (auto* g = dynamic_cast<Graph*>(node)) {
         auto targets = g->getProxyTargets(paramName);
         if (!targets.empty()) {
@@ -732,7 +743,6 @@ std::shared_ptr<Pattern<float>> parsePattern(lua_State* L, int index) {
             lua_getfield(L, index, "val");
             std::string p = lua_tostring(L, -1) ? lua_tostring(L, -1) : "";
             lua_pop(L, 1);
-            // Check for bank name
             lua_getfield(L, index, "bank");
             std::string bank = lua_tostring(L, -1) ? lua_tostring(L, -1) : "";
             lua_pop(L, 1);
@@ -766,43 +776,32 @@ std::shared_ptr<Pattern<float>> parsePattern(lua_State* L, int index) {
             std::shared_ptr<Pattern<float>> speedPat = nullptr;
             float n = 1.0f;
             if (lua_istable(L, -1)) {
-                // n is a pattern
                 speedPat = parsePattern(L, lua_gettop(L));
             } else if (lua_isnumber(L, -1)) {
-                // n is a constant
                 n = (float)lua_tonumber(L, -1);
             }
             lua_pop(L, 1);
             lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
             if (p) {
-                if (speedPat) {
-                    return std::make_shared<patterns::Density>(speedPat, p);
-                } else {
-                    return std::make_shared<patterns::Density>(n, p);
-                }
+                if (speedPat) return std::make_shared<patterns::Density>(speedPat, p);
+                else return std::make_shared<patterns::Density>(n, p);
             }
         } else if (genType == "slow") {
             lua_getfield(L, index, "n");
             std::shared_ptr<Pattern<float>> speedPat = nullptr;
             float n = 1.0f;
             if (lua_istable(L, -1)) {
-                // n is a pattern
                 speedPat = parsePattern(L, lua_gettop(L));
             } else if (lua_isnumber(L, -1)) {
-                // n is a constant
                 n = (float)lua_tonumber(L, -1);
             }
             lua_pop(L, 1);
             lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
             if (p) {
                 if (speedPat) {
-                    // For slow, we need to invert the density pattern
-                    // Create a pattern that returns 1.0/value
                     auto invPat = std::make_shared<patterns::Scale>(0.01f, 100.0f, speedPat);
                     return std::make_shared<patterns::Density>(invPat, p);
-                } else {
-                    return std::make_shared<patterns::Density>(1.0f/n, p);
-                }
+                } else return std::make_shared<patterns::Density>(1.0f/n, p);
             }
         } else if (genType == "shift") {
             lua_getfield(L, index, "o"); float o = (float)lua_tonumber(L, -1); lua_pop(L, 1);
@@ -903,10 +902,7 @@ int Interpreter::lua_inlet(lua_State* L) {
 
 int Interpreter::lua_exposeParam(lua_State* L) {
     if (!s_currentSession) return 0;
-    if (lua_isnil(L, 1) || lua_isnil(L, 2) || lua_isnil(L, 3)) {
-        ofLogWarning("Interpreter") << "_exposeParam: childNodeId, parentParam, or childParam is nil";
-        return 0;
-    }
+    if (lua_isnil(L, 1) || lua_isnil(L, 2) || lua_isnil(L, 3)) return 0;
     int childNodeId = (int)luaL_checkinteger(L, 1);
     std::string parentParam = luaL_checkstring(L, 2);
     std::string childParam = luaL_checkstring(L, 3);

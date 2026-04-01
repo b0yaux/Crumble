@@ -45,35 +45,40 @@ void Node::setupProcessor() {
     audioProcessor = createAudioProcessor();
     videoProcessor = createVideoProcessor();
 
-    auto initProcessor = [&](crumble::NodeProcessor* p) {
-        if (!p) return;
-        p->nodeId = nodeId;
-        for (int i = 0; i < (int)parameters->size(); i++) {
-            auto& param = parameters->get(i);
-            float val = 0;
-            bool supported = false;
+    // Initialize both processors from current parameters
+    for (int i = 0; i < (int)parameters->size(); i++) {
+        auto& param = parameters->get(i);
+        float val = 0;
+        bool supported = false;
 
-            if (param.type() == typeid(ofParameter<float>).name()) {
-                val = param.cast<float>().get();
-                supported = true;
-            } else if (param.type() == typeid(ofParameter<bool>).name()) {
-                val = param.cast<bool>().get() ? 1.0f : 0.0f;
-                supported = true;
-            } else if (param.type() == typeid(ofParameter<int>).name()) {
-                val = (float)param.cast<int>().get();
-                supported = true;
+        std::string vt = param.valueType();
+        if (vt == "f" || vt == "float" || vt == "d" || vt == "double" || vt == typeid(float).name() || vt == typeid(double).name()) {
+            val = (float)param.cast<float>().get();
+            supported = true;
+        } else if (vt == "b" || vt == "bool" || vt == typeid(bool).name()) {
+            val = param.cast<bool>().get() ? 1.0f : 0.0f;
+            supported = true;
+        } else if (vt == "i" || vt == "int" || vt == typeid(int).name()) {
+            val = (float)param.cast<int>().get();
+            supported = true;
+        }
+
+        if (supported) {
+            uint32_t hash = crumble::hashString(param.getName().c_str());
+            if (audioProcessor) {
+                audioProcessor->nodeId = nodeId;
+                if (auto* slot = audioProcessor->getControlPtr(hash)) {
+                    slot->value.store(val, std::memory_order_relaxed);
+                }
             }
-
-            if (supported) {
-                if (auto* slot = p->getControlPtr(crumble::hashString(param.getName().c_str()))) {
+            if (videoProcessor) {
+                videoProcessor->nodeId = nodeId;
+                if (auto* slot = videoProcessor->getControlPtr(hash)) {
                     slot->value.store(val, std::memory_order_relaxed);
                 }
             }
         }
-    };
-
-    initProcessor(audioProcessor);
-    initProcessor(videoProcessor);
+    }
 
     if (audioProcessor || videoProcessor) {
         crumble::ProcessorCommand cmd;
@@ -86,12 +91,9 @@ void Node::setupProcessor() {
 
 void Node::pushCommand(crumble::ProcessorCommand cmd) {
     if (g_session) {
-        // Only set defaults if they haven't been explicitly set by the caller.
-        // This allows Graphs to send commands on behalf of their child nodes.
         if (cmd.nodeId == -1) cmd.nodeId = nodeId;
         if (!cmd.audioProcessor) cmd.audioProcessor = audioProcessor;
         if (!cmd.videoProcessor) cmd.videoProcessor = videoProcessor;
-        
         g_session->sendCommand(cmd);
     }
 }
@@ -102,8 +104,6 @@ void Node::prepare(const Context& ctx) {
 
     std::lock_guard<std::recursive_mutex> lock(modMutex);
 
-    // Update controlBuffers for UI/video use (getControl()).
-    // Patterns are sent to the audio thread via onParameterChanged().
     for (auto& [paramName, pattern] : modulators) {
         if (!pattern) continue;
 
@@ -165,13 +165,14 @@ Node* Node::getInputNode(int slot) const {
 void Node::modulate(const std::string& paramName, std::shared_ptr<Pattern<float>> pat) {
     std::lock_guard<std::recursive_mutex> lock(modMutex);
     modulators[paramName] = pat;
+    modulatorsTouched.insert(paramName);
 }
 
 void Node::clearModulator(const std::string& paramName) {
     std::lock_guard<std::recursive_mutex> lock(modMutex);
     modulators.erase(paramName);
+    modulatorsTouched.insert(paramName);
 
-    // Send a null pattern to clear the slot on the audio/video thread
     if (audioProcessor || videoProcessor) {
         crumble::ProcessorCommand cmd;
         cmd.type = crumble::ProcessorCommand::SET_PATTERN;
@@ -179,6 +180,28 @@ void Node::clearModulator(const std::string& paramName) {
         cmd.pattern = nullptr;
         pushCommand(cmd);
     }
+    
+    // Explicitly sync the parameter value after clearing modulator to ensure fallback is correct
+    onParameterChanged(paramName);
+}
+
+void Node::clearModulators() {
+    std::lock_guard<std::recursive_mutex> lock(modMutex);
+    std::vector<std::string> paramNames;
+    for (const auto& [name, _] : modulators) paramNames.push_back(name);
+    for (const auto& name : paramNames) clearModulator(name);
+}
+
+void Node::clearUntouchedModulators() {
+    std::lock_guard<std::recursive_mutex> lock(modMutex);
+    std::vector<std::string> toRemove;
+    for (const auto& [name, _] : modulators) {
+        if (modulatorsTouched.find(name) == modulatorsTouched.end()) {
+            toRemove.push_back(name);
+        }
+    }
+    modulatorsTouched.clear();
+    for (const auto& name : toRemove) clearModulator(name);
 }
 
 std::shared_ptr<Pattern<float>> Node::getPattern(const std::string& paramName) const {
@@ -189,35 +212,47 @@ std::shared_ptr<Pattern<float>> Node::getPattern(const std::string& paramName) c
 }
 
 void Node::onParameterChanged(const std::string& paramName) {
-    if (!audioProcessor && !videoProcessor) {
-        ofLogWarning("Node") << "onParameterChanged: no processor for node "
-                             << name << " param " << paramName;
-        return;
-    }
+    if (!audioProcessor && !videoProcessor) return;
 
     float val = 0;
     bool found = false;
 
-    for (int i = 0; i < (int)parameters->size(); i++) {
-        if (parameters->getName(i) == paramName) {
-            auto& p = parameters->get(i);
-            if (p.type() == typeid(ofParameter<float>).name()) {
-                val = p.cast<float>().get();
-                found = true;
-            } else if (p.type() == typeid(ofParameter<bool>).name()) {
-                val = p.cast<bool>().get() ? 1.0f : 0.0f;
-                found = true;
-            } else if (p.type() == typeid(ofParameter<int>).name()) {
-                val = (float)p.cast<int>().get();
-                found = true;
+    if (paramName == "active") {
+        val = active->get() ? 1.0f : 0.0f;
+        found = true;
+    } else if (paramName == "gain") {
+        val = gain->get();
+        found = true;
+    } else if (paramName == "opacity") {
+        val = opacity->get();
+        found = true;
+    } else if (paramName == "blend") {
+        val = (float)blend->get();
+        found = true;
+    } else {
+        for (int i = 0; i < (int)parameters->size(); i++) {
+            if (parameters->getName(i) == paramName) {
+                auto& p = parameters->get(i);
+                std::string vt = p.valueType();
+                if (vt == "f" || vt == "float" || vt == "d" || vt == "double" || vt == typeid(float).name() || vt == typeid(double).name()) {
+                    val = p.cast<float>().get();
+                    found = true;
+                } else if (vt == "b" || vt == "bool" || vt == typeid(bool).name()) {
+                    val = p.cast<bool>().get() ? 1.0f : 0.0f;
+                    found = true;
+                } else if (vt == "i" || vt == "int" || vt == typeid(int).name()) {
+                    val = (float)p.cast<int>().get();
+                    found = true;
+                }
+                break;
             }
-            break;
         }
     }
 
     if (found) {
         crumble::ProcessorCommand cmd;
         cmd.type = crumble::ProcessorCommand::SET_PARAM;
+        cmd.nodeId = nodeId;
         cmd.paramHash = crumble::hashString(paramName.c_str());
         cmd.value = val;
         pushCommand(cmd);
@@ -266,9 +301,6 @@ std::shared_ptr<ofxAudioFile> Node::getAudioAsset(const std::string& path) const
 ofJson Node::serialize() const {
     ofJson j;
     ofSerialize(j, *parameters);
-    // Modulators are intentionally not serialized: the Lua script is the source of truth and
-    // re-applies them on reload. A patternToJson/patternFromJson serializer would be needed
-    // if JSON presets ever need to capture live modulation state independently of the script.
     return j;
 }
 

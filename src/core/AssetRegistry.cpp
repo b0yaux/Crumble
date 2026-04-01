@@ -145,6 +145,19 @@ std::string AssetRegistry::resolve(const std::string& logicalPath, const std::st
         }
     }
 
+    // 1b. Bare bank name (no colon) — resolve to first asset of matching type.
+    //     Matches Tidal/Strudel: s("bd") defaults to index 0.
+    //     Path patterns override subsequent triggers (same-video optimization kicks in).
+    {
+        auto it = banks.find(logicalPath);
+        if (it != banks.end()) {
+            for (const auto& a : it->second) {
+                std::string result = (typeHint == "audio") ? a.audioPath : a.videoPath;
+                if (!result.empty()) return result;
+            }
+        }
+    }
+
     // 2. Try as global asset name
     auto it = assets.find(logicalPath);
     if (it != assets.end()) {

@@ -38,9 +38,15 @@ public:
         if (evalSlot(activeSlot, cycle) < 0.5f) return;
         
         if (triggerSlot && triggerSlot->pattern) {
-            if (lastTriggerBars < 0) lastTriggerBars = cycle;
+            if (lastTriggerBars < 0) {
+                // On first run or reload, catch triggers from the start of the current bar
+                lastTriggerBars = std::floor(cycle);
+            }
             
-            if (std::abs(cycle - lastTriggerBars) > 0.5) lastTriggerBars = cycle;
+            if (std::abs(cycle - lastTriggerBars) > 0.5) {
+                // Cycle wrap-around
+                lastTriggerBars = std::floor(cycle);
+            }
 
             double samplesPerBar = 1.0 / cycleStep;
             double endBars = cycle + (buffer.getNumFrames() * cycleStep);
@@ -176,9 +182,11 @@ AudioSource::~AudioSource() {
 }
 
 void AudioSource::onPathChanged(std::string& p) {
-    // Dedup: skip reload if path unchanged. Prevents redundant loads when
-    // proxy fanout forwards the same static value to multiple children.
-    if (!p.empty() && p != loadedPath) {
+    // Dedup against last PARAMETER path (not pattern-loaded path).
+    // The path pattern overrides loadedPath with bank:index values,
+    // so comparing against loadedPath would fail dedup on reload.
+    if (!p.empty() && p != lastParamPath) {
+        lastParamPath = p;
         if (bank.get().empty()) bank.set(Node::extractBank(p));
         load(p);
     }
@@ -186,10 +194,15 @@ void AudioSource::onPathChanged(std::string& p) {
 
 void AudioSource::load(const std::string& audioPath) {
     std::string resolved = resolvePath(audioPath, "audio");
-    if (resolved.empty()) return;
+    if (resolved.empty()) {
+        // Bank name without index — bank is set for path pattern evaluation.
+        bank.set(Node::extractBank(audioPath));
+        return;
+    }
 
     std::string ext = ofToLower(ofFilePath::getFileExt(resolved));
     if (ext == "mov" || ext == "hap" || ext == "mp4") {
+        loadedPath = audioPath;
         loadEmbedded(resolved);
         return;
     }
@@ -246,22 +259,44 @@ void AudioSource::processAudio(ofSoundBuffer& buffer, int index) {
 
 void AudioSource::onParameterChanged(const std::string& paramName) {
     Node::onParameterChanged(paramName);
+
+    if (paramName == "speed" || paramName == "loop" || paramName == "playing") {
+        crumble::ProcessorCommand cmd;
+        cmd.type = crumble::ProcessorCommand::SET_PARAM;
+        cmd.nodeId = nodeId;
+        cmd.paramHash = crumble::hashString(paramName.c_str());
+        cmd.audioProcessor = audioProcessor;
+        
+        float vVal = 0;
+        if (paramName == "speed") vVal = speed.get();
+        else if (paramName == "loop") vVal = loop.get() ? 1.0f : 0.0f;
+        else if (paramName == "playing") vVal = playing.get() ? 1.0f : 0.0f;
+        
+        cmd.value = vVal;
+        pushCommand(cmd);
+    }
 }
 
 void AudioSource::update(float dt) {
+
     if (!audioProcessor) return;
 
     auto* pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
     if (!pProc) return;
 
+    // Position is a re-trigger seek offset, not continuous scrubbing.
+    // Evaluated at frame-rate on main thread (not per-sample on audio thread)
+    // because position only matters at the moment a trigger fires.
+    auto posPat = getPattern("position");
+    double posVal = posPat ? posPat->eval(lastCtx.cycle) : (double)position.get();
+
     if (pProc->hasPendingPath()) {
         std::string resolvedPath = pProc->getPendingPath();
-        // Dedup: skip reload if already loaded. Pattern-triggered events
-        // re-fire on every cycle; without this, same-path triggers cause
-        // redundant I/O stalls (T3.2 perf finding).
-        if (!resolvedPath.empty() && resolvedPath != loadedPath) {
-            load(resolvedPath);
-            setRelativePosition(position.get());
+        if (!resolvedPath.empty()) {
+            if (resolvedPath != loadedPath) {
+                load(resolvedPath);
+            }
+            setRelativePosition(posVal);
             setMuted(false);
         }
     } else if (pProc->hasPendingTrigger()) {
@@ -271,7 +306,7 @@ void AudioSource::update(float dt) {
         if (!b.empty()) {
             load(b + ":" + std::to_string(idx));
         }
-        setRelativePosition(position.get());
+        setRelativePosition(posVal);
         setMuted(false);
     }
 }

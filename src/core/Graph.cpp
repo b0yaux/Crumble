@@ -369,6 +369,16 @@ int Graph::endScript() {
     return removedCount;
 }
 
+void Graph::clearUntouchedModulators() {
+    std::lock_guard<std::recursive_mutex> lock(audioMutex);
+    for (auto& [id, node] : nodes) {
+        node->clearUntouchedModulators();
+        if (auto* g = dynamic_cast<Graph*>(node.get())) {
+            g->clearUntouchedModulators();
+        }
+    }
+}
+
 void Graph::update(float dt) {
 #if CRUMBLE_PERF
     auto t0 = std::chrono::steady_clock::now();

@@ -54,8 +54,9 @@ public:
     // but scoped to this graph's children. Used by sub-graph hot-reload.
     // beginScript marks all children touched=false.
     // endScript removes untouched children and returns the count removed.
-    void beginScript();
+    void beginScript() override;
     int endScript();
+    void clearUntouchedModulators();
 
     // Clear script-derived ephemeral state (outlets, proxies, Lua refs)
     // without destroying children. Called before idempotent sub-graph reload.

@@ -14,7 +14,7 @@ local assets = getBank(bankName)
 local maxClips = math.min(#assets, 64)
 
 -- 3. Create AVSampler nodes for unified A/V playback
-for i = 1, maxClips do
+ for i = 1, maxClips do
     local asset = assets[i]
     local idx = i - 1
     local s = sampler(asset.name,{path=asset.path}):on()

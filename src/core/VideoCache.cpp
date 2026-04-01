@@ -7,13 +7,14 @@ VideoCache& VideoCache::get() {
 }
 
 std::unique_ptr<VideoCache::CachedVideo> VideoCache::acquire(const std::string& path) {
-    // Check metadata cache (no player reuse — each call creates an independent player)
+    bool wasCached = false;
     {
         std::lock_guard<std::mutex> lock(mutex);
         auto it = cache.find(path);
         if (it != cache.end() && it->second.valid) {
             it->second.lastUsed = std::chrono::steady_clock::now();
             it->second.acquireCount++;
+            wasCached = true;
             ofLogNotice("VideoCache") << "Cache metadata hit: " << path
                                       << " (acquire #" << it->second.acquireCount << ")";
         }
@@ -35,19 +36,18 @@ std::unique_ptr<VideoCache::CachedVideo> VideoCache::acquire(const std::string& 
 
     cached->player->closeAudio();
 
-    // ofxHapPlayer::load() returns before decoding finishes.
-    // Poll until ready (blocks main thread). OS file cache makes
-    // repeated loads of the same file near-instant after the first.
+    // Poll until ready. Cached files are fast (OS cache), first loads are slower.
+    int maxRetries = wasCached ? 10 : 50;
     int retry = 0;
-    while (!cached->player->isLoaded() && retry < 50) {
-        ofSleepMillis(10);
+    while (!cached->player->isLoaded() && retry < maxRetries) {
+        ofSleepMillis(1);
         retry++;
     }
 
     cached->hasAudio = (cached->player->getAudioOutput() != nullptr);
     cached->loaded = true;
 
-    // Store metadata for future acquires (hasAudio, validity)
+    // Store metadata for future acquires
     {
         std::lock_guard<std::mutex> lock(mutex);
         auto& entry = cache[path];
@@ -58,7 +58,7 @@ std::unique_ptr<VideoCache::CachedVideo> VideoCache::acquire(const std::string& 
             entry.acquireCount = 1;
             ofLogNotice("VideoCache") << "Cached metadata: " << path
                                       << " hasAudio=" << cached->hasAudio
-                                      << " (loaded in " << (retry*10) << "ms)";
+                                      << " (loaded in " << (retry) << "ms)";
         }
     }
 

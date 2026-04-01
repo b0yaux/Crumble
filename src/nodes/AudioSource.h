@@ -46,4 +46,5 @@ private:
     void onPathChanged(std::string& p);
     void loadEmbedded(const std::string& videoPath);
     std::string loadedPath;
+    std::string lastParamPath;  // Dedup: last path set via parameter (not pattern)
 };

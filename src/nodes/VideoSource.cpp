@@ -9,12 +9,14 @@ public:
     crumble::ControlSlot* speedSlot = nullptr;
     crumble::ControlSlot* playingSlot = nullptr;
     crumble::ControlSlot* activeSlot = nullptr;
+    crumble::ControlSlot* clockModeSlot = nullptr;
 
     VideoSourceProcessor(ofxHapPlayer* p) : lastSpeed(1.0f) {
         playerRef.store(p);
         speedSlot = getControlPtr(crumble::hashString("speed"));
         playingSlot = getControlPtr(crumble::hashString("playing"));
         activeSlot = getControlPtr(crumble::hashString("active"));
+        clockModeSlot = getControlPtr(crumble::hashString("clockMode"));
     }
 
     void processVideo(double cycle, double cycleStep) override {
@@ -23,18 +25,30 @@ public:
         ofxHapPlayer* p = playerRef.load(std::memory_order_relaxed);
         if (!p || !p->isLoaded()) return;
 
-        float newSpeed = evalSlot(speedSlot, cycle);
+        if (evalSlot(activeSlot, cycle) < 0.5f) {
+            if (!p->isPaused()) p->setPaused(true);
+            return;
+        }
 
-        if (std::abs(newSpeed - lastSpeed) > 1e-4f) {
-            if (newSpeed == 0.0f) {
-                p->setPaused(true);
+        float newSpeed = evalSlot(speedSlot, cycle);
+        bool isPlaying = evalSlot(playingSlot, cycle) > 0.5f;
+        bool isExternal = evalSlot(clockModeSlot, cycle) > 0.5f;
+
+        // EXTERNAL clock mode slaving: stay paused and rely on setPosition()
+        if (isExternal) {
+            if (!p->isPaused()) p->setPaused(true);
+        } else {
+            // INTERNAL clock mode: manage pause state based on speed and playing param
+            if (!isPlaying || newSpeed == 0.0f) {
+                if (!p->isPaused()) p->setPaused(true);
+                lastSpeed = newSpeed;
             } else {
-                if (lastSpeed == 0.0f && evalSlot(playingSlot, cycle) > 0.5f) {
-                    p->setPaused(false);
+                if (std::abs(newSpeed - lastSpeed) > 1e-4f || p->isPaused()) {
+                    if (p->isPaused()) p->setPaused(false);
+                    p->setSpeed(newSpeed);
+                    lastSpeed = newSpeed;
                 }
-                p->setSpeed(newSpeed);
             }
-            lastSpeed = newSpeed;
         }
 
         p->update();
@@ -114,7 +128,11 @@ void VideoSource::onPositionChanged(float& v) {
 }
 
 void VideoSource::onPathChanged(std::string& p) {
-    if (!p.empty() && p != loadedPath) {
+    // Dedup against last PARAMETER path (not pattern-loaded path).
+    // The path pattern overrides loadedPath with bank:index values,
+    // so comparing against loadedPath would fail dedup on reload.
+    if (!p.empty() && p != lastParamPath) {
+        lastParamPath = p;
         if (bank.get().empty()) bank.set(Node::extractBank(p));
         load(p);
     }
@@ -124,23 +142,22 @@ void VideoSource::onPathChanged(std::string& p) {
 void VideoSource::load(const std::string& vidPath) {
     std::string resolvedPath = resolvePath(vidPath, "video");
     
+    bool isSameVideo = (loadedResolvedPath == resolvedPath);
+    if (isSameVideo && getPlayer().isLoaded()) {
+        // Same video reload, just seek to start.
+        // Even if skip reload, must reset position for path patterns (e.g. travaux ~)
+        setPosition(0.0f);
+        if (clockMode == INTERNAL && playing.get()) {
+            getPlayer().play();
+        }
+        return;
+    }
+
     // Acquire from global cache (or load if not cached)
     auto cached = VideoCache::get().acquire(resolvedPath);
     if (!cached || !cached->loaded) {
         ofLogError("VideoSource") << "Failed to acquire video from cache: " << resolvedPath;
         _hasAudio = false;
-        return;
-    }
-    
-    bool isSameVideo = (loadedResolvedPath == resolvedPath);
-    
-    if (isSameVideo && getPlayer().isLoaded()) {
-        // Same video, just seek to start
-        ofLogNotice("VideoSource") << "Same video reload, seeking to start: " << resolvedPath;
-        setPosition(0.0f);
-        if (clockMode == INTERNAL && playing.get()) {
-            getPlayer().play();
-        }
         return;
     }
     
@@ -177,14 +194,26 @@ void VideoSource::onParameterChanged(const std::string& paramName) {
 
     if (!getPlayer().isLoaded()) return;
 
-    if (paramName == "speed") {
-        if (clockMode == VideoSource::INTERNAL) {
+    if (paramName == "speed" || paramName == "loop" || paramName == "playing") {
+        crumble::ProcessorCommand cmd;
+        cmd.type = crumble::ProcessorCommand::SET_PARAM;
+        cmd.nodeId = nodeId;
+        cmd.paramHash = crumble::hashString(paramName.c_str());
+        cmd.videoProcessor = videoProcessor;
+        
+        float vVal = 0;
+        if (paramName == "speed") vVal = speed.get();
+        else if (paramName == "loop") vVal = loop.get() ? 1.0f : 0.0f;
+        else if (paramName == "playing") vVal = playing.get() ? 1.0f : 0.0f;
+        
+        cmd.value = vVal;
+        pushCommand(cmd);
+
+        if (paramName == "speed" && clockMode == VideoSource::INTERNAL) {
             safeSetPlayerSpeed(speed.get());
-        }
-    } else if (paramName == "loop") {
-        getPlayer().setLoopState(loop ? OF_LOOP_NORMAL : OF_LOOP_NONE);
-    } else if (paramName == "playing") {
-        if (clockMode == VideoSource::INTERNAL) {
+        } else if (paramName == "loop") {
+            getPlayer().setLoopState(loop ? OF_LOOP_NORMAL : OF_LOOP_NONE);
+        } else if (paramName == "playing" && clockMode == VideoSource::INTERNAL) {
             if (playing) getPlayer().play();
             else getPlayer().setPaused(true);
         }
@@ -192,33 +221,36 @@ void VideoSource::onParameterChanged(const std::string& paramName) {
 }
 
 void VideoSource::update(float dt) {
-    // EXTERNAL mode: video is slaved to an external playhead (e.g. audio).
-    // Skip path pattern evaluation — the master node handles triggers.
-    // Only the initial static load (via onPathChanged) is needed.
-    if (clockMode != EXTERNAL) {
-        auto pat = getPattern("path");
-        if (pat) {
-            if (lastTriggerBars < 0) lastTriggerBars = lastCtx.cycle;
-            if (lastTriggerBars > lastCtx.cycle + 1.0) lastTriggerBars = lastCtx.cycle;
-
-            double start = lastTriggerBars;
-            double end = start + lastCtx.cycleStep;
-            auto events = pat->query(start, end);
-            for (const auto& e : events) {
-                if (e.isRest) continue;
-                if (e.ref) {
-                    load(*(e.ref));
-                } else {
-                    int idx = static_cast<int>(std::floor(e.value));
-                    std::string b = bank.get();
-                    if (!b.empty()) {
-                        load(b + ":" + std::to_string(idx));
-                    }
-                }
-                setPosition(0.0f);
-            }
-            lastTriggerBars = end;
+    auto pat = getPattern("path");
+    if (pat) {
+        if (lastTriggerBars < 0) {
+            // On first run or reload, catch triggers from the start of the current bar
+            lastTriggerBars = std::floor(lastCtx.cycle);
         }
+        
+        if (std::abs(lastCtx.cycle - lastTriggerBars) > 0.5) {
+            // Cycle wrap-around
+            lastTriggerBars = std::floor(lastCtx.cycle);
+        }
+
+        double start = lastTriggerBars;
+        double end = lastCtx.cycle + lastCtx.cycleStep;
+        auto events = pat->query(start, end);
+        
+        for (const auto& e : events) {
+            if (e.isRest) continue;
+            
+            if (e.ref) {
+                load(*(e.ref));
+            } else {
+                int idx = static_cast<int>(std::floor(e.value));
+                std::string b = bank.get();
+                if (!b.empty()) {
+                    load(b + ":" + std::to_string(idx));
+                }
+            }
+        }
+        lastTriggerBars = end;
     }
 
     if (getPlayer().isLoaded()) {

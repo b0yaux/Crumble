@@ -190,9 +190,14 @@ void Session::registerAudioEndpoint(crumble::AudioProcessor* ap) {
 }
 
 void Session::sendCommand(const crumble::ProcessorCommand& cmd) {
+    if (reloading) {
+        pendingCommands.push_back(cmd);
+        return;
+    }
+
     bool hasAudio = cmd.audioProcessor || cmd.targetAudioProcessor;
     bool hasVideo = cmd.videoProcessor || cmd.targetVideoProcessor;
-    
+
     if (hasAudio) {
         if (!audioCommandQueue.enqueue(cmd)) {
             ofLogError("Session") << "Audio Command Queue Overflow!";
@@ -339,12 +344,45 @@ void Session::clear() {
 }
 
 void Session::beginScript() {
+    reloading = true;
     graph.beginScript();
 }
 
 void Session::endScript() {
     int removed = graph.endScript();
     ofLogNotice("Session") << "endScript: removed " << removed << " nodes, remaining: " << graph.getNodeCount();
+
+    // Drain batched commands to SPSC queues.
+    // During reload the audio/video threads continue processing the old state.
+    // After drain, both threads see the new state atomically per-command.
+    reloading = false;
+    for (const auto& cmd : pendingCommands) {
+        bool hasAudio = cmd.audioProcessor || cmd.targetAudioProcessor;
+        bool hasVideo = cmd.videoProcessor || cmd.targetVideoProcessor;
+
+        if (hasAudio) {
+            int retries = 0;
+            while (!audioCommandQueue.enqueue(cmd)) {
+                ofSleepMillis(1);
+                if (++retries > 100) {
+                    ofLogError("Session") << "Audio Command Queue Overflow during reload drain!";
+                    break;
+                }
+            }
+        }
+        if (hasVideo) {
+            int retries = 0;
+            while (!videoCommandQueue.enqueue(cmd)) {
+                ofSleepMillis(1);
+                if (++retries > 100) {
+                    ofLogError("Session") << "Video Command Queue Overflow during reload drain!";
+                    break;
+                }
+            }
+        }
+    }
+    ofLogNotice("Session") << "endScript: drained " << pendingCommands.size() << " batched commands";
+    pendingCommands.clear();
 }
 
 void Session::touchNode(int nodeId) {
