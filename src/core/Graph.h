@@ -93,8 +93,14 @@ public:
     Node* resolveVideoInput(int toInput) override;
 
     // --- Boundary declarations (inlet/outlet) ---
+    struct Boundary {
+        int index = 0;
+        Node* node = nullptr;
+    };
     void addOutlet(int nodeId, int index);
     void addInlet(int nodeId, int index);
+    const std::vector<Boundary>& getOutlets() const { return outlets; }
+    const std::vector<Boundary>& getInlets() const { return inlets; }
 
     // --- Parameter proxy for sub-graphs (expose()) ---
     // When a sub-graph script calls expose("speed", childNode), this maps
@@ -138,11 +144,6 @@ public:
     std::recursive_mutex& getAudioMutex() { return audioMutex; }
 
 private:
-    struct Boundary {
-        int index = 0;
-        Node* node = nullptr;
-    };
-    
     Transport* rootTransport = nullptr;
     std::unordered_map<int, std::unique_ptr<Node>> nodes;
     std::vector<Connection> connections;

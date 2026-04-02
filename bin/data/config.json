@@ -6,18 +6,31 @@
         "/Users/jaufre/works/Crumble/assets"
     ],
     "graph": {
-        "layout": {
-            "spawnPosition": "topological"
+        "geometry": {
+            "nodeWidth": 16,
+            "nodeHeight": 16,
+            "padding": 0,
+            "recursiveScale": 10.0,
+            "portalRadius": 2.0
+        },
+        "theme": {
+            "nodeBackground": [50, 50, 50, 100],
+            "nodeBorder": [250, 250, 250, 255],
+            "nodeText": [250, 250, 250, 255],
+            "connectionEdge": [170, 170, 170, 255],
+            "portalRing": [250, 250, 250, 200]
         },
         "physics": {
             "enabled": true,
-            "damping": 0.75,
-            "maxVelocity": 10.0,
-            "springStrength": 0.0001,
-            "idealEdgeLength": 120.0,
-            "repulsionEnabled": true,
-            "repulsionStrength": 0.01,
-            "repulsionRadius": 100.0
+            "randomSpawn": false,
+            "damping": 0.5,
+            "maxVelocity": 1000.0,
+            "springStrength": 0.67,
+            "idealEdgeLength": 48.0,
+            "connectionSpacing": 1.5,
+            "repulsionEnabled": false,
+            "repulsionStrength": 0.5,
+            "repulsionRadius": 24.0
         }
     }
 }

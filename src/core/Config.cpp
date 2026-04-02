@@ -16,18 +16,40 @@ bool ConfigManager::load(const std::string& path) {
         if (j.contains("graph") && j["graph"].contains("physics")) {
             auto& p = j["graph"]["physics"];
             config.physics.enabled = p.value("enabled", config.physics.enabled);
+            config.physics.randomSpawn = p.value("randomSpawn", config.physics.randomSpawn);
             config.physics.damping = p.value("damping", config.physics.damping);
             config.physics.maxVelocity = p.value("maxVelocity", config.physics.maxVelocity);
             config.physics.springStrength = p.value("springStrength", config.physics.springStrength);
             config.physics.idealEdgeLength = p.value("idealEdgeLength", config.physics.idealEdgeLength);
+            config.physics.connectionSpacing = p.value("connectionSpacing", config.physics.connectionSpacing);
             config.physics.repulsionEnabled = p.value("repulsionEnabled", config.physics.repulsionEnabled);
             config.physics.repulsionStrength = p.value("repulsionStrength", config.physics.repulsionStrength);
             config.physics.repulsionRadius = p.value("repulsionRadius", config.physics.repulsionRadius);
         }
         
-        if (j.contains("graph") && j["graph"].contains("layout")) {
-            auto& l = j["graph"]["layout"];
-            config.layout.spawnPosition = l.value("spawnPosition", config.layout.spawnPosition);
+        if (j.contains("graph") && j["graph"].contains("geometry")) {
+            auto& s = j["graph"]["geometry"];
+            config.geometry.nodeWidth = s.value("nodeWidth", config.geometry.nodeWidth);
+            config.geometry.nodeHeight = s.value("nodeHeight", config.geometry.nodeHeight);
+            config.geometry.padding = s.value("padding", config.geometry.padding);
+            config.geometry.recursiveScale = s.value("recursiveScale", config.geometry.recursiveScale);
+            config.geometry.portalRadius = s.value("portalRadius", config.geometry.portalRadius);
+        }
+
+        if (j.contains("graph") && j["graph"].contains("theme")) {
+            auto& t = j["graph"]["theme"];
+            auto parseColor = [](const nlohmann::json& cNode, const ofColor& def) -> ofColor {
+                if (cNode.is_array() && cNode.size() >= 3) {
+                    return ofColor(cNode[0].get<int>(), cNode[1].get<int>(), cNode[2].get<int>(), 
+                                   cNode.size() >= 4 ? cNode[3].get<int>() : 255);
+                }
+                return def;
+            };
+            config.theme.nodeBackground = parseColor(t["nodeBackground"], config.theme.nodeBackground);
+            config.theme.nodeBorder = parseColor(t["nodeBorder"], config.theme.nodeBorder);
+            config.theme.nodeText = parseColor(t["nodeText"], config.theme.nodeText);
+            config.theme.connectionEdge = parseColor(t["connectionEdge"], config.theme.connectionEdge);
+            config.theme.portalRing = parseColor(t["portalRing"], config.theme.portalRing);
         }
         
         if (j.contains("entryScript")) {

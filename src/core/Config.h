@@ -3,22 +3,37 @@
 
 struct PhysicsConfig {
     bool enabled = true;
+    bool randomSpawn = false;
     float damping = 0.92f;
-    float maxVelocity = 2.0f;
+    float maxVelocity = 15.0f;
     float springStrength = 0.008f;
     float idealEdgeLength = 100.0f;
-    bool repulsionEnabled = false;
+    float connectionSpacing = 20.0f;
+    bool repulsionEnabled = true;
     float repulsionStrength = 0.002f;
     float repulsionRadius = 100.0f;
 };
 
-struct LayoutConfig {
-    std::string spawnPosition = "topological";
+struct GeometryConfig {
+    float nodeWidth = 80.0f;
+    float nodeHeight = 24.0f;
+    float padding = 50.0f;
+    float recursiveScale = 10.0f;
+    float portalRadius = 6.0f;
+};
+
+struct ThemeConfig {
+    ofColor nodeBackground = ofColor(30, 30, 30, 150);
+    ofColor nodeBorder = ofColor(200, 200, 200, 255);
+    ofColor nodeText = ofColor(200, 200, 200, 255);
+    ofColor connectionEdge = ofColor(60, 60, 60, 255);
+    ofColor portalRing = ofColor(80, 80, 80, 200);
 };
 
 struct Config {
     PhysicsConfig physics;
-    LayoutConfig layout;
+    GeometryConfig geometry;
+    ThemeConfig theme;
     std::string entryScript;
     std::vector<std::string> searchPaths;
     std::string configPath = "config.json";

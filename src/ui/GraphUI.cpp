@@ -7,6 +7,7 @@
 #include <set>
 #include <queue>
 #include <unordered_map>
+#include <functional>
 
 void GraphUI::setup() {
     loadConfig();
@@ -15,40 +16,117 @@ void GraphUI::setup() {
 void GraphUI::loadConfig(const std::string& path) {
     ConfigManager::get().load(path);
     physicsConfig = ConfigManager::get().getConfig().physics;
-    ofLogNotice("GraphUI") << "Physics config loaded: damping=" << physicsConfig.damping 
-                          << ", spring=" << physicsConfig.springStrength;
+    geometryConfig = ConfigManager::get().getConfig().geometry;
+    themeConfig = ConfigManager::get().getConfig().theme;
+    ofLogNotice("GraphUI") << "Config loaded: damping=" << physicsConfig.damping
+                           << ", spring=" << physicsConfig.springStrength
+                           << ", nodeSize=" << geometryConfig.nodeWidth << "x" << geometryConfig.nodeHeight
+                           << ", recursiveScale=" << geometryConfig.recursiveScale;
 }
 
 glm::vec2 GraphUI::screenToWorld(int x, int y) {
     return glm::vec2((x - pan.x) / zoom, (y - pan.y) / zoom);
 }
 
-void GraphUI::mousePressed(int x, int y, int button) {
+void GraphUI::mouseMoved(int x, int y) {
     if (!visible) return;
     
+    // Alt + Move Mouse = Smooth Zoom (Focus on cursor)
+    if (ofGetKeyPressed(OF_KEY_ALT)) {
+        isHoverPanning = false;
+        if (!isHoverZooming) {
+            zoomMouseStart = glm::vec2(x, y);
+            zoomWorldStart = screenToWorld(x, y);
+            zoomStart = zoom;
+            isHoverZooming = true;
+        }
+        float dy = y - zoomMouseStart.y;
+        zoom = zoomStart * expf(-dy * 0.01f);
+        zoom = glm::clamp(zoom, 0.0001f, 10000.0f);
+        pan.x = zoomMouseStart.x - zoomWorldStart.x * zoom;
+        pan.y = zoomMouseStart.y - zoomWorldStart.y * zoom;
+    } 
+    // Shift + Move Mouse = Pan (without clicking)
+    else if (ofGetKeyPressed(OF_KEY_SHIFT)) {
+        isHoverZooming = false;
+        if (!isHoverPanning) {
+            dragStart = glm::vec2(x, y);
+            panStart = pan;
+            isHoverPanning = true;
+        }
+        pan.x = panStart.x + (x - dragStart.x);
+        pan.y = panStart.y + (y - dragStart.y);
+    } else {
+        isHoverPanning = false;
+        isHoverZooming = false;
+    }
+}
+
+void GraphUI::mousePressed(int x, int y, int button) {
+    if (!visible) return;
     glm::vec2 wp = screenToWorld(x, y);
-    for (auto& [id, nv] : nodes) {
-        if (wp.x >= nv.pos.x && wp.x <= nv.pos.x + 80 &&
-            wp.y >= nv.pos.y && wp.y <= nv.pos.y + 24) {
-            draggedNode = id;
+    
+    // Left-Click (0) WITHOUT Shift: Try to grab a node
+    if (button == 0 && !ofGetKeyPressed(OF_KEY_SHIFT)) {
+        if (hitTest(rootLevel, wp, draggedNode, draggedLevel, dragOffset)) {
             isDragging = true;
-            dragOffset = nv.pos - wp;
-            nv.vel = {0, 0};
+            draggedLevel->nodes[draggedNode].vel = {0, 0};
             return;
         }
     }
     
+    // Right-Click (2), Middle-Click (1), or missed Left-Click: Pan the camera
     dragStart = glm::vec2(x, y);
     panStart = pan;
+}
+
+bool GraphUI::hitTest(LevelViz& level, glm::vec2 localMouse,
+                      int& foundId, LevelViz*& foundLevel, glm::vec2& foundOffset) {
+    float nw = geometryConfig.nodeWidth;
+    float nh = geometryConfig.nodeHeight;
+    float localScale = 1.0f / geometryConfig.recursiveScale;
+
+    for (auto it = level.children.rbegin(); it != level.children.rend(); ++it) {
+        if (!level.nodes.count(it->first)) continue;
+        glm::vec2 nodePos = level.nodes[it->first].pos;
+        glm::vec2 childMouse = (localMouse - nodePos) / localScale;
+        if (hitTest(*it->second, childMouse, foundId, foundLevel, foundOffset)) return true;
+    }
+
+    for (auto it = level.nodes.rbegin(); it != level.nodes.rend(); ++it) {
+        if (localMouse.x >= it->second.pos.x && localMouse.x <= it->second.pos.x + nw &&
+            localMouse.y >= it->second.pos.y && localMouse.y <= it->second.pos.y + nh) {
+            foundId = it->first;
+            foundLevel = &level;
+            foundOffset = it->second.pos - localMouse;
+            return true;
+        }
+    }
+
+    return false;
 }
 
 void GraphUI::mouseDragged(int x, int y, int button) {
     if (!visible) return;
     
-    if (draggedNode >= 0 && nodes.count(draggedNode)) {
+    if (button == 0 && isDragging && draggedLevel && draggedNode >= 0) {
         glm::vec2 wp = screenToWorld(x, y);
-        nodes[draggedNode].pos = wp + dragOffset;
-        nodes[draggedNode].vel = {0, 0};  // Keep velocity zeroed while dragging
+        std::function<bool(LevelViz&, LevelViz*, glm::vec2, glm::vec2&)> toLocal = 
+            [&](LevelViz& current, LevelViz* target, glm::vec2 p, glm::vec2& outPos) -> bool {
+                if (&current == target) { outPos = p; return true; }
+                for (auto& [id, child] : current.children) {
+                    if (!current.nodes.count(id)) continue;
+                    glm::vec2 childP = (p - current.nodes[id].pos) / (1.0f / geometryConfig.recursiveScale);
+                    if (toLocal(*child, target, childP, outPos)) return true;
+                }
+                return false; 
+            };
+
+        glm::vec2 lp;
+        if (toLocal(rootLevel, draggedLevel, wp, lp)) {
+            draggedLevel->nodes[draggedNode].pos = lp + dragOffset;
+            draggedLevel->nodes[draggedNode].vel = {0, 0};
+        }
         return;
     }
     
@@ -57,9 +135,8 @@ void GraphUI::mouseDragged(int x, int y, int button) {
 }
 
 void GraphUI::mouseReleased(int x, int y, int button) {
-    // Simply release the node - physics will naturally settle
-    // No plasticity (idealLength updates) to avoid messy layouts after drag
     draggedNode = -1;
+    draggedLevel = nullptr;
     isDragging = false;
 }
 
@@ -67,7 +144,7 @@ void GraphUI::mouseScrolled(int x, int y, float scrollX, float scrollY) {
     if (!visible) return;
     glm::vec2 wp = screenToWorld(x, y);
     zoom *= powf(1.1f, scrollY);
-    zoom = glm::clamp(zoom, 0.2f, 3.0f);
+    zoom = glm::clamp(zoom, 0.0001f, 10000.0f);
     pan.x = x - wp.x * zoom;
     pan.y = y - wp.y * zoom;
 }
@@ -75,294 +152,230 @@ void GraphUI::mouseScrolled(int x, int y, float scrollX, float scrollY) {
 void GraphUI::draw(Session& session) {
     if (!visible) return;
     
-    auto& graphNodes = session.getGraph().getNodes();
-    auto& conns = session.getGraph().getConnections();
-    
-    // Cache connections for use in mouseReleased (where session isn't available)
-    cachedConnections = conns;
-    
-    // 1. Cleanup: Prune UI nodes that no longer exist in the core graph
-    for (auto it = nodes.begin(); it != nodes.end(); ) {
-        if (graphNodes.find(it->first) == graphNodes.end()) {
-            it = nodes.erase(it);
-        } else {
-            ++it;
-        }
-    }
-    
-    // 2. Init: Island-aware depth-based positions for new nodes
-    const float canvasW = 1200.0f;
-    const float padding = 50.0f;
-    const float layerHeight = 100.0f;
-    
-    // Build adjacency list for island detection (undirected)
-    std::map<int, std::vector<int>> adj;
-    for (auto& c : session.getGraph().getConnections()) {
-        adj[c.fromNode].push_back(c.toNode);
-        adj[c.toNode].push_back(c.fromNode);
-    }
-    
-    // Identify Islands (Connected Components)
-    std::set<int> visitedIsland;
-    std::vector<std::vector<int>> islands;
-    for (auto& n : graphNodes) {
-        if (visitedIsland.find(n.first) == visitedIsland.end()) {
-            std::vector<int> island;
-            std::queue<int> q;
-            q.push(n.first);
-            visitedIsland.insert(n.first);
-            while(!q.empty()) {
-                int curr = q.front(); q.pop();
-                island.push_back(curr);
-                for(int neighbor : adj[curr]) {
-                    if(visitedIsland.find(neighbor) == visitedIsland.end()) {
-                        visitedIsland.insert(neighbor);
-                        q.push(neighbor);
-                    }
-                }
-            }
-            islands.push_back(island);
-        }
-    }
-    
-    // Position each island in its own territory
-    float sliceWidth = (canvasW - 2 * padding) / std::max(1, (int)islands.size());
-    for (size_t islandIdx = 0; islandIdx < islands.size(); islandIdx++) {
-        const auto& islandNodes = islands[islandIdx];
-        float sliceX = padding + islandIdx * sliceWidth;
-        
-        // Compute depth within this island
-        std::map<int, int> nodeDepth;
-        std::map<int, std::vector<int>> nodesAtDepth;
-        std::set<int> islandSet(islandNodes.begin(), islandNodes.end());
-        
-        // Find roots of this island (nodes with no inputs FROM WITHIN THIS ISLAND)
-        std::queue<int> qDepth;
-        for (int id : islandNodes) {
-            bool hasIn = false;
-            for (auto& c : session.getGraph().getConnections()) {
-                if (c.toNode == id && islandSet.count(c.fromNode)) {
-                    hasIn = true;
-                    break;
-                }
-            }
-            if (!hasIn) {
-                nodeDepth[id] = 0;
-                qDepth.push(id);
-            }
-        }
-        
-        // Fallback for islands that are cycles
-        if (qDepth.empty() && !islandNodes.empty()) {
-            nodeDepth[islandNodes[0]] = 0;
-            qDepth.push(islandNodes[0]);
-        }
-        
-        while (!qDepth.empty()) {
-            int current = qDepth.front(); qDepth.pop();
-            int d = nodeDepth[current];
-            for (auto& c : session.getGraph().getConnections()) {
-                if (c.fromNode == current && islandSet.count(c.toNode)) {
-                    if (!nodeDepth.count(c.toNode)) {
-                        nodeDepth[c.toNode] = d + 1;
-                        qDepth.push(c.toNode);
-                    }
-                }
-            }
-        }
-        
-        // Group by depth
-        for (int id : islandNodes) {
-            int d = nodeDepth.count(id) ? nodeDepth[id] : 0;
-            nodesAtDepth[d].push_back(id);
-        }
-        
-        // Position new nodes in this island slice
-        for (auto& [depth, nodeList] : nodesAtDepth) {
-            float y = padding + depth * layerHeight;
-            float xOffset = sliceWidth / (nodeList.size() + 1);
-            for (size_t i = 0; i < nodeList.size(); i++) {
-                int id = nodeList[i];
-                if (!nodes.count(id)) {
-                    float x = sliceX + (i + 1) * xOffset;
-                    nodes[id] = {{x, y}, {0, 0}};
-                }
-            }
-        }
-    }
-    
-    forceLayout(session);
-    
     ofPushMatrix();
     ofTranslate(pan.x, pan.y);
     ofScale(zoom, zoom);
-    
-    ofSetLineWidth(1);
-    ofSetColor(60);
-    for (auto& c : conns) {
-        if (!nodes.count(c.fromNode) || !nodes.count(c.toNode)) continue;
-        auto& from = nodes[c.fromNode];
-        auto& to = nodes[c.toNode];
-        // Center to center
-        ofDrawLine(from.pos.x + 40, from.pos.y + 12, to.pos.x + 40, to.pos.y + 12);
-    }
-    
-    for (auto& n : graphNodes) {
-        if (!n.second || !nodes.count(n.first)) continue;
-        drawNode(n.second.get(), nodes[n.first].pos.x, nodes[n.first].pos.y);
-    }
-    
+    drawGraph(session.getGraph(), rootLevel, zoom, ofGetWidth(), ofGetHeight());
     ofPopMatrix();
 }
 
-void GraphUI::forceLayout(Session& session) {
-    auto& conns = session.getGraph().getConnections();
+void GraphUI::drawGraph(Graph& graph, LevelViz& level, float effectiveZoom,
+                        float canvasW, float canvasH) {
+    float nw = geometryConfig.nodeWidth;
+    float nh = geometryConfig.nodeHeight;
+    float halfW = nw * 0.5f;
+    float halfH = nh * 0.5f;
+    float localScale = 1.0f / geometryConfig.recursiveScale;
     
-    if (nodes.empty()) return;
+    initLayout(graph, level.nodes, canvasW, canvasH);
+    forceLayout(graph, graph.getConnections(), level, canvasW, canvasH);
     
-    // Check if physics is enabled
-    if (!physicsConfig.enabled) return;
-    
-    // 1. Port crowding detection
-    std::map<int, int> inDegree;
-    std::map<int, int> outDegree;
+    // Draw Connections
+    auto& conns = graph.getConnections();
+    ofSetLineWidth(1);
+    ofSetColor(themeConfig.connectionEdge);
     for (auto& c : conns) {
-        outDegree[c.fromNode]++;
-        inDegree[c.toNode]++;
+        if (!level.nodes.count(c.fromNode) || !level.nodes.count(c.toNode)) continue;
+        glm::vec2 fromPos = level.nodes[c.fromNode].pos + glm::vec2(halfW, halfH);
+        glm::vec2 toPos   = level.nodes[c.toNode].pos + glm::vec2(halfW, halfH);
+        ofDrawLine(fromPos.x, fromPos.y, toPos.x, toPos.y);
     }
     
-    // Physics Parameters: from Config
-    const float damping = physicsConfig.damping;
-    const float maxVel = physicsConfig.maxVelocity;
-    const float baseSpringStrength = physicsConfig.springStrength;
-    const float baseIdealLength = physicsConfig.idealEdgeLength;
-    
-    // 2. Apply spring forces
-    // PLASTICITY: Only use stored idealLength if explicitly set by user drag.
-    // Otherwise, use adaptive length for organic initial layout.
-    for (auto& c : conns) {
-        if (!nodes.count(c.fromNode) || !nodes.count(c.toNode)) continue;
-        
-        auto& from = nodes[c.fromNode];
-        auto& to = nodes[c.toNode];
-        
-        int crowd = inDegree[c.toNode] + outDegree[c.fromNode];
-        
-        // ADAPTIVE RIGIDITY:
-        // Crowded connections (clouds) are rigid and structured.
-        // Rare connections (Mixer->Output) are stretchy and allow "long-range" drift.
-        float strength = baseSpringStrength + std::min(crowd * 0.0015f, 0.04f);
-        
-        // Ideal length: rare connections stay close, crowded spread out
-        // crowd=1: 60px, crowd=5: 90px, crowd=10: 120px, crowd=20: 170px
-        float idealLength;
-        if (crowd <= 1) {
-            idealLength = baseIdealLength;
-        } else if (crowd <= 5) {
-            idealLength = baseIdealLength + (crowd - 1) * 7.5f;
-        } else {
-            idealLength = baseIdealLength + 30.0f + (crowd - 5) * 5.0f;
+    // Draw Portal Ring
+    if (&level != &rootLevel) {
+        glm::vec2 canvasCenter(canvasW * 0.5f, canvasH * 0.5f);
+        ofSetColor(themeConfig.portalRing);
+        ofNoFill();
+        ofSetLineWidth(2);
+        ofDrawCircle(canvasCenter.x, canvasCenter.y, geometryConfig.portalRadius);
+        ofSetLineWidth(1);
+        ofSetColor(themeConfig.connectionEdge);
+        for (const auto& inlet : graph.getInlets()) {
+            if (inlet.node && level.nodes.count(inlet.node->nodeId)) {
+                glm::vec2 p = level.nodes[inlet.node->nodeId].pos + glm::vec2(halfW, halfH);
+                ofDrawLine(canvasCenter.x, canvasCenter.y, p.x, p.y);
+            }
         }
+        for (const auto& outlet : graph.getOutlets()) {
+            if (outlet.node && level.nodes.count(outlet.node->nodeId)) {
+                glm::vec2 p = level.nodes[outlet.node->nodeId].pos + glm::vec2(halfW, halfH);
+                ofDrawLine(p.x, p.y, canvasCenter.x, canvasCenter.y);
+            }
+        }
+    }
+    
+    // Track connections per node for anchor drawing
+    std::set<int> connectedNodes;
+    for (auto& c : conns) { connectedNodes.insert(c.fromNode); connectedNodes.insert(c.toNode); }
+
+    // Draw Nodes & Recurse
+    auto& graphNodes = graph.getNodes();
+    for (auto& n : graphNodes) {
+        if (!n.second || !level.nodes.count(n.first)) continue;
+        Node* node = n.second.get();
+        float x = level.nodes[n.first].pos.x;
+        float y = level.nodes[n.first].pos.y;
         
-        float dx = to.pos.x - from.pos.x;
-        float dy = to.pos.y - from.pos.y;
-        float dist = sqrtf(dx*dx + dy*dy);
+        drawNode(node, x, y, effectiveZoom, connectedNodes.count(n.first) > 0);
+        
+        if (node->type == "graph") {
+            Graph* childGraph = dynamic_cast<Graph*>(node);
+            if (childGraph && childGraph->getNodeCount() > 0) {
+                auto it = level.children.find(n.first);
+                if (it == level.children.end()) it = level.children.emplace(n.first, std::make_unique<LevelViz>()).first;
+                
+                float childCanvasW = nw * geometryConfig.recursiveScale;
+                float childCanvasH = nh * geometryConfig.recursiveScale;
+                
+                ofPushMatrix();
+                ofTranslate(x, y);
+                ofScale(localScale, localScale);
+                drawGraph(*childGraph, *it->second, effectiveZoom * localScale, childCanvasW, childCanvasH);
+                ofPopMatrix();
+            }
+        }
+    }
+}
+
+void GraphUI::initLayout(Graph& graph, std::map<int, NodeViz>& vizNodes,
+                          float canvasW, float canvasH) {
+    auto& graphNodes = graph.getNodes();
+    for (auto it = vizNodes.begin(); it != vizNodes.end(); ) {
+        if (graphNodes.find(it->first) == graphNodes.end()) it = vizNodes.erase(it); else ++it;
+    }
+    if (graphNodes.empty()) return;
+    
+    // Calculate Depth for Topological Seed
+    std::map<int, int> inDegree;
+    std::map<int, std::vector<int>> outgoing;
+    for (auto& c : graph.getConnections()) { inDegree[c.toNode]++; outgoing[c.fromNode].push_back(c.toNode); }
+    std::map<int, int> depth;
+    std::queue<int> q;
+    for (auto& n : graphNodes) { if (inDegree[n.first] == 0) { depth[n.first] = 0; q.push(n.first); } }
+    if (q.empty() && !graphNodes.empty()) { depth[graphNodes.begin()->first] = 0; q.push(graphNodes.begin()->first); }
+    int maxDepth = 0;
+    while (!q.empty()) {
+        int curr = q.front(); q.pop();
+        maxDepth = std::max(maxDepth, depth[curr]);
+        for (int child : outgoing[curr]) { if (!depth.count(child)) { depth[child] = depth[curr] + 1; q.push(child); } }
+    }
+
+    float nw = geometryConfig.nodeWidth, nh = geometryConfig.nodeHeight;
+    float cx = canvasW * 0.5f - nw * 0.5f, cy = canvasH * 0.5f - nh * 0.5f;
+    float seedSize = std::min(150.0f, (float)graphNodes.size() * 5.0f);
+    
+    std::map<int, int> nodesAtDepthCount, nodesAtDepthIndex;
+    for (auto& n : graphNodes) { if (!vizNodes.count(n.first)) nodesAtDepthCount[depth.count(n.first) ? depth[n.first] : 0]++; }
+
+    for (auto& n : graphNodes) {
+        if (!vizNodes.count(n.first)) {
+            int d = depth.count(n.first) ? depth[n.first] : 0;
+            int idx = nodesAtDepthIndex[d]++, count = nodesAtDepthCount[d];
+            float nDepth = maxDepth > 0 ? (float)d / maxDepth : 0.5f;
+            float nWidth = count > 1 ? (float)idx / (count - 1) : 0.5f;
+            vizNodes[n.first] = {{cx + (nWidth - 0.5f) * seedSize, cy + (nDepth - 0.5f) * seedSize}, {0, 0}};
+        }
+    }
+}
+
+void GraphUI::forceLayout(Graph& graph, const std::vector<Connection>& conns,
+                           LevelViz& level, float canvasW, float canvasH) {
+    auto& vizNodes = level.nodes;
+    if (vizNodes.empty() || !physicsConfig.enabled) return;
+    
+    float nw = geometryConfig.nodeWidth, nh = geometryConfig.nodeHeight;
+    float halfW = nw * 0.5f, halfH = nh * 0.5f;
+    
+    std::map<int, int> inDegree, outDegree;
+    for (auto& c : conns) { outDegree[c.fromNode]++; inDegree[c.toNode]++; }
+    
+    const float damping = physicsConfig.damping, maxVel = physicsConfig.maxVelocity;
+    const float strength = physicsConfig.springStrength, baseLen = physicsConfig.idealEdgeLength, bonus = physicsConfig.connectionSpacing;
+    
+    // 1. Spring Forces
+    for (auto& c : conns) {
+        if (!vizNodes.count(c.fromNode) || !vizNodes.count(c.toNode)) continue;
+        auto &f = vizNodes[c.fromNode], &t = vizNodes[c.toNode];
+        int extra = std::max(0, (inDegree[c.toNode] + outDegree[c.fromNode]) - 2);
+        float ideal = baseLen + (extra * bonus);
+        float dx = t.pos.x - f.pos.x, dy = t.pos.y - f.pos.y, dist = sqrtf(dx*dx + dy*dy);
+        
+        bool beingDragged = isDragging && &level == draggedLevel && (c.fromNode == draggedNode || c.toNode == draggedNode);
         
         if (dist > 1.0f) {
-            float displacement = dist - idealLength;
-            float force = displacement * strength;
-            
-            float fx = (dx / dist) * force;
-            float fy = (dy / dist) * force;
-            
-            from.vel.x += fx;
-            from.vel.y += fy;
-            to.vel.x -= fx;
-            to.vel.y -= fy;
+            float displacement = dist - ideal;
+            if (displacement < 0.0f && beingDragged) displacement = 0.0f; // Yielding Springs
+            float fv = displacement * strength;
+            float mF = std::max(1, inDegree[c.fromNode] + outDegree[c.fromNode]), mT = std::max(1, inDegree[c.toNode] + outDegree[c.toNode]);
+            f.vel += (glm::vec2(dx, dy) / dist) * fv * (mT / (mF + mT));
+            t.vel -= (glm::vec2(dx, dy) / dist) * fv * (mF / (mF + mT));
         }
     }
     
-    // 3. Cleaner Repulsion: Inverse-distance based (Fast spreading)
+    // 1b. Wormhole Gravity
+    if (&level != &rootLevel) {
+        glm::vec2 center(canvasW * 0.5f - halfW, canvasH * 0.5f - halfH);
+        auto tether = [&](int id) {
+            if (!vizNodes.count(id)) return;
+            float dx = center.x - vizNodes[id].pos.x, dy = center.y - vizNodes[id].pos.y, dist = sqrtf(dx*dx + dy*dy);
+            if (dist > baseLen * 0.8f) vizNodes[id].vel += (glm::vec2(dx, dy) / dist) * (dist - baseLen * 0.8f) * strength;
+        };
+        for (const auto& i : graph.getInlets()) if (i.node) tether(i.node->nodeId);
+        for (const auto& o : graph.getOutlets()) if (o.node) tether(o.node->nodeId);
+    }
+    
+    // 2. Social Repulsion
     if (physicsConfig.repulsionEnabled) {
-        const float repelRadius = physicsConfig.repulsionRadius;
-        const float repelStrength = physicsConfig.repulsionStrength * 100.0f;
-        
-        for (auto& [idA, nodeA] : nodes) {
-            for (auto& [idB, nodeB] : nodes) {
-                if (idA >= idB) continue;
-                
-                float dx = (nodeB.pos.x + 40) - (nodeA.pos.x + 40);
-                float dy = (nodeB.pos.y + 12) - (nodeA.pos.y + 12);
-                float distSq = dx*dx + dy*dy;
-                
-                if (distSq < repelRadius * repelRadius && distSq > 1.0f) {
-                    float dist = sqrtf(distSq);
-                    
-                    // Soft collision: quadratic force proportional to overlap
-                    // Allows slight overlap to reduce jitter, but pushes apart
-                    // Based on D3's forceCollide principle - soft constraint
-                    const float minDist = 85.0f; // Node size + padding
-                    float overlap = minDist - dist;
-                    
-                    if (overlap > 0) {
-                        // Quadratic force - smooth, no explosion
-                        float force = repelStrength * overlap * overlap * 0.01f;
-                        
-                        float fx = (dx / dist) * force;
-                        float fy = (dy / dist) * force;
-                        
-                        nodeA.vel.x -= fx;
-                        nodeA.vel.y -= fy;
-                        nodeB.vel.x += fx;
-                        nodeB.vel.y += fy;
-                    }
+        for (auto itA = vizNodes.begin(); itA != vizNodes.end(); ++itA) {
+            for (auto itB = std::next(itA); itB != vizNodes.end(); ++itB) {
+                float dx = itB->second.pos.x - itA->second.pos.x, dy = itB->second.pos.y - itA->second.pos.y, dist = sqrtf(dx*dx + dy*dy);
+                if (dist < physicsConfig.repulsionRadius && dist > 0.1f) {
+                    glm::vec2 f = (glm::vec2(dx, dy) / dist) * physicsConfig.repulsionStrength * (physicsConfig.repulsionRadius - dist);
+                    itA->second.vel -= f; itB->second.vel += f;
                 }
             }
         }
     }
     
-    // 4. Update positions with "Drift"
-    for (auto& [id, nv] : nodes) {
-        // Dragged node position is fixed by mouse, but it still participates in physics
-        // (pushes other nodes via springs/repulsion)
-        if (id == draggedNode && isDragging) {
+    // 3. Integration & Bounds
+    float padX = std::min(geometryConfig.padding, (canvasW - nw) * 0.49f), padY = std::min(geometryConfig.padding, (canvasH - nh) * 0.49f);
+    for (auto& [id, nv] : vizNodes) {
+        if (isDragging && &level == draggedLevel && id == draggedNode) {
             nv.vel = {0, 0};
+            nv.pos.x = std::max(padX, std::min(canvasW - nw - padX, nv.pos.x));
+            nv.pos.y = std::max(padY, std::min(canvasH - nh - padY, nv.pos.y));
             continue;
         }
+        nv.vel = glm::clamp(nv.vel * damping, -maxVel, maxVel);
+        nv.pos += nv.vel;
+        if (nv.pos.x < padX) { nv.pos.x = padX; nv.vel.x *= -1; } if (nv.pos.y < padY) { nv.pos.y = padY; nv.vel.y *= -1; }
+        if (nv.pos.x > canvasW - nw - padX) { nv.pos.x = canvasW - nw - padX; nv.vel.x *= -1; } if (nv.pos.y > canvasH - nh - padY) { nv.pos.y = canvasH - nh - padY; nv.vel.y *= -1; }
+    }
 
-        // Apply damping
-        nv.vel.x *= damping;
-        nv.vel.y *= damping;
-        
-        // Clamp velocity
-        nv.vel.x = std::max(-maxVel, std::min(maxVel, nv.vel.x));
-        nv.vel.y = std::max(-maxVel, std::min(maxVel, nv.vel.y));
-        
-        // Update position
-        nv.pos.x += nv.vel.x;
-        nv.pos.y += nv.vel.y;
+    // 4. Rigid Body Geometry Pass (Solid AABB Collisions)
+    for (int iter = 0; iter < 2; iter++) {
+        for (auto itA = vizNodes.begin(); itA != vizNodes.end(); ++itA) {
+            for (auto itB = std::next(itA); itB != vizNodes.end(); ++itB) {
+                float dx = itB->second.pos.x - itA->second.pos.x, dy = itB->second.pos.y - itA->second.pos.y;
+                float ox = nw - std::abs(dx), oy = nh - std::abs(dy);
+                if (ox > 0 && oy > 0) {
+                    float wA = (isDragging && &level == draggedLevel && itA->first == draggedNode) ? 0.0f : ((isDragging && &level == draggedLevel && itB->first == draggedNode) ? 1.0f : 0.5f);
+                    float wB = 1.0f - wA;
+                    if (ox < oy) { float s = ox * (dx > 0 ? 1 : -1); itA->second.pos.x -= s * wA; itB->second.pos.x += s * wB; itA->second.vel.x *= (1.0f-wA); itB->second.vel.x *= (1.0f-wB); }
+                    else { float s = oy * (dy > 0 ? 1 : -1); itA->second.pos.y -= s * wA; itB->second.pos.y += s * wB; itA->second.vel.y *= (1.0f-wA); itB->second.vel.y *= (1.0f-wB); }
+                }
+            }
+        }
     }
 }
 
-void GraphUI::drawNode(Node* node, float x, float y) {
-    ofSetColor(30, 30, 30, 150);
-    ofFill();
-    ofDrawRectangle(x, y, 80, 24);
-    
-    ofNoFill();
-    ofSetColor(200);
-    ofSetLineWidth(1);
-    ofDrawRectangle(x, y, 80, 24);
-    
-    ofFill();
-    ofSetColor(200);
-    
-    std::string displayName = node->name;
-    const float charWidth = 8.0f;
-    int maxChars = static_cast<int>(80.0f / (charWidth / zoom));
-    maxChars = std::max(maxChars, 4);
-    if ((int)displayName.size() > maxChars) {
-        displayName = displayName.substr(0, maxChars - 1) + "~";
-    }
-    ofDrawBitmapString(displayName, x + 4, y + 16);
+void GraphUI::drawNode(Node* node, float x, float y, float effectiveZoom, bool hasConnections) {
+    float nw = geometryConfig.nodeWidth, nh = geometryConfig.nodeHeight;
+    ofFill(); ofSetColor(themeConfig.nodeBackground); ofDrawRectangle(x, y, nw, nh);
+    ofNoFill(); ofSetColor(themeConfig.nodeBorder); ofSetLineWidth(1); ofDrawRectangle(x, y, nw, nh);
+    ofFill(); ofSetColor(themeConfig.nodeText);
+    std::string name = node->name; int maxC = std::max(4, (int)(nw / (8.0f / effectiveZoom)));
+    if ((int)name.size() > maxC) name = name.substr(0, maxC - 1) + "~";
+    ofDrawBitmapString(name, x + (4.0f / effectiveZoom), y + (13.0f / effectiveZoom));
+    if (hasConnections) { ofSetColor(themeConfig.connectionEdge); ofFill(); ofDrawCircle(x + nw*0.5f, y + nh*0.5f, 1.5f / effectiveZoom); }
 }
