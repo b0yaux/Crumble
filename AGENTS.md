@@ -1,0 +1,197 @@
+# AGENTS.md — Crumble Project Context
+
+## Project Summary
+
+Crumble is a real-time audio+video live-coding node-graph system built with openFrameworks (C++) and Lua. Users write Lua scripts that define a directed graph of processing nodes (samplers, mixers, outputs) with sample-accurate modulation via mathematical patterns. The system uses a **Shadow Processor** architecture to decouple slow Lua/UI logic from real-time audio (RtAudio callback) and GPU video (main-thread OpenGL).
+
+## Build & Run
+
+```bash
+make                # Debug build
+make Release        # Release build
+make RunRelease     # Build and run
+```
+
+Build system is openFrameworks `makefileCommon/compile.project.mk`. No cmake, no npm.
+
+### Config
+
+- `bin/data/config.json` — entry script, search paths, graph UI settings
+- `bin/data/system/prelude.lua` — Lua DSL standard library (factory functions, patterns, expose())
+- Entry script defaults to `scripts/main.lua`
+
+### Command-line
+
+```bash
+./Crumble                              # Default config
+./Crumble -s scripts/drums.lua         # Override script
+./Crumble -a scripts/                  # Multi-instance: one per .lua file
+```
+
+## Source Tree
+
+```
+src/
+├── main.cpp                  (137 lines) — CLI parsing, multi-instance launcher
+├── ofApp.h/cpp               (219 lines) — oF hooks, delegates to Session
+├── core/
+│   ├── Session.h/cpp         (119/406)   — Root container: threading, command dispatch, hardware I/O
+│   ├── Graph.h/cpp           (174/722)   — Recursive node container, sub-graph lifecycle
+│   ├── Node.h/cpp            (172/315)   — Base node: parameters, modulators, shadow processor bridge
+│   ├── NodeProcessor.h       (267)       — AudioProcessor, VideoProcessor, ControlSlot, evalSlot()
+│   ├── ProcessorCommand.h    (75)        — Command enum + struct for SPSC queues
+│   ├── Interpreter.h/cpp     (90/919)    — Lua bindings, script execution, live-reload
+│   ├── Patterns.h            (468)       — Stateless pattern classes (Seq, Osc, Noise, etc.)
+│   ├── PatternMath.h         (251)       — Pattern composition (Fast, Slow, Scale, Snap, etc.)
+│   ├── Transport.h/cpp       (38/23)     — Musical clock (cycle, BPM, beatsPerBar)
+│   ├── AssetRegistry.h/cpp   (73/180)    — Logical VFS: banks, name resolution, A/V pairing
+│   ├── AudioCache.h/cpp      (44/232)    — Deduplicated RAM audio buffers
+│   ├── VideoCache.h/cpp      (65/105)    — ofxHapPlayer pooling and caching
+│   ├── Config.h/cpp          (41/90)     — JSON config loader
+│   ├── InputBindings.h/cpp   (54/239)    — MIDI, OSC, gamepad input → Pattern bridge
+│   ├── Registry.h/cpp        (17/36)     — Node type factory (type string → constructor)
+│   ├── FileWatcher.h         (120)       — File system watcher for live-reload
+│   └── moodycamel/           (1751)      — Lock-free SPSC queue (third-party)
+├── nodes/
+│   ├── AudioSource.h/cpp     (50/390)    — RAM-cached sample player, trigger system
+│   ├── VideoSource.h/cpp     (84/354)    — HAP video player, clock modes (INTERNAL/EXTERNAL)
+│   ├── AVSampler.h/cpp       (73/357)    — DEPRECATED. Retained as reference only.
+│   ├── AudioMixer.h/cpp      (33/140)    — Multi-channel summation
+│   ├── VideoMixer.h/cpp      (75/406)    — GPU compositing with blend modes
+│   ├── AudioOutput.h/cpp     (11/61)     — Hardware audio sink
+│   ├── VideoOutput.h/cpp     (24/100)    — Display sink
+│   └── composite/                        — (reserved for future composite nodes)
+└── ui/
+    ├── GraphUI.h/cpp         (47/368)    — Node graph visualization with physics layout
+```
+
+## Architecture Key Points
+
+### Threading Model
+
+- **Main thread**: Lua execution, video processing (GPU/GL context), UI, file watching
+- **Audio thread**: RtAudio callback, sample-accurate DSP, pattern evaluation per-sample
+- **Communication**: Main→Audio via wait-free SPSC queues. Audio→Main via atomic flags + garbage queues.
+
+### Shadow Processors
+
+Each Node can have an `AudioProcessor` and/or `VideoProcessor`. These are the "shadow" copies that run on the real-time threads. Parameters flow from Lua → `ofParameter` → `pushCommand(SET_PARAM/SET_PATTERN)` → SPSC queue → shadow processor slot.
+
+### Node Lifecycle
+
+1. **Creation**: Lua `addNode()` → `Graph::createNode()` → `setupProcessor()` → `ADD_NODE` command
+2. **Live-reload (hot-reload)**: `beginScript()` marks nodes untouched → script re-executes, touching nodes → `endScript()` destroys untouched nodes + clears untouched modulators → batch-drain to SPSC queues
+3. **Destruction**: `Node::~Node()` → `REMOVE_NODE` command → audio thread removes processor
+
+### Sub-graph System
+
+- Graphs are Nodes. `graph("name", {script="..."})` loads a Lua script in an isolated `_ENV`.
+- `expose()` registers proxy targets so parent parameters forward to children.
+- Boundary routing via `resolveAudioOutput()`/`resolveVideoOutput()` typed methods.
+- `sampler()` is now a Lua sub-graph loading `scripts/nodes/avsampler.lua` (C++ AVSampler deprecated).
+
+### Pattern System
+
+Patterns are stateless functions `cycle → float`. Evaluated at three rates:
+- **Per-sample** (audio thread): speed, gain — via `ControlSlot` + `evalSlot()`
+- **Per-frame** (main thread): video speed, active — via `ControlSlot`
+- **Per-trigger** (event): path triggers — via `querySlot()` + atomic flags
+
+### Key ADRs (Architecture.md)
+
+| ADR | Topic |
+|-----|-------|
+| 001 | Position is per-trigger, not per-sample |
+| 002 | Patterns shared by pointer, not copied |
+| 003 | Track touched modulators during reload |
+| 004 | VideoProcessor runs on main thread |
+| 005 | `active` is never exposed via `expose()` |
+| 006 | Batch commands during reload |
+| 007 | Defer modulator clearing to end of reload |
+| 008 | Bare bank names resolve to first matching asset |
+| 009 | Robust parameter synchronization (type matching) |
+| 010 | Slaved video processor state (EXTERNAL clock) |
+
+## Code Conventions
+
+- **C++ style**: openFrameworks idioms. `ofParameter<float>` for exposed params, `shared_ptr` for ownership.
+- **Headers**: Forward-declare types in headers; include full headers in .cpp files.
+- **Node parameters**: Declared as `ofParameter<T>` members added to `parameters` (ofParameterGroup). Accessed by name string for shadow sync.
+- **Commands**: All shadow processor mutations go through `pushCommand()`. Never touch a processor directly from the main thread if it's also accessed from the audio thread.
+- **No comments**: Don't add comments unless explicitly requested.
+- **Lua DSL**: Defined in `bin/data/system/prelude.lua`. Node factories return node objects with chainable methods.
+- **Naming**: Node types use PascalCase (e.g., `AudioSource`), Lua aliases use lowercase (e.g., `audio()`).
+
+## Known Issues & Technical Debt
+
+### Active Issues (Obsidian)
+
+Located at `/Users/jaufre/works/notes/Programming/Active projects/Crumble/Issues/`:
+
+| Issue | Status | Priority |
+|-------|--------|----------|
+| Main-Thread Audio Decoding Hitch | PENDING | High (UX) — 50-200ms freeze on first asset load |
+| ofxHapPlayer Initialization Overhead | PENDING | Medium — stutter on rapid asset swaps |
+
+### Potential Issues (unverified)
+
+From `Issues/? — sloppy issues (to verify).md` — self-described as potentially outdated but contains plausible leads:
+
+- `ProcessorCommand` holds `shared_ptr<Pattern>` → destructor may run on audio thread (allocation-free violation)
+- `FileWatcher` holds mutex during `sleep()` → 500ms reload latency
+- `AudioMixer` silently drops inputs above index 15 (hardcoded loop bound)
+- SPSC queue overflow is silent data loss (dropped `RELEASE_BUFFER` → use-after-free window)
+
+### Deprecated Code
+
+- `src/nodes/AVSampler.cpp/h` — C++ AVSampler is deprecated. Lua sub-graph is canonical. Retained as reference only.
+
+## Documentation (Obsidian Vault)
+
+Primary project documentation lives in an Obsidian vault at:
+```
+/Users/jaufre/works/notes/Programming/Active projects/Crumble/
+```
+
+| File | Purpose |
+|------|---------|
+| `Architecture.md` | ADRs, threading model, parameter system |
+| `Health.md` | Codebase health metrics (line counts, file distribution) |
+| `Crumble.md` | User-facing project overview |
+| `Roadmaps/Roadmaps.md` | Future planning notes |
+| `Roadmaps/31.03.26 AVSampler Roadmap.md` | AVSampler sub-graph implementation (complete) |
+| `Issues/` | Bug tracking with FIXED/PENDING status |
+
+### Obsidian CLI
+
+The `obsidian` command-line utility provides direct access to the vault. Useful commands:
+
+```bash
+obsidian read file="Architecture"                          # Read a note by name
+obsidian search query="ADR-009" path="Active projects/Crumble"  # Search the vault
+obsidian outline file="Architecture"                       # Show headings
+obsidian backlinks file="Architecture"                     # Show backlinks
+```
+
+**Note:** For writing to Obsidian files, prefer direct file editing via the Write/Edit tools rather than `obsidian append`/`obsidian create`. The CLI requires escaping special characters (`\n`, `\"`, backticks) which is fragile for content with code blocks or complex markdown.
+
+**Waypoints:** Obsidian auto-updates `%% Begin Waypoint %%` / `%% End Waypoint %%` blocks when notes are moved or renamed. These cross-references are maintained automatically — no manual sync needed.
+
+The vault path is:
+```
+/Users/jaufre/works/notes/Programming/Active projects/Crumble/
+```
+
+### Updating Obsidian Docs
+
+When making architectural changes:
+1. Add new ADRs to `Architecture.md` (Context/Decision/Consequence format)
+2. Create issue files in `Issues/` for new bugs (Status: PENDING/FIXED, Priority, Related files)
+3. Update `Health.md` line counts after significant refactors
+4. When `Crumble.md` and `README.md` diverge, prioritize README.md as the source of truth
+
+## File Watching & Live-Reload
+
+- `.lua` files: Hot-reload via `FileWatcher` (polls every 500ms). Existing nodes keep state, new nodes created, removed nodes deleted.
+- `config.json`: Reloads configuration.
+- `entryScript` change: Full graph reset.

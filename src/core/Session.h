@@ -82,7 +82,7 @@ public:
     void registerAudioEndpoint(crumble::AudioProcessor* ap);
 
 private:
-    static constexpr int COMMAND_QUEUE_CAPACITY = 1024;
+    static constexpr int COMMAND_QUEUE_CAPACITY = 4096;
 
     Graph graph;
     AudioCache audioCache;
