@@ -16,9 +16,11 @@ class ofApp : public ofBaseApp{
         // Set configuration from command-line arguments
         void setCommandLineConfig(const std::string& configPath,
                                   const std::string& scriptOverride,
-                                  const std::string& windowTitle);
+                                  const std::string& windowTitle,
+                                  const std::string& cwd);
 
  		void keyPressed(int key);
+ 		void mouseMoved(int x, int y);
  		void mousePressed(int x, int y, int button);
  		void mouseDragged(int x, int y, int button);
  		void mouseReleased(int x, int y, int button);
@@ -42,6 +44,7 @@ private:
     std::string m_configPath = "config.json";
     std::string m_scriptOverride;
     std::string m_windowTitle;
+    std::string m_cwd;
     
     // Active script path (for live-reload)
     std::string m_activeScriptPath;

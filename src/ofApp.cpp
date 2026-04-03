@@ -1,13 +1,16 @@
 #include "ofApp.h"
 #include "core/Registry.h"
 #include "core/Config.h"
+#include <filesystem>
 
 void ofApp::setCommandLineConfig(const std::string& configPath,
                                   const std::string& scriptOverride,
-                                  const std::string& windowTitle) {
+                                  const std::string& windowTitle,
+                                  const std::string& cwd) {
     m_configPath = configPath;
     m_scriptOverride = scriptOverride;
     m_windowTitle = windowTitle;
+    m_cwd = cwd;
 }
 
 void ofApp::setup(){
@@ -31,14 +34,20 @@ void ofApp::setup(){
     
     std::string absScriptPath;
     if (!scriptToRun.empty()) {
+        namespace fs = std::filesystem;
+        
         if (ofFilePath::isAbsolute(scriptToRun)) {
             absScriptPath = scriptToRun;
-        } else if (ofFile::doesFileExist(scriptToRun)) {
-            absScriptPath = ofFilePath::getAbsolutePath(scriptToRun);
-        } else if (ofFile::doesFileExist(ofToDataPath(scriptToRun))) {
-            absScriptPath = ofToDataPath(scriptToRun);
-        } else if (ofFile::doesFileExist(ofToDataPath("scripts/" + scriptToRun))) {
-            absScriptPath = ofToDataPath("scripts/" + scriptToRun);
+        } else {
+            fs::path cwdPath = fs::path(m_cwd) / scriptToRun;
+            if (fs::exists(cwdPath)) {
+                absScriptPath = cwdPath.string();
+            } else {
+                fs::path dataPath = ofToDataPath(scriptToRun);
+                if (fs::exists(dataPath)) {
+                    absScriptPath = dataPath.string();
+                }
+            }
         }
         
         if (!absScriptPath.empty() && ofFile::doesFileExist(absScriptPath)) {
@@ -56,7 +65,6 @@ void ofApp::setup(){
     }
     
     fileWatcher.watch(m_configPath);
-    fileWatcher.watch(ofToDataPath("scripts"), true);
     fileWatcher.start(500);
     
     graphUI.setup();
@@ -142,6 +150,10 @@ void ofApp::keyPressed(int key){
             interpreter.runScript(config.entryScript);
         }
     }
+}
+
+void ofApp::mouseMoved(int x, int y) {
+    graphUI.mouseMoved(x, y);
 }
 
 void ofApp::mousePressed(int x, int y, int button) {

@@ -103,6 +103,8 @@ static int runAll(const std::string& dir, const std::string& configPath, char* a
 //   -a, --run-all <dir>   Launch one instance per .lua file in directory
 //========================================================================
 int main(int argc, char *argv[]){
+    std::string cwd = fs::current_path().string();
+    
     std::string configPath = "config.json";
     std::string scriptOverride;
     std::string windowTitle;
@@ -132,7 +134,7 @@ int main(int argc, char *argv[]){
 	auto mainWindow = ofCreateWindow(settings);
 
     auto app = std::make_shared<ofApp>();
-    app->setCommandLineConfig(configPath, scriptOverride, windowTitle);
+    app->setCommandLineConfig(configPath, scriptOverride, windowTitle, cwd);
 	ofRunApp(mainWindow, app);
 	ofRunMainLoop();
 }
