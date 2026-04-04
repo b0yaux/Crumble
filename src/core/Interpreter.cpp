@@ -4,6 +4,7 @@
 #include "PatternMath.h"
 #include "../nodes/AudioSource.h"
 #include "../nodes/VideoSource.h"
+#include <unordered_set>
 
 Session* Interpreter::s_currentSession = nullptr;
 thread_local std::vector<Graph*> Interpreter::s_graphStack;
@@ -290,6 +291,8 @@ void Interpreter::bindSessionAPI() {
     lua_State* L = lua;
     
     lua_register(L, "_addNode", lua_addNode);
+    lua_register(L, "_removeNode", lua_removeNode);
+    lua_register(L, "_nextInput", lua_nextInput);
     lua_register(L, "_connect", lua_connect);
     lua_register(L, "_get", lua_getParam);
     lua_register(L, "_set", lua_setParam);
@@ -340,6 +343,7 @@ function NodeMeta:__newindex(key, value)
                 end
             elseif k == "off" then return function(self) _setActive(self.id, false) return self end
             elseif k == "on" then return function(self) _setActive(self.id, true) return self end
+            elseif k == "destroy" then return function(self) _removeNode(self.id) _G._allNodes[self.id] = nil end
             elseif k == "mute" then return function(self) _setActive(self.id, false) return self end
             elseif k == "unmute" then return function(self) _setActive(self.id, true) return self end
             elseif k == "outlet" then return function(self, idx) _outlet(self.id, idx or 0) return self end
@@ -446,8 +450,7 @@ function NodeMeta:__newindex(key, value)
                 end
 
                 if not targetIn then
-                    _G._autoIndices[dId] = (_G._autoIndices[dId] or -1) + 1
-                    targetIn = _G._autoIndices[dId]
+                    targetIn = _nextInput(dId)
                 end
                 
                 _connect(sId, dId, outIdx, targetIn)
@@ -522,6 +525,33 @@ int Interpreter::lua_addNode(lua_State* L) {
     if (!node) return 0;
     node->touched = true;
     lua_pushinteger(L, node->nodeId);
+    return 1;
+}
+
+int Interpreter::lua_removeNode(lua_State* L) {
+    if (!s_currentSession) return 0;
+    if (lua_isnil(L, 1)) return 0;
+    int nodeId = (int)luaL_checkinteger(L, 1);
+    Graph* graph = getCurrentGraph();
+    if (!graph) return 0;
+    graph->removeNode(nodeId);
+    return 0;
+}
+
+int Interpreter::lua_nextInput(lua_State* L) {
+    if (!s_currentSession) { lua_pushinteger(L, 0); return 1; }
+    int nodeId = (int)luaL_checkinteger(L, 1);
+    Graph* graph = getCurrentGraph();
+    if (!graph) { lua_pushinteger(L, 0); return 1; }
+    Node* node = graph->getNode(nodeId);
+    if (!node) { lua_pushinteger(L, 0); return 1; }
+    std::unordered_set<int> used;
+    for (const auto& conn : graph->getConnections()) {
+        if (conn.toNode == nodeId) used.insert(conn.toInput);
+    }
+    int next = 0;
+    while (used.count(next)) next++;
+    lua_pushinteger(L, next);
     return 1;
 }
 

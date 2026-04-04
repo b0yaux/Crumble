@@ -300,7 +300,7 @@ void Session::update(float dt) {
     double barsStep = 0.0; // Pattern interp on video thread is K-rate (once per frame)
     
     for (auto* vp : activeVideoProcessors) {
-        vp->currentCycle = blockBars; // Update cycle for pattern-aware getParam()
+        vp->currentCycle = blockBars;
         vp->processVideo(blockBars, barsStep);
     }
 
@@ -313,7 +313,39 @@ void Session::update(float dt) {
     ctx.dt = dt;
     
     graph.prepare(ctx);
+
+    // Batch all commands from Lua update() to guarantee atomic delivery.
+    // Prevents SPSC queue overflow during rapid node create/destroy cycles.
+    reloading = true;
     graph.update(dt);
+    reloading = false;
+
+    for (const auto& batchedCmd : pendingCommands) {
+        bool hasAudio = batchedCmd.audioProcessor || batchedCmd.targetAudioProcessor;
+        bool hasVideo = batchedCmd.videoProcessor || batchedCmd.targetVideoProcessor;
+
+        if (hasAudio) {
+            int retries = 0;
+            while (!audioCommandQueue.enqueue(batchedCmd)) {
+                ofSleepMillis(1);
+                if (++retries > 100) {
+                    ofLogError("Session") << "Audio Command Queue Overflow during update flush!";
+                    break;
+                }
+            }
+        }
+        if (hasVideo) {
+            int retries = 0;
+            while (!videoCommandQueue.enqueue(batchedCmd)) {
+                ofSleepMillis(1);
+                if (++retries > 100) {
+                    ofLogError("Session") << "Video Command Queue Overflow during update flush!";
+                    break;
+                }
+            }
+        }
+    }
+    pendingCommands.clear();
 
     audioCache.prune(30.0f);
     VideoCache::get().prune(30.0f);

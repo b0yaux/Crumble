@@ -29,14 +29,7 @@ public:
     void processVideo(double cycle, double cycleStep) override {
         currentCycle = cycle;
         
-        if (!writeTex) {
-            static bool loggedOnce = false;
-            if (!loggedOnce) {
-                ofLogWarning("VideoMixerProcessor") << "writeTex is null!";
-                loggedOnce = true;
-            }
-            return;
-        }
+        if (!writeTex) return;
         
         int numActiveLayers = std::min((int)evalSlot(numLayersSlot, cycle), MAX_INPUTS);
         float masterOpacity = evalSlot(masterOpacitySlot, cycle);
