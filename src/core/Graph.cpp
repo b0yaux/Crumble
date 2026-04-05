@@ -194,7 +194,7 @@ void Graph::pruneStaleConnections() {
         }
     }
     
-    ofLogNotice("Graph") << "pruneStaleConnections: removing " << toRemove.size() << " stale connections";
+    ofLogVerbose("Graph") << "pruneStaleConnections: removing " << toRemove.size() << " stale connections";
     for (auto& pair : toRemove) {
         disconnect(pair.first, pair.second);
     }

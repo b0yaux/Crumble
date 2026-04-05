@@ -547,7 +547,7 @@ int Interpreter::lua_nextInput(lua_State* L) {
     if (!node) { lua_pushinteger(L, 0); return 1; }
     std::unordered_set<int> used;
     for (const auto& conn : graph->getConnections()) {
-        if (conn.toNode == nodeId) used.insert(conn.toInput);
+        if (conn.toNode == nodeId && !conn.stale) used.insert(conn.toInput);
     }
     int next = 0;
     while (used.count(next)) next++;

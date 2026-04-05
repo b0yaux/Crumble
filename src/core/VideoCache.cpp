@@ -15,8 +15,8 @@ std::unique_ptr<VideoCache::CachedVideo> VideoCache::acquire(const std::string& 
             it->second.lastUsed = std::chrono::steady_clock::now();
             it->second.acquireCount++;
             wasCached = true;
-            ofLogNotice("VideoCache") << "Cache metadata hit: " << path
-                                      << " (acquire #" << it->second.acquireCount << ")";
+            ofLogVerbose("VideoCache") << "Cache metadata hit: " << path
+                                        << " (acquire #" << it->second.acquireCount << ")";
         }
     }
 

@@ -219,7 +219,7 @@ void AudioSource::load(const std::string& audioPath) {
         cmd.totalSamples = audioFile->length();
         cmd.channels     = audioFile->channels();
         pushCommand(cmd);
-        ofLogNotice("AudioSource") << "Loaded: " << audioPath;
+        ofLogVerbose("AudioSource") << "Loaded: " << audioPath;
     } else {
         ofLogError("AudioSource") << "Failed to load: " << audioPath;
     }

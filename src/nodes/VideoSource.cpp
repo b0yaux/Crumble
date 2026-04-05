@@ -165,7 +165,7 @@ void VideoSource::load(const std::string& vidPath) {
     }
     
     // Different video - swap in the cached player
-    ofLogNotice("VideoSource") << "Swapping to cached video: " << resolvedPath;
+    ofLogVerbose("VideoSource") << "Swapping to cached video: " << resolvedPath;
     
     // Stop current playback
     if (getPlayer().isLoaded()) {
