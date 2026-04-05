@@ -14,6 +14,8 @@ make RunRelease     # Build and run
 
 Build system is openFrameworks `makefileCommon/compile.project.mk`. No cmake, no npm.
 
+**Note for Agents:** `make RunRelease` launches a blocking GUI window. If executed via bash, it must be backgrounded (e.g., `make RunRelease &`) or the command will hang. To verify code changes without launching the GUI, always use the `make` command to ensure the project compiles successfully.
+
 ### Config
 
 - `bin/data/config.json` — entry script, search paths, graph UI settings
@@ -32,37 +34,37 @@ Build system is openFrameworks `makefileCommon/compile.project.mk`. No cmake, no
 
 ```
 src/
-├── main.cpp                  (137 lines) — CLI parsing, multi-instance launcher
-├── ofApp.h/cpp               (219 lines) — oF hooks, delegates to Session
+├── main.cpp                  — CLI parsing, multi-instance launcher
+├── ofApp.h/cpp               — oF lifecycle hooks, delegates to Session
 ├── core/
-│   ├── Session.h/cpp         (119/406)   — Root container: threading, command dispatch, hardware I/O
-│   ├── Graph.h/cpp           (174/722)   — Recursive node container, sub-graph lifecycle
-│   ├── Node.h/cpp            (172/315)   — Base node: parameters, modulators, shadow processor bridge
-│   ├── NodeProcessor.h       (267)       — AudioProcessor, VideoProcessor, ControlSlot, evalSlot()
-│   ├── ProcessorCommand.h    (75)        — Command enum + struct for SPSC queues
-│   ├── Interpreter.h/cpp     (90/919)    — Lua bindings, script execution, live-reload
-│   ├── Patterns.h            (468)       — Stateless pattern classes (Seq, Osc, Noise, etc.)
-│   ├── PatternMath.h         (251)       — Pattern composition (Fast, Slow, Scale, Snap, etc.)
-│   ├── Transport.h/cpp       (38/23)     — Musical clock (cycle, BPM, beatsPerBar)
-│   ├── AssetRegistry.h/cpp   (73/180)    — Logical VFS: banks, name resolution, A/V pairing
-│   ├── AudioCache.h/cpp      (44/232)    — Deduplicated RAM audio buffers
-│   ├── VideoCache.h/cpp      (65/105)    — ofxHapPlayer pooling and caching
-│   ├── Config.h/cpp          (41/90)     — JSON config loader
-│   ├── InputBindings.h/cpp   (54/239)    — MIDI, OSC, gamepad input → Pattern bridge
-│   ├── Registry.h/cpp        (17/36)     — Node type factory (type string → constructor)
-│   ├── FileWatcher.h         (120)       — File system watcher for live-reload
-│   └── moodycamel/           (1751)      — Lock-free SPSC queue (third-party)
+│   ├── Session               — Root container: threading, command dispatch, hardware I/O
+│   ├── Graph                 — Recursive node container, sub-graph lifecycle, topology
+│   ├── Node                  — Base node: parameters, modulators, shadow processor bridge
+│   ├── NodeProcessor         — AudioProcessor, VideoProcessor, ControlSlot, evalSlot()
+│   ├── ProcessorCommand      — Command enum + struct for SPSC queues
+│   ├── Interpreter           — Lua bindings, script execution, live-reload
+│   ├── Patterns              — Stateless pattern classes (Seq, Osc, Noise, etc.)
+│   ├── PatternMath           — Pattern composition (Fast, Slow, Scale, Snap, etc.)
+│   ├── Transport             — Musical clock (cycle, BPM, beatsPerBar)
+│   ├── AssetRegistry         — Logical VFS: banks, name resolution, A/V pairing
+│   ├── AudioCache            — Deduplicated RAM audio buffers
+│   ├── VideoCache            — ofxHapPlayer pooling and caching
+│   ├── Config                — JSON config loader
+│   ├── InputBindings         — MIDI, OSC, gamepad input → Pattern bridge
+│   ├── Registry              — Node type factory (type string → constructor)
+│   ├── FileWatcher           — File system watcher for live-reload
+│   └── moodycamel/           — Lock-free SPSC queue (third-party)
 ├── nodes/
-│   ├── AudioSource.h/cpp     (50/390)    — RAM-cached sample player, trigger system
-│   ├── VideoSource.h/cpp     (84/354)    — HAP video player, clock modes (INTERNAL/EXTERNAL)
-│   ├── AVSampler.h/cpp       (73/357)    — DEPRECATED. Retained as reference only.
-│   ├── AudioMixer.h/cpp      (33/140)    — Multi-channel summation
-│   ├── VideoMixer.h/cpp      (75/406)    — GPU compositing with blend modes
-│   ├── AudioOutput.h/cpp     (11/61)     — Hardware audio sink
-│   ├── VideoOutput.h/cpp     (24/100)    — Display sink
-│   └── composite/                        — (reserved for future composite nodes)
+│   ├── AudioSource           — RAM-cached sample player, trigger system
+│   ├── VideoSource           — HAP video player, clock modes (INTERNAL/EXTERNAL)
+│   ├── AVSampler             — DEPRECATED. Lua sub-graph is canonical.
+│   ├── AudioMixer            — Multi-channel summation
+│   ├── VideoMixer            — GPU compositing with blend modes
+│   ├── AudioOutput           — Hardware audio sink
+│   ├── VideoOutput           — Display sink
+│   └── composite/            — (reserved for future composite nodes)
 └── ui/
-    ├── GraphUI.h/cpp         (47/368)    — Node graph visualization with physics layout
+    └── GraphUI               — Node graph visualization with physics layout
 ```
 
 ## Architecture Key Points
@@ -118,7 +120,7 @@ Patterns are stateless functions `cycle → float`. Evaluated at three rates:
 - **Headers**: Forward-declare types in headers; include full headers in .cpp files.
 - **Node parameters**: Declared as `ofParameter<T>` members added to `parameters` (ofParameterGroup). Accessed by name string for shadow sync.
 - **Commands**: All shadow processor mutations go through `pushCommand()`. Never touch a processor directly from the main thread if it's also accessed from the audio thread.
-- **No comments**: Don't add comments unless explicitly requested.
+- **Documentation**: Headers document the public API — class purpose, design intent, method contracts. .cpp files document non-obvious logic, algorithms, and rationale. Self-evident code stays clean. Ground terms when they first appear (not everyone knows what "shadow processor" or "SPSC queue" means).
 - **Lua DSL**: Defined in `bin/data/system/prelude.lua`. Node factories return node objects with chainable methods.
 - **Naming**: Node types use PascalCase (e.g., `AudioSource`), Lua aliases use lowercase (e.g., `audio()`).
 
@@ -164,7 +166,7 @@ Primary project documentation lives in an Obsidian vault at:
 
 ### Obsidian CLI
 
-The `obsidian` command-line utility provides direct access to the vault. Useful commands:
+Use the `bash` tool to run the `obsidian` command-line utility, which provides direct access to the vault. Useful commands:
 
 ```bash
 obsidian read file="Architecture"                          # Read a note by name
@@ -189,6 +191,10 @@ When making architectural changes:
 2. Create issue files in `Issues/` for new bugs (Status: PENDING/FIXED, Priority, Related files)
 3. Update `Health.md` line counts after significant refactors
 4. When `Crumble.md` and `README.md` diverge, prioritize README.md as the source of truth
+
+### External Research
+
+When researching new primitives, DSP techniques, or routing patterns, search the Obsidian vault at `/Users/jaufre/works/notes/Programming/` for relevant reference notes (e.g., JUCE, Bespoke Synth, TidalCycles, Hydra, openFrameworks addons). Use `webfetch` on URLs found in those notes. Compare findings with Crumble's Research documents before proposing changes.
 
 ## File Watching & Live-Reload
 
