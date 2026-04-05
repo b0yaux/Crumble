@@ -72,6 +72,9 @@ private:
     // Bridge functions (C-style for Lua)
     static int lua_addNode(lua_State* L);
     static int lua_removeNode(lua_State* L);
+    // Find the lowest available input slot for a node's connections.
+    // Stale connections (marked during hot-reload) are skipped so they can be
+    // re-activated at their original slot instead of shifting to a new one.
     static int lua_nextInput(lua_State* L);
     static int lua_connect(lua_State* L);
     static int lua_getParam(lua_State* L);

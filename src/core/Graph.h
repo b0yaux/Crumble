@@ -17,14 +17,17 @@ namespace crumble {
 }
 
 /**
- * A connection represents a link from one node's output to another node's input.
+ * A directed connection between two nodes.
+ * The `stale` flag supports idempotent hot-reload: all connections are
+ * marked stale before script re-execution. Re-declared connections have
+ * stale cleared (exact match in connect()); remaining stale ones are pruned.
  */
 struct Connection {
     int fromNode;
     int toNode;
     int fromOutput;
     int toInput;
-    bool stale = false; // Added for pruning
+    bool stale = false;
 };
 
 /**
@@ -62,7 +65,14 @@ public:
     // without destroying children. Called before idempotent sub-graph reload.
     void clearEphemeral();
 
+    // Mark all connections as stale for idempotent hot-reload.
+    // Called before script re-execution. Connections re-declared by the
+    // new script will have stale cleared (exact match in connect()).
+    // Remaining stale connections are pruned after the script finishes.
     void markConnectionsStale();
+    // Remove all stale connections (disconnect + erase).
+    // Called after script re-execution to clean up connections that
+    // were not re-declared by the new script.
     void pruneStaleConnections();
 
     Node* getNode(int nodeId) {

@@ -504,6 +504,7 @@ Graph* Interpreter::getCurrentGraph() {
     return s_graphStack.back();
 }
 
+// Idempotent node creation: reuses existing nodes by type+name (hot-reload survival).
 int Interpreter::lua_addNode(lua_State* L) {
     if (!s_currentSession) return 0;
     if (lua_isnil(L, 1)) return 0;
@@ -528,6 +529,7 @@ int Interpreter::lua_addNode(lua_State* L) {
     return 1;
 }
 
+// Runtime node destruction from Lua via node:destroy(). Enqueues REMOVE_NODE for shadow processors.
 int Interpreter::lua_removeNode(lua_State* L) {
     if (!s_currentSession) return 0;
     if (lua_isnil(L, 1)) return 0;
@@ -538,6 +540,8 @@ int Interpreter::lua_removeNode(lua_State* L) {
     return 0;
 }
 
+// Find the lowest unused input slot. Skips stale connections so they
+// can be re-activated at their original slot during hot-reload.
 int Interpreter::lua_nextInput(lua_State* L) {
     if (!s_currentSession) { lua_pushinteger(L, 0); return 1; }
     int nodeId = (int)luaL_checkinteger(L, 1);
@@ -555,6 +559,7 @@ int Interpreter::lua_nextInput(lua_State* L) {
     return 1;
 }
 
+// Lua connect() → Graph::connect(). Marks endpoints as touched for hot-reload survival.
 int Interpreter::lua_connect(lua_State* L) {
     if (!s_currentSession) return 0;
     if (lua_isnil(L, 1) || lua_isnil(L, 2)) return 0;

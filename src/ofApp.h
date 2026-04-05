@@ -6,6 +6,9 @@
 #include "ui/GraphUI.h"
 #include "core/FileWatcher.h"
 
+// oF lifecycle entry point. Delegates to Session; frame order:
+// inputBindings → session.update → interpreter.update → checkLiveReload
+
 class ofApp : public ofBaseApp{
 
  	public:

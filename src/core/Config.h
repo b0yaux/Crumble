@@ -1,6 +1,8 @@
 #pragma once
 #include "ofMain.h"
 
+// Session configuration, loaded from config.json at startup and on hot-reload.
+
 struct PhysicsConfig {
     bool enabled = true;
     bool randomSpawn = false;
@@ -38,6 +40,8 @@ struct Config {
     std::vector<std::string> searchPaths;
     std::string configPath = "config.json";
 };
+
+// Singleton config loader. Owns the parsed Config struct.
 
 class ConfigManager {
 public:

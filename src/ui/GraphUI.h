@@ -4,6 +4,9 @@
 #include "core/Session.h"
 #include "core/Config.h"
 
+// Recursive ZUI node-graph visualization with physics-based layout.
+// Zoom: Alt+drag. Pan: right-click drag. Node drag: left-click.
+
 class GraphUI {
 public:
     void setup();
