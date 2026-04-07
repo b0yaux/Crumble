@@ -249,4 +249,148 @@ namespace patterns {
         std::shared_ptr<Pattern<float>> patA, patB;
     };
 
+    // --- Stateful Primitives ---
+
+    /**
+     * Accum: Velocity integrator. Accumulates the source pattern's value
+     * over time at a given rate.
+     *
+     * output(t) = output(t-1) + source(t) * rate * dt
+     *
+     * General-purpose stateful pattern. Composes with any source:
+     *   gpad("rx"):accum(0.5)   — gamepad stick as velocity (navigate a slider)
+     *   noise(2):accum(0.1)     — random walk (Brownian motion)
+     *   midi(1,10):accum(0.3)   — MIDI CC as velocity
+     *   osc(0.5):accum(0.2)     — oscillator-driven ramp
+     *
+     * Wraps [0,1] when wrap=true, clamps otherwise.
+     *
+     * Thread safety: Audio-thread-only eval. No synchronization needed.
+     * Clone requirement: Must be unique per slot (not shared across nodes).
+     */
+    class Accum : public Pattern<float> {
+    public:
+        Accum(float rate, std::shared_ptr<Pattern<float>> source, float initial = 0.0f, bool doWrap = false)
+            : r(rate), wrap(doWrap), pat(source), output(initial) {}
+
+        std::vector<Event<float>> query(double start, double end) override {
+            return {Event<float>(eval(start), start, end - start, false)};
+        }
+
+        float eval(double cycle) override {
+            if (!pat) return output;
+            double dt = (lastCycle >= 0.0) ? std::max(0.0, cycle - lastCycle) : 0.0;
+            lastCycle = cycle;
+            float v = pat->eval(cycle);
+            output += v * r * (float)dt;
+            if (wrap) {
+                output = output - std::floor(output);
+            } else {
+                output = std::max(0.0f, std::min(1.0f, output));
+            }
+            return output;
+        }
+
+        std::string getSignature() const override {
+            return "accum:" + std::to_string(r) + "(" + (pat ? pat->getSignature() : "null") + ")";
+        }
+    private:
+        float r;
+        bool wrap;
+        std::shared_ptr<Pattern<float>> pat;
+        mutable float output = 0.0f;
+        mutable double lastCycle = -1.0;
+    };
+
+    /**
+     * Smooth: Exponential slew limiter (one-pole low-pass filter).
+     *
+     * output(t) = output(t-1) + (source(t) - output(t-1)) * alpha
+     * alpha = 1 - exp(-dt / tau)
+     *
+     * tau is in bars. Small tau = fast response. Large tau = sluggish.
+     * General-purpose: smooths any pattern's transitions — gamepads, LFOs,
+     * sequencer steps, MIDI controllers.
+     *
+     * Thread safety: Audio-thread-only eval. No synchronization needed.
+     * Clone requirement: Must be unique per slot (not shared across nodes).
+     */
+    class Smooth : public Pattern<float> {
+    public:
+        Smooth(float tau, std::shared_ptr<Pattern<float>> source)
+            : t(tau), pat(source) {}
+
+        std::vector<Event<float>> query(double start, double end) override {
+            return {Event<float>(eval(start), start, end - start, false)};
+        }
+
+        float eval(double cycle) override {
+            if (!pat) return output;
+            double dt = (lastCycle >= 0.0) ? std::max(0.0, cycle - lastCycle) : 0.0;
+            lastCycle = cycle;
+            float target = pat->eval(cycle);
+            if (t <= 0.0f || dt <= 0.0) {
+                output = target;
+            } else {
+                float alpha = 1.0f - std::exp(-(float)dt / t);
+                output += (target - output) * alpha;
+            }
+            return output;
+        }
+
+        std::string getSignature() const override {
+            return "smooth:" + std::to_string(t) + "(" + (pat ? pat->getSignature() : "null") + ")";
+        }
+    private:
+        float t;
+        std::shared_ptr<Pattern<float>> pat;
+        mutable float output = 0.0f;
+        mutable double lastCycle = -1.0;
+    };
+
+    /**
+     * Toggle: Rising-edge state machine. Flips between 0 and 1
+     * when the source pattern crosses above the threshold.
+     * Resets (arms for next flip) when source drops below threshold.
+     *
+     * Follows PD's threshold~ / SC's Schmidt model:
+     * configurable threshold with hysteresis (rise at threshold, arm on fall).
+     *
+     * Composes with any source:
+     *   gpad("triangle"):toggle()        — button at default 0.5 threshold
+     *   gpad("triangle"):toggle(0.1)     — low threshold (any touch triggers)
+     *   noise(2):toggle(0.7)             — noise-driven toggle
+     *
+     * Thread safety: Audio-thread-only eval. No synchronization needed.
+     * Clone requirement: Must be unique per slot (not shared across nodes).
+     */
+    class Toggle : public Pattern<float> {
+    public:
+        Toggle(std::shared_ptr<Pattern<float>> source, float thresh = 0.5f)
+            : pat(source), threshold(thresh) {}
+
+        std::vector<Event<float>> query(double start, double end) override {
+            return {Event<float>(eval(start), start, end - start, false)};
+        }
+
+        float eval(double cycle) override {
+            if (!pat) return state ? 1.0f : 0.0f;
+            float v = pat->eval(cycle);
+            if (v >= threshold && !wasHigh) {
+                state = !state;
+            }
+            wasHigh = v >= threshold;
+            return state ? 1.0f : 0.0f;
+        }
+
+        std::string getSignature() const override {
+            return "toggle:" + std::to_string(threshold) + "(" + (pat ? pat->getSignature() : "null") + ")";
+        }
+    private:
+        std::shared_ptr<Pattern<float>> pat;
+        float threshold;
+        mutable bool state = false;
+        mutable bool wasHigh = false;
+    };
+
 }

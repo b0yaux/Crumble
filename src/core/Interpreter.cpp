@@ -264,6 +264,67 @@ void Interpreter::update(const Transport& t) {
     
     lua_setglobal(L, "Time");
 
+    // Create 'Gamepad' table — snapshot of current gamepad state for Lua update()
+    {
+        lua_settop(L, 0); // Clear stack — guard against leaks from prior operations
+        auto& ib = session->getInputBindings();
+        lua_newtable(L);
+
+        static const char* axisNames[] = {"lx", "ly", "rx", "ry", "lt", "rt"};
+        for (int i = 0; i < 6; i++) {
+            auto* b = ib.getBinding("gamepad:axis:" + std::to_string(i));
+            float v = b ? b->load(std::memory_order_acquire) : 0.0f;
+            lua_pushstring(L, axisNames[i]);
+            lua_pushnumber(L, v);
+            lua_settable(L, -3);
+        }
+
+        static const char* btnNames[] = {
+            "cross", "circle", "square", "triangle",
+            "select", "ps", "start", "l3", "r3",
+            "l1", "r1", "up", "down", "left", "right"
+        };
+        for (int i = 0; i < 15; i++) {
+            auto* b = ib.getBinding("gamepad:button:" + std::to_string(i));
+            float v = b ? b->load(std::memory_order_acquire) : 0.0f;
+            lua_pushstring(L, btnNames[i]);
+            lua_pushnumber(L, v);
+            lua_settable(L, -3);
+        }
+
+        lua_setglobal(L, "Gamepad");
+    }
+
+    // --- Gamepad diagnostic logging (remove after fix) ---
+    {
+        lua_getglobal(L, "Gamepad");
+        bool isTable = lua_istable(L, -1);
+        ofLogNotice("Interpreter") << "[GP-DIAG] lua_setglobal done, istable=" << isTable
+            << " stacktop=" << lua_gettop(L);
+        if (isTable) {
+            lua_getfield(L, -1, "cross");
+            bool hasCross = !lua_isnil(L, -1);
+            float crossVal = hasCross ? (float)lua_tonumber(L, -1) : -999;
+            lua_pop(L, 1);
+            lua_getfield(L, -1, "l1");
+            bool hasL1 = !lua_isnil(L, -1);
+            float l1Val = hasL1 ? (float)lua_tonumber(L, -1) : -999;
+            lua_pop(L, 1);
+            lua_getfield(L, -1, "lx");
+            bool hasLx = !lua_isnil(L, -1);
+            float lxVal = hasLx ? (float)lua_tonumber(L, -1) : -999;
+            lua_pop(L, 1);
+            lua_getfield(L, -1, "r1");
+            bool hasR1 = !lua_isnil(L, -1);
+            float r1Val = hasR1 ? (float)lua_tonumber(L, -1) : -999;
+            lua_pop(L, 1);
+            ofLogNotice("Interpreter") << "[GP-DIAG] cross=" << crossVal
+                << " l1=" << l1Val << " r1=" << r1Val << " lx=" << lxVal;
+        }
+        lua_pop(L, 1);
+    }
+    // --- end diagnostic ---
+
     // Call global update function if it exists
     lua_getglobal(L, "update");
     if (lua_isfunction(L, -1)) {
@@ -492,7 +553,10 @@ function NodeMeta:__newindex(key, value)
                     shift = function(self, o) return makeGen({type="shift", o=o, p=self}) end,
                     scale = function(self, l, h) return makeGen({type="scale", l=l, h=h, p=self}) end,
                     snap = function(self, s) return makeGen({type="snap", s=s, p=self}) end,
-                    abs = function(self) return makeGen({type="abs", p=self}) end
+                    abs = function(self) return makeGen({type="abs", p=self}) end,
+                    accum = function(self, rate, initial) return makeGen({type="accum", rate=rate or 0.5, init=initial or 0, p=self}) end,
+                    smooth = function(self, tau) return makeGen({type="smooth", tau=tau or 1.0, p=self}) end,
+                    toggle = function(self, thresh) return makeGen({type="toggle", thresh=thresh or 0.5, p=self}) end
                 }
             }
             return setmetatable(t, GenMeta)
@@ -863,6 +927,19 @@ std::shared_ptr<Pattern<float>> parsePattern(lua_State* L, int index) {
         } else if (genType == "abs") {
             lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
             if (p) return std::make_shared<patterns::Abs>(p);
+        } else if (genType == "accum") {
+            lua_getfield(L, index, "rate"); float rate = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+            lua_getfield(L, index, "init"); float init = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+            lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
+            if (p) return std::make_shared<patterns::Accum>(rate, p, init);
+        } else if (genType == "smooth") {
+            lua_getfield(L, index, "tau"); float tau = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+            lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
+            if (p) return std::make_shared<patterns::Smooth>(tau, p);
+        } else if (genType == "toggle") {
+            lua_getfield(L, index, "thresh"); float thresh = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+            lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
+            if (p) return std::make_shared<patterns::Toggle>(p, thresh);
         } else if (genType == "midi") {
             lua_getfield(L, index, "cc"); int cc = (int)lua_tonumber(L, -1); lua_pop(L, 1);
             lua_getfield(L, index, "chan"); int chan = (int)lua_tonumber(L, -1); lua_pop(L, 1);

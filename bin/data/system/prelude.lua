@@ -139,13 +139,14 @@ GPAD = {
     UP = 11, DOWN = 12, LEFT = 13, RIGHT = 14
 }
 
--- PlayStation button names (same indices, different names)
+-- PlayStation button names (standard SDL mapping)
 -- cross=A, circle=B, square=X, triangle=Y
 GPAD_PS = {
     CROSS = 0, CIRCLE = 1, SQUARE = 2, TRIANGLE = 3,
-    L1 = 4, R1 = 5,
-    SELECT = 6, OPTIONS = 7, PS = 8,
-    L3 = 9, R3 = 10
+    SELECT = 4, PS = 5, OPTIONS = 6,
+    L3 = 7, R3 = 8,
+    L1 = 9, R1 = 10,
+    UP = 11, DOWN = 12, LEFT = 13, RIGHT = 14
 }
 
 -- Axis names (Xbox/PlayStation compatible)
@@ -192,6 +193,47 @@ end
 -- Low-level API (kept for backwards compatibility)
 function gamepadbutton(id) return makeGen({type="gamepadbutton", id=id or 0}) end
 function gamepadaxis(id) return makeGen({type="gamepadaxis", id=id or 0}) end
+
+-- =============================================================================
+-- INPUT UTILITIES
+-- =============================================================================
+
+-- press(name, value, delay, rate) → bool
+-- Standard key repeat: fires immediately on press, then auto-repeats while held.
+--
+-- Parameters:
+--   name:  state key (independent timer per name)
+--   value: input value 0..1 (typically Gamepad.x or 0)
+--   delay: frames before repeat starts (default: 18 = ~300ms at 60fps)
+--   rate:  frames between repeats (default: 6 = ~100ms at 60fps)
+--
+-- Works with any input source: Gamepad, Keyboard, MIDI, etc.
+--
+--   if press("l1", Gamepad.l1 or 0) then batch = batch - 1 end
+local _press = {}
+function press(name, value, delay, rate)
+    delay = delay or 18
+    rate = rate or 6
+    local s = _press[name]
+    if not s then
+        s = {held = false, start = -999, last = -999, tick = 0}
+        _press[name] = s
+    end
+    s.tick = s.tick + 1
+    if value > 0.5 then
+        if not s.held then
+            s.held = true; s.start = s.tick; s.last = s.tick
+            return true
+        end
+        if s.tick - s.start >= delay and s.tick - s.last >= rate then
+            s.last = s.tick
+            return true
+        end
+    else
+        s.held = false
+    end
+    return false
+end
 
 -- =============================================================================
 -- PARAMETER PROXY FOR SUB-GRAPHS

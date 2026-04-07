@@ -99,6 +99,9 @@ public:
                     float value = (e.type == SDL_CONTROLLERBUTTONDOWN) ? 1.0f : 0.0f;
                     if (btn >= 0 && btn < SDL_CONTROLLER_BUTTON_MAX) {
                         buttonStates[btn] = value;
+                        if (value > 0.5f) {
+                            ofLogNotice("InputBindings") << "[INPUT-DEBUG] Button pressed: " << btn;
+                        }
                         std::string path = "gamepad:button:" + std::to_string(btn);
                         owner->setBinding(path, value);
                     }
