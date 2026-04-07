@@ -467,7 +467,11 @@ function NodeMeta:__newindex(key, value)
                                 end
                             end
                         end
-                        _set(dId, pk .. "_" .. targetIn, finalVal)
+                        if type(finalVal) == "table" and finalVal._isGen then
+                            _setGen(dId, pk .. "_" .. targetIn, finalVal)
+                        else
+                            _set(dId, pk .. "_" .. targetIn, finalVal)
+                        end
                     end
                 end
                 src._lastTrack = targetIn
