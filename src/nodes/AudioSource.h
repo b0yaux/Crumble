@@ -13,10 +13,11 @@ public:
     
     ofParameter<std::string> path;
     ofParameter<std::string> bank;
-    ofParameter<float> speed;
-    ofParameter<bool> loop;
     ofParameter<bool> playing;
+    ofParameter<float> speed;
     ofParameter<float> position;
+    ofParameter<bool> loop;
+    ofParameter<float> loopSize;
 
     void processAudio(ofSoundBuffer& buffer, int index = 0) override;
     void update(float dt) override;

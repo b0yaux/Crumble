@@ -38,7 +38,6 @@ struct ProcessorCommand {
         SET_PATTERN,        // Install a Pattern object on the audio/video thread for parameter name
         LOAD_BUFFER,
         RELEASE_BUFFER,
-        SET_RELATIVE_POS,   // Jump to a relative position (0.0-1.0)
         REGISTER_ENDPOINT   // Nominate this processor as a Session-driven audio endpoint
     };
 

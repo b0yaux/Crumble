@@ -11,7 +11,7 @@ v:outlet(0)
 
 v.clockMode = 1 -- EXTERNAL
 
-expose(a, "speed", "path", "gain", "loop", "position")
+expose(a, "speed", "path", "gain", "loop", "position", "loopSize")
 expose(v, "speed", "path", "opacity", "blend")
 -- "active" is NOT exposed — Graph::onParameterChanged("active")
 -- propagates to all children automatically.

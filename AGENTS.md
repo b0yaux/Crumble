@@ -55,7 +55,7 @@ src/
 │   ├── FileWatcher           — File system watcher for live-reload
 │   └── moodycamel/           — Lock-free SPSC queue (third-party)
 ├── nodes/
-│   ├── AudioSource           — RAM-cached sample player, trigger system
+│   ├── AudioSource           — RAM-cached sample player, trigger system, loop region
 │   ├── VideoSource           — HAP video player, clock modes (INTERNAL/EXTERNAL)
 │   ├── AVSampler             — DEPRECATED. Lua sub-graph is canonical.
 │   ├── AudioMixer            — Multi-channel summation
@@ -95,7 +95,7 @@ Each Node can have an `AudioProcessor` and/or `VideoProcessor`. These are the "s
 ### Pattern System
 
 Patterns are stateless functions `cycle → float`. Evaluated at three rates:
-- **Per-sample** (audio thread): speed, gain — via `ControlSlot` + `evalSlot()`
+- **Per-sample** (audio thread): speed, gain, position, loopSize — via `ControlSlot` + `evalSlot()`
 - **Per-frame** (main thread): video speed, active — via `ControlSlot`
 - **Per-trigger** (event): path triggers — via `querySlot()` + atomic flags
 
@@ -103,7 +103,6 @@ Patterns are stateless functions `cycle → float`. Evaluated at three rates:
 
 | ADR | Topic |
 |-----|-------|
-| 001 | Position is per-trigger, not per-sample |
 | 002 | Patterns shared by pointer, not copied |
 | 003 | Track touched modulators during reload |
 | 004 | VideoProcessor runs on main thread |

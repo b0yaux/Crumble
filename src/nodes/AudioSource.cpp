@@ -14,6 +14,8 @@ public:
     ControlSlot* activeSlot = nullptr;
     ControlSlot* gainSlot = nullptr;
     ControlSlot* triggerSlot = nullptr;
+    ControlSlot* positionSlot = nullptr;
+    ControlSlot* loopSizeSlot = nullptr;
 
     std::atomic<int> pendingTrigger{-1};
     std::atomic<bool> pendingRest{false};
@@ -21,16 +23,18 @@ public:
     std::atomic<bool> hasPendingTriggerPath{false};
     std::mutex pendingPathMutex;
     std::atomic<bool> muted{false};
-    std::atomic<bool> pendingRetrigger{false};  // Sample-accurate re-trigger flag
+    std::atomic<bool> pendingRetrigger{false};
     double lastTriggerBars = -1.0;
 
     AudioSourceProcessor() {
         playingSlot = getControlPtr(crumble::hashString("playing"));
         activeSlot = getControlPtr(crumble::hashString("active"));
-        loopSlot = getControlPtr(crumble::hashString("loop"));
         speedSlot = getControlPtr(crumble::hashString("speed"));
         gainSlot = getControlPtr(crumble::hashString("gain"));
         triggerSlot = getControlPtr(crumble::hashString("path"));
+        loopSlot = getControlPtr(crumble::hashString("loop"));
+        positionSlot = getControlPtr(crumble::hashString("position"));
+        loopSizeSlot = getControlPtr(crumble::hashString("loopSize"));
     }
 
     void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
@@ -86,7 +90,8 @@ public:
 
         // Check for sample-accurate re-trigger (atomic flag set by pattern query)
         if (pendingRetrigger.load()) {
-            playhead.store(0.0);
+            double startPos = evalSlot(positionSlot, cycle) * (double)totalSamples;
+            playhead.store(startPos);
             pendingRetrigger.store(false);
         }
 
@@ -102,6 +107,10 @@ public:
             float spd = evalSlot(speedSlot, sampleCycle);
             float curG = evalSlot(gainSlot, sampleCycle);
 
+            double regionStart = evalSlot(positionSlot, sampleCycle) * (double)totalSamples;
+            double regionLen = evalSlot(loopSizeSlot, sampleCycle) * (double)totalSamples;
+            double regionEnd = regionStart + regionLen;
+
             size_t frameIndex = (size_t)ph;
             if (frameIndex < totalSamples && channels > 0) {
                 for (int c = 0; c < outCh; c++) {
@@ -110,8 +119,8 @@ public:
             }
             ph += spd;
             if (loopVal) {
-                while (ph >= (double)totalSamples) ph -= totalSamples;
-                while (ph < 0) ph += totalSamples;
+                while (ph >= regionEnd) ph -= regionLen;
+                while (ph < regionStart) ph += regionLen;
             } else if (ph >= (double)totalSamples || ph < 0) {
                 ph = ofClamp(ph, 0.0, (double)totalSamples);
             }
@@ -134,10 +143,6 @@ public:
             totalSamples = 0;
             channels    = 0;
             dataOwner.reset();
-        } else if (cmd.type == ProcessorCommand::SET_RELATIVE_POS) {
-            if (totalSamples > 0) {
-                playhead.store(cmd.value * totalSamples);
-            }
         }
     }
 
@@ -164,9 +169,10 @@ AudioSource::AudioSource() {
     parameters->add(path.set("path", ""));
     parameters->add(bank.set("bank", ""));
     parameters->add(speed.set("speed", 1.0, -4.0, 4.0));
-    parameters->add(loop.set("loop", true));
     parameters->add(playing.set("playing", true));
     parameters->add(position.set("position", 0.0, 0.0, 1.0));
+    parameters->add(loop.set("loop", true));
+    parameters->add(loopSize.set("loopSize", 1.0, 0.01, 1.0));
 
     path.addListener(this, &AudioSource::onPathChanged);
 }
@@ -287,19 +293,12 @@ void AudioSource::update(float dt) {
     auto* pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
     if (!pProc) return;
 
-    // Position is a re-trigger seek offset, not continuous scrubbing.
-    // Evaluated at frame-rate on main thread (not per-sample on audio thread)
-    // because position only matters at the moment a trigger fires.
-    auto posPat = getPattern("position");
-    double posVal = posPat ? posPat->eval(lastCtx.cycle) : (double)position.get();
-
     if (pProc->hasPendingPath()) {
         std::string resolvedPath = pProc->getPendingPath();
         if (!resolvedPath.empty()) {
             if (resolvedPath != loadedPath) {
                 load(resolvedPath);
             }
-            setRelativePosition(posVal);
             setMuted(false);
         }
     } else if (pProc->hasPendingTrigger()) {
@@ -309,7 +308,6 @@ void AudioSource::update(float dt) {
         if (!b.empty()) {
             load(b + ":" + std::to_string(idx));
         }
-        setRelativePosition(posVal);
         setMuted(false);
     }
 }
@@ -336,12 +334,8 @@ double AudioSource::getRelativePosition() const {
 }
 
 void AudioSource::setRelativePosition(double pct) {
-    crumble::ProcessorCommand cmd;
-    cmd.type = crumble::ProcessorCommand::SET_RELATIVE_POS;
-    cmd.nodeId = nodeId;
-    cmd.audioProcessor = audioProcessor;
-    cmd.value = pct;
-    pushCommand(cmd);
+    // Deprecated: position is now a per-sample ControlSlot on the audio thread.
+    // Retained for the deprecated C++ AVSampler caller.
 }
 
 void AudioSource::setMuted(bool muted) {
