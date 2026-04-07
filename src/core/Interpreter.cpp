@@ -295,36 +295,6 @@ void Interpreter::update(const Transport& t) {
         lua_setglobal(L, "Gamepad");
     }
 
-    // --- Gamepad diagnostic logging (remove after fix) ---
-    {
-        lua_getglobal(L, "Gamepad");
-        bool isTable = lua_istable(L, -1);
-        ofLogNotice("Interpreter") << "[GP-DIAG] lua_setglobal done, istable=" << isTable
-            << " stacktop=" << lua_gettop(L);
-        if (isTable) {
-            lua_getfield(L, -1, "cross");
-            bool hasCross = !lua_isnil(L, -1);
-            float crossVal = hasCross ? (float)lua_tonumber(L, -1) : -999;
-            lua_pop(L, 1);
-            lua_getfield(L, -1, "l1");
-            bool hasL1 = !lua_isnil(L, -1);
-            float l1Val = hasL1 ? (float)lua_tonumber(L, -1) : -999;
-            lua_pop(L, 1);
-            lua_getfield(L, -1, "lx");
-            bool hasLx = !lua_isnil(L, -1);
-            float lxVal = hasLx ? (float)lua_tonumber(L, -1) : -999;
-            lua_pop(L, 1);
-            lua_getfield(L, -1, "r1");
-            bool hasR1 = !lua_isnil(L, -1);
-            float r1Val = hasR1 ? (float)lua_tonumber(L, -1) : -999;
-            lua_pop(L, 1);
-            ofLogNotice("Interpreter") << "[GP-DIAG] cross=" << crossVal
-                << " l1=" << l1Val << " r1=" << r1Val << " lx=" << lxVal;
-        }
-        lua_pop(L, 1);
-    }
-    // --- end diagnostic ---
-
     // Call global update function if it exists
     lua_getglobal(L, "update");
     if (lua_isfunction(L, -1)) {
