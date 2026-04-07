@@ -99,20 +99,6 @@ Patterns are stateless functions `cycle → float`. Evaluated at three rates:
 - **Per-frame** (main thread): video speed, active — via `ControlSlot`
 - **Per-trigger** (event): path triggers — via `querySlot()` + atomic flags
 
-### Key ADRs (Architecture.md)
-
-| ADR | Topic |
-|-----|-------|
-| 002 | Patterns shared by pointer, not copied |
-| 003 | Track touched modulators during reload |
-| 004 | VideoProcessor runs on main thread |
-| 005 | `active` is never exposed via `expose()` |
-| 006 | Batch commands during reload |
-| 007 | Defer modulator clearing to end of reload |
-| 008 | Bare bank names resolve to first matching asset |
-| 009 | Robust parameter synchronization (type matching) |
-| 010 | Slaved video processor state (EXTERNAL clock) |
-
 ## Code Conventions
 
 - **C++ style**: openFrameworks idioms. `ofParameter<float>` for exposed params, `shared_ptr` for ownership.
