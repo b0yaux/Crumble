@@ -3,4 +3,3 @@ ofxHapPlayer
 ofxLua
 ofxMidi
 ofxOsc
-ofxSDL2

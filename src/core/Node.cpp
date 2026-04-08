@@ -20,7 +20,7 @@ Node::Node() {
     parameters->add(opacity->set("opacity", 1.0, 0.0, 1.0));
     
     blend = std::make_shared<ofParameter<int>>();
-    parameters->add(blend->set("blend", 0, 0, 2)); // Default: ALPHA
+    parameters->add(blend->set("blend", 0, 0, 3)); // Default: ALPHA
     
     active = std::make_shared<ofParameter<bool>>();
     parameters->add(active->set("active", true));

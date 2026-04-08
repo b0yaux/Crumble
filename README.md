@@ -181,7 +181,6 @@ smp.position = gpad("rx"):accum(0.5)
 | `ramp(f)` / `saw(f)` | Sawtooth (0.0 to 1.0, frequency `f` in cycles-per-bar) |
 | `noise(f, s)` | Deterministic stochastic noise (frequency `f`, optional seed `s`) |
 | `seq("...")` | Discrete step sequencer |
-| `sp("...")` | **Strudel-style sampler pattern** using aliases |
 
 **Transforms (method syntax — chain on any pattern):**
 
@@ -219,7 +218,7 @@ local lsz = gpad("ry"):accum(-0.3, 0.707):pow(2.0):scale(0.0001, 1)
 
 ### Sample Sequencing (Mini-Notation)
 
-Crumble supports Tidal/Strudel-style mini-notation for sample triggering and **Global Aliases**:
+Crumble supports Tidal/Strudel-style mini-notation for sample triggering via `:path(seq("..."))`. Combined with **Global Aliases** for readable patterns:
 
 ```lua
 -- Define aliases (Strudel-style)
@@ -228,8 +227,8 @@ aliases({ s = "drums:1", t = "travaux" })
 
 local s = sampler("drums")
 
--- Basic patterns using aliases
-s:n("k ~ s ~ t")           -- Trigger kick, rest, snare, rest, travaux
+-- Trigger patterns using aliases
+s:path(seq("k ~ s ~ t"))           -- kick, rest, snare, rest, travaux
 ```
 
 **Video Blending & Performance:**
@@ -408,7 +407,7 @@ s1:speed(channeltouch(1):scale(0.5, 2.0))
 
 ```lua
 -- Listen on port 8000 (default)
-s1:cutoff(oscin("/filterCutoff"))
+s1:gain(oscin("/filterCutoff"))
 ```
 
 ### Gamepad
@@ -419,7 +418,7 @@ s1:cutoff(oscin("/filterCutoff"))
 s1:gain(gpad("cross"))                  -- A/Cross button
 s1:mute(gpad("l1"))                     -- LB/L1 bumper
 s1:speed(gpad("ly"):scale(0.5, 2.0))    -- Left stick Y
-s1:cutoff(gpad("rx"):scale(-1, 1))     -- Right stick X
+s1:opacity(gpad("rx"):scale(0, 1))     -- Right stick X
 
 -- Available names:
 -- Face: a/cross, b/circle, x/square, y/triangle

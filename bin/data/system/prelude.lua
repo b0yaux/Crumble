@@ -10,7 +10,8 @@
 BLEND = {
     ALPHA = 0,      -- Normal alpha blending
     ADD = 1,        -- Additive (lighten)
-    MULTIPLY = 2    -- Multiply (darken)
+    MULTIPLY = 2,   -- Multiply (darken)
+    SCREEN = 3      -- Screen (commutative brighten)
 }
 
 -- =============================================================================

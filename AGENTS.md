@@ -145,9 +145,8 @@ Located at `/Users/jaufre/works/notes/Programming/Active projects/Crumble/Issues
 From `Issues/? — sloppy issues (to verify).md` — self-described as potentially outdated but contains plausible leads:
 
 - `ProcessorCommand` holds `shared_ptr<Pattern>` → destructor may run on audio thread (allocation-free violation)
-- `FileWatcher` holds mutex during `sleep()` → 500ms reload latency
-- `AudioMixer` silently drops inputs above index 15 (hardcoded loop bound)
-- SPSC queue overflow is silent data loss (dropped `RELEASE_BUFFER` → use-after-free window)
+- `FileWatcher` holds mutex during `sleep()` → 500ms reload latency — **Fixed** (refactored to ofThread)
+- SPSC queue overflow is silent data loss (dropped `RELEASE_BUFFER` → use-after-free window) — batch-reload mitigates, runtime churn still possible
 
 ### Deprecated Code
 
