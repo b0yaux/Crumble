@@ -109,6 +109,9 @@ public:
 
             double regionStart = evalSlot(positionSlot, sampleCycle) * (double)totalSamples;
             double regionLen = std::max(1.0, evalSlot(loopSizeSlot, sampleCycle) * (double)totalSamples);
+            if (regionStart + regionLen > (double)totalSamples) {
+                regionStart = (double)totalSamples - regionLen;
+            }
             double regionEnd = regionStart + regionLen;
 
             size_t frameIndex = (size_t)ph;
