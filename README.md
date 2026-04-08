@@ -158,15 +158,17 @@ s1:connect(vmix, {blend="ADD", opacity=0.5})
 ```
 
 ### Sequencing & Modulation
-Crumble features a stateless, sample-accurate math engine. You can compose complex modulators using functional operators:
+
+Crumble features a sample-accurate pattern engine. Most patterns are **stateless** — pure functions of the musical cycle (`cycle → float`). A few are **stateful** — they remember previous output for accumulation, smoothing, or toggling. Both types compose through the same chainable API.
+
 ```lua
 local smp = sampler("bd")
 
--- Composition: Mix a sequence with an LFO
+-- Stateless composition: sequence modulated by an LFO
 smp.speed = seq("1 2 4") * osc(0.5)
 
--- Strudel-style Pattern Sampler:
-local dr = sp("k s k ~") -- Creates a sampler playing a pattern of aliases
+-- Stateful: gamepad stick accumulates position over time
+smp.position = gpad("rx"):accum(0.5)
 ```
 
 #### Pattern Library
@@ -191,8 +193,29 @@ local dr = sp("k s k ~") -- Creates a sampler playing a pattern of aliases
 | `p:scale(l, h)` | Map output range to [low, high] |
 | `p:snap(s)` | Quantize output into `s` steps |
 | `p:abs()` | Absolute value |
+| `p:pow(e)` | Power curve (`e<1` = more detail near zero, `e>1` = more detail near extremes). Sign-preserving. |
 | `p1 * p2` | Multiply two patterns (Amplitude Modulation) |
 | `p1 + p2` | Add two patterns (Offset/Mixing) |
+
+**Stateful Transforms (maintain internal state across evaluations):**
+
+| Method | Description |
+|--------|-------------|
+| `p:accum(rate, initial)` | Integrate `p` over time at `rate` per second. Clamps to [0, 1]. `initial` sets starting value. Use negative rate to go backward. |
+| `p:smooth(tau)` | Exponential slew limiter (one-pole low-pass). `tau` in bars. Smaller = faster response. |
+| `p:toggle(thresh)` | Flip boolean on rising edge crossing `thresh` (default 0.5). |
+
+```lua
+-- Accumulator: stick navigates a value (centered = hold position)
+local pos = gpad("rx"):accum(0.5)                -- 0.5/sec, starts at 0
+local spd = 1.0 + gpad("ly"):accum(-0.5, 0.5):scale(-3, 3)  -- starts at 0.5 → speed 1.0
+
+-- Smoothing: remove jitter from noisy inputs
+local gain = gpad("rx"):accum(0.3):smooth(2.0)
+
+-- Power curve: fine control at small values
+local lsz = gpad("ry"):accum(-0.3, 0.707):pow(2.0):scale(0.0001, 1)
+```
 
 ### Sample Sequencing (Mini-Notation)
 
@@ -211,6 +234,11 @@ s:n("k ~ s ~ t")           -- Trigger kick, rest, snare, rest, travaux
 
 **Video Blending & Performance:**
 - **Video Cache**: Automatic global caching ensures that switching between samples (e.g. in `sp()`) is instant and glitch-free after the first load.
+- **GPU Compositing**: `VideoMixer` uses a single-pass fragment shader with four blend modes:
+  - `ALPHA` (0): standard alpha blending — each layer replaces a fraction of the accumulator
+  - `ADD` (1): additive — every layer brightens, good for dense multi-layer mixing
+  - `MULTIPLY` (2): brightening tint — scales accumulator by layer color
+  - `SCREEN` (3): commutative brightening — never over-saturates, good for light-on-dark
 - **Intelligent Blending**: Nodes have their own `blend` and `opacity` parameters. `VideoMixer` automatically reads these, allowing for `s:blend("ADD")` syntax.
 - **Embedded Audio**: Supports `.mov` files with embedded audio (HAP codec). The system automatically switches to embedded mode when no separate audio file is found.
 
@@ -225,7 +253,7 @@ s:n("k ~ s ~ t")           -- Trigger kick, rest, snare, rest, travaux
 | `drums:0` | Bank:index notation |
 | `bd sd hh` | Named samples (bd→0, sd→1, hh→2, etc.) |
 
-> **Timing contract:** Patterns are stateless functions queried each cycle. Multiple nodes can share the same pattern object without interference.
+> **Timing contract:** Stateless patterns are pure functions of the cycle. Multiple nodes can share the same pattern object without interference. Stateful patterns (`accum`, `smooth`, `toggle`) share state when shared between nodes — e.g. `s.position = pos` on 15 samplers gives them one shared accumulator, not 15 independent ones.
 
 > **Timing contract:** All pattern frequencies are in **cycles per bar**.
 > `Transport.cycle` advances at `bpm / beatsPerBar` beats-per-second, wrapping
@@ -265,7 +293,7 @@ end
 
 | Name | Description |
 |------|-------------|
-| `BLEND` | `{ALPHA=0, ADD=1, MULTIPLY=2}` — used for mixer blend parameters |
+| `BLEND` | `{ALPHA=0, ADD=1, MULTIPLY=2, SCREEN=3}` — used for video blend parameters |
 
 ### Node Short Aliases
 
@@ -414,3 +442,26 @@ s1:gain(mix)
 -- Scale and transform
 s1:speed(gpad("rx"):scale(-2, 2))  -- Right stick X mapped to speed
 ```
+
+### Button Input in `update()`
+
+Use `press()` for edge-triggered digital input inside the per-frame callback. It fires once on press, then auto-repeats while held (keyboard-style key repeat):
+
+```lua
+function update()
+    local g = Gamepad or {}
+    if press("randomize", g.cross or 0) then idx = math.random(0, total - 1) end
+    if press("scroll_prev", g.lt or 0) then idx = (idx - 1) % total end
+    if press("scroll_next", g.rt or 0) then idx = (idx + 1) % total end
+
+    -- D-pad for continuous adjustment (no repeat)
+    if (g.up or 0) > 0.5 then opacity = math.min(1, opacity + 0.02) end
+end
+```
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `name` | Unique state key (independent timer per name) | (required) |
+| `value` | Input value 0..1 (typically `Gamepad.x or 0`) | (required) |
+| `delay` | Frames before repeat starts | 18 (~300ms at 60fps) |
+| `rate` | Frames between repeats | 6 (~100ms at 60fps) |
