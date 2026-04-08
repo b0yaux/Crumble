@@ -196,31 +196,84 @@ function gamepadaxis(id) return makeGen({type="gamepadaxis", id=id or 0}) end
 
 -- =============================================================================
 -- INPUT UTILITIES
+--
+-- Two layers for responding to input in Crumble:
+--
+-- 1. Pattern modulation — for continuous signal flow into node parameters.
+--    Composed via the pattern chain: gpad("ly"):accum(-0.5, 0.5):scale(-3, 3)
+--    Evaluated per-sample on the audio thread or per-frame on the video thread.
+--
+-- 2. Lua event primitives — for discrete decisions in update().
+--    Used when input should trigger logic (randomize, create/destroy nodes,
+--    branch, step counters) rather than modulate a parameter continuously.
+--
+-- All event primitives accept any source:
+--   String          → gamepad name, auto-reads from Gamepad table
+--   Number          → raw float value (nil treated as 0)
+--   Gen table       → any gpad(), midi(), oscin() pattern source (read via C)
+--
+--   once("cross")           → gamepad shortcut
+--   once(g.cross)           → Gamepad table value
+--   once(gpad("cross"))     → gen table (unified input path)
+--   once(midi(64, 1))       → MIDI note (gen table)
 -- =============================================================================
 
--- press(name, value, delay, rate) → bool
--- Standard key repeat: fires immediately on press, then auto-repeats while held.
+-- _read(source) → float
+-- Resolves any input source to its current numeric value.
+-- Internal utility used by once/press/held.
+function _read(source)
+    if source == nil then return 0 end
+    if type(source) == "number" then return source end
+    if type(source) == "string" then return (Gamepad or {})[source] or 0 end
+    if type(source) == "table" and source.type then
+        return _readBinding(source) or 0
+    end
+    return 0
+end
+
+-- once(source) → bool
+-- Fires once when the source goes above 0.5 (rising edge).
+-- No repeat while held. Used for discrete actions.
 --
--- Parameters:
---   name:  state key (independent timer per name)
---   value: input value 0..1 (typically Gamepad.x or 0)
+--   if once("cross") then idx = math.random(0, total - 1) end
+local _once = {}
+function once(source)
+    local v = _read(source)
+    local s = _once[source]
+    if not s then
+        s = {held = false}
+        _once[source] = s
+    end
+    if v > 0.5 and not s.held then
+        s.held = true
+        return true
+    end
+    if v <= 0.5 then
+        s.held = false
+    end
+    return false
+end
+
+-- press(source, delay, rate) → bool
+-- Fires immediately on press, then auto-repeats while held.
+--
 --   delay: frames before repeat starts (default: 18 = ~300ms at 60fps)
 --   rate:  frames between repeats (default: 6 = ~100ms at 60fps)
 --
--- Works with any input source: Gamepad, Keyboard, MIDI, etc.
---
---   if press("l1", Gamepad.l1 or 0) then batch = batch - 1 end
+--   if press("r1") then batch = batch + 1 end
+--   if press("l1") then batch = batch - 1 end
 local _press = {}
-function press(name, value, delay, rate)
+function press(source, delay, rate)
     delay = delay or 18
     rate = rate or 6
-    local s = _press[name]
+    local s = _press[source]
     if not s then
         s = {held = false, start = -999, last = -999, tick = 0}
-        _press[name] = s
+        _press[source] = s
     end
     s.tick = s.tick + 1
-    if value > 0.5 then
+    local v = _read(source)
+    if v > 0.5 then
         if not s.held then
             s.held = true; s.start = s.tick; s.last = s.tick
             return true
@@ -233,6 +286,15 @@ function press(name, value, delay, rate)
         s.held = false
     end
     return false
+end
+
+-- held(source) → bool
+-- True while the source is above 0.5. No edge detection.
+-- For continuous hold actions (analog-style).
+--
+--   if held("up") then opacity = math.min(1, opacity + 0.02) end
+function held(source)
+    return _read(source) > 0.5
 end
 
 -- =============================================================================

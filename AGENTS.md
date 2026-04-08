@@ -19,7 +19,7 @@ Build system is openFrameworks `makefileCommon/compile.project.mk`. No cmake, no
 ### Config
 
 - `bin/data/config.json` — entry script, search paths, graph UI settings
-- `bin/data/system/prelude.lua` — Lua DSL standard library (factory functions, patterns, expose())
+- `bin/data/system/prelude.lua` — Lua DSL standard library (factory functions, patterns, expose(), input event primitives)
 - Entry script defaults to `scripts/main.lua`
 
 ### Command-line
@@ -50,7 +50,7 @@ src/
 │   ├── AudioCache            — Deduplicated RAM audio buffers
 │   ├── VideoCache            — ofxHapPlayer pooling and caching
 │   ├── Config                — JSON config loader
-│   ├── InputBindings         — MIDI, OSC, gamepad input → Pattern bridge
+│   ├── InputBindings         — MIDI, OSC, gamepad → atomic floats + Lua event primitives bridge
 │   ├── Registry              — Node type factory (type string → constructor)
 │   ├── FileWatcher           — File system watcher for live-reload
 │   └── moodycamel/           — Lock-free SPSC queue (third-party)
@@ -108,6 +108,16 @@ Patterns are stateless functions `cycle → float`. Evaluated at three rates:
 - **Per-sample** (audio thread): speed, gain, position, loopSize — via `ControlSlot` + `evalSlot()`
 - **Per-frame** (main thread): video speed, active — via `ControlSlot`
 - **Per-trigger** (event): path triggers — via `querySlot()` + atomic flags
+
+### Input System
+
+Two layers for responding to hardware input (gamepad, MIDI, OSC):
+
+1. **Pattern modulation** — continuous signal flow into node parameters. Input sources (`gpad()`, `midi()`, `oscin()`) return pattern generators that compose through the chain API. Evaluated on audio/video threads via `ControlSlot`.
+
+2. **Lua event primitives** — discrete decisions in `update()`. `once()`, `press()`, `held()` accept any source (string, number, gen table). They read input values from the `InputBindings` atomics, not from the pattern system. Used for imperative logic: randomize, step counters, create/destroy nodes.
+
+The C++ bridge is `_readBinding()` (`Interpreter::lua_readBinding`) — takes a gen table, resolves the type/id to a binding path, reads the atomic float, returns it to Lua. This makes `gpad("cross")` usable both as a pattern source and as a readable value in Lua event logic.
 
 ## Code Conventions
 

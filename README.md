@@ -445,23 +445,43 @@ s1:speed(gpad("rx"):scale(-2, 2))  -- Right stick X mapped to speed
 
 ### Button Input in `update()`
 
-Use `press()` for edge-triggered digital input inside the per-frame callback. It fires once on press, then auto-repeats while held (keyboard-style key repeat):
+Crumble provides two layers for responding to input:
+
+1. **Pattern modulation** — for continuous signal flow into node parameters.
+   Composed via the pattern chain: `s.speed = gpad("ly"):accum(-0.5, 0.5):scale(-3, 3)`
+   Evaluated per-sample on the audio thread or per-frame on the video thread.
+
+2. **Lua event primitives** — for discrete decisions in `update()`.
+   Used when input should trigger logic (randomize, create/destroy nodes, branch, step counters) rather than modulate a parameter continuously.
+
+Three event primitives are available: `once()`, `press()`, `held()`. All accept any input source:
+
+| Source type | Example | What it does |
+|------------|---------|-------------|
+| String (gamepad name) | `"cross"`, `"l1"`, `"up"` | Auto-reads from Gamepad table |
+| Number (raw float) | `g.cross`, `0.5` | Direct value |
+| Gen table | `gpad("cross")`, `midi(64, 1)` | Reads the input binding via C |
+| nil | `nil` | Treated as 0 |
 
 ```lua
 function update()
-    local g = Gamepad or {}
-    if press("randomize", g.cross or 0) then idx = math.random(0, total - 1) end
-    if press("scroll_prev", g.lt or 0) then idx = (idx - 1) % total end
-    if press("scroll_next", g.rt or 0) then idx = (idx + 1) % total end
+    -- once(source): fires once per press, no repeat
+    if once("cross") then idx = math.random(0, total - 1) end
+    if once(gpad("triangle")) then blend = blend % #blends + 1 end
 
-    -- D-pad for continuous adjustment (no repeat)
-    if (g.up or 0) > 0.5 then opacity = math.min(1, opacity + 0.02) end
+    -- press(source, delay, rate): fires immediately, then auto-repeats while held
+    if press("r1") then batch = batch + 1 end
+    if press("l1") then batch = batch - 1 end
+    if press(gpad("lt")) then idx = (idx - 1) % total end
+
+    -- held(source): true while button is held (continuous)
+    if held("up") then opacity = math.min(1, opacity + 0.02) end
+    if held("down") then opacity = math.max(0, opacity - 0.02) end
 end
 ```
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `name` | Unique state key (independent timer per name) | (required) |
-| `value` | Input value 0..1 (typically `Gamepad.x or 0`) | (required) |
-| `delay` | Frames before repeat starts | 18 (~300ms at 60fps) |
-| `rate` | Frames between repeats | 6 (~100ms at 60fps) |
+| Primitive | Fires | Use for |
+|-----------|-------|---------|
+| `once(source)` | Once per press | Randomize, cycle mode, toggle |
+| `press(source, delay, rate)` | Once + auto-repeat | Step values, scroll lists |
+| `held(source)` | Every frame while held | Analog-style continuous adjustment |

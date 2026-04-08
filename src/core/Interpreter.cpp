@@ -338,6 +338,7 @@ void Interpreter::bindSessionAPI() {
     lua_register(L, "_outlet", lua_outlet);
     lua_register(L, "_inlet", lua_inlet);
     lua_register(L, "_exposeParam", lua_exposeParam);
+    lua_register(L, "_readBinding", lua_readBinding);
     
     std::string helper = R"(
         session = {}
@@ -1008,4 +1009,60 @@ int Interpreter::lua_exposeParam(lua_State* L) {
         graph->addProxyTarget(parentParam, childNodeId, childParam);
     }
     return 0;
+}
+
+int Interpreter::lua_readBinding(lua_State* L) {
+    if (!s_currentSession) { lua_pushnumber(L, 0.0); return 1; }
+    if (!lua_istable(L, 1)) { lua_pushnumber(L, 0.0); return 1; }
+
+    lua_getfield(L, 1, "type");
+    if (!lua_isstring(L, -1)) { lua_pop(L, 1); lua_pushnumber(L, 0.0); return 1; }
+    std::string genType = lua_tostring(L, -1);
+    lua_pop(L, 1);
+
+    std::string path;
+
+    if (genType == "gamepadbutton") {
+        lua_getfield(L, 1, "id"); int id = (int)lua_tonumber(L, -1); lua_pop(L, 1);
+        path = "gamepad:button:" + std::to_string(id);
+    } else if (genType == "gamepadaxis") {
+        lua_getfield(L, 1, "id"); int id = (int)lua_tonumber(L, -1); lua_pop(L, 1);
+        path = "gamepad:axis:" + std::to_string(id);
+    } else if (genType == "midi") {
+        lua_getfield(L, 1, "cc"); int cc = (int)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "chan"); int chan = (int)lua_tonumber(L, -1); lua_pop(L, 1);
+        auto* ptr = s_currentSession->getInputBindings().getMidiBinding(0, chan, cc);
+        float v = ptr ? ptr->load(std::memory_order_acquire) : 0.0f;
+        lua_pushnumber(L, v);
+        return 1;
+    } else if (genType == "midinote") {
+        lua_getfield(L, 1, "note"); int note = (int)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "chan"); int chan = (int)lua_tonumber(L, -1); lua_pop(L, 1);
+        auto* ptr = s_currentSession->getInputBindings().getMidiBinding(1, chan, note);
+        float v = ptr ? ptr->load(std::memory_order_acquire) : 0.0f;
+        lua_pushnumber(L, v);
+        return 1;
+    } else if (genType == "miditouch") {
+        lua_getfield(L, 1, "note"); int note = (int)lua_tonumber(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 1, "chan"); int chan = (int)lua_tonumber(L, -1); lua_pop(L, 1);
+        auto* ptr = s_currentSession->getInputBindings().getMidiBinding(2, chan, note);
+        float v = ptr ? ptr->load(std::memory_order_acquire) : 0.0f;
+        lua_pushnumber(L, v);
+        return 1;
+    } else if (genType == "channeltouch") {
+        lua_getfield(L, 1, "chan"); int chan = (int)lua_tonumber(L, -1); lua_pop(L, 1);
+        path = "midi:ctouch:" + std::to_string(chan);
+    } else if (genType == "oscin") {
+        lua_getfield(L, 1, "path"); std::string p = lua_tostring(L, -1); lua_pop(L, 1);
+        path = "osc:" + p;
+    } else {
+        lua_pushnumber(L, 0.0);
+        return 1;
+    }
+
+    if (path.empty()) { lua_pushnumber(L, 0.0); return 1; }
+    auto* ptr = s_currentSession->getInputBindings().getBinding(path);
+    float v = ptr ? ptr->load(std::memory_order_acquire) : 0.0f;
+    lua_pushnumber(L, v);
+    return 1;
 }

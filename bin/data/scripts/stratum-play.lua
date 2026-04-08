@@ -41,17 +41,15 @@ local activeSet = {}
 function update()
     frame = frame + 1
 
-    local g = Gamepad or {}
+    if once("triangle") then blend = blend % #blends + 1 end
+    if once("cross") then idx = math.random(0, total - 1) end
+    if press("lt") then idx = (idx - 1 + total) % total end
+    if press("rt") then idx = (idx + 1) % total end
+    if press("l1") then batch = math.max(1, batch - 1) end
+    if press("r1") then batch = math.min(total, batch + 1) end
 
-    if press("cycle_blend", g.triangle or 0) then blend = blend % #blends + 1 end
-    if press("randomize", g.cross or 0) then idx = math.random(0, total - 1) end
-    if press("scroll_prev", g.lt or 0) then idx = (idx - 1 + total) % total end
-    if press("scroll_next", g.rt or 0) then idx = (idx + 1) % total end
-    if press("batch_down", g.l1 or 0) then batch = math.max(1, batch - 1) end
-    if press("batch_up", g.r1 or 0) then batch = math.min(total, batch + 1) end
-
-    if (g.up or 0) > 0.5 then opacity = math.min(1, opacity + 0.02) end
-    if (g.down or 0) > 0.5 then opacity = math.max(0, opacity - 0.02) end
+    if held("up") then opacity = math.min(1, opacity + 0.02) end
+    if held("down") then opacity = math.max(0, opacity - 0.02) end
 
     for i = #active, 1, -1 do
         local entry = active[i]
