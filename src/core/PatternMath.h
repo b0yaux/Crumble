@@ -175,6 +175,51 @@ namespace patterns {
         std::shared_ptr<Pattern<float>> pat;
     };
 
+    /**
+     * Pow: Power curve. Applies sign(x) * |x|^p to reshape response.
+     *
+     *   p < 1 (e.g. 0.5): sqrt — more resolution near zero (loopSize, gain)
+     *   p > 1 (e.g. 2.0): quadratic — more resolution near extremes (speed)
+     *   p = 1.0: linear identity
+     *
+     * Sign-preserving, so it works on both unipolar [0,1] and bipolar [-1,1] sources.
+     * Composes with any source: gamepad, MIDI, LFOs, noise.
+     *
+     *   gpad("ry"):accum(0.3, 0.5):pow(0.5):scale(0.001, 1)  — fine grain control
+     *   gpad("ly"):accum(0.5, 0.5):pow(2.0):scale(-3, 3)     — aggressive speed
+     */
+    class Pow : public Pattern<float> {
+    public:
+        Pow(float exponent, std::shared_ptr<Pattern<float>> p) : e(exponent), pat(p) {}
+
+        std::vector<Event<float>> query(double start, double end) override {
+            if (!pat) return {};
+            auto events = pat->query(start, end);
+            for (auto& ev : events) {
+                ev.value = applyCurve(ev.value);
+            }
+            return events;
+        }
+
+        float eval(double cycle) override {
+            if (!pat) return 0.0f;
+            return applyCurve(pat->eval(cycle));
+        }
+
+        std::string getSignature() const override {
+            return "pow:" + std::to_string(e) + "(" + (pat ? pat->getSignature() : "null") + ")";
+        }
+    private:
+        float e;
+        std::shared_ptr<Pattern<float>> pat;
+
+        float applyCurve(float v) const {
+            if (e == 1.0f) return v;
+            float sign = (v >= 0.0f) ? 1.0f : -1.0f;
+            return sign * std::pow(std::abs(v), e);
+        }
+    };
+
     // --- Combinators ---
 
     /**

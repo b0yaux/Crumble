@@ -13,7 +13,7 @@ local avmix = {vmix, amix}
 
 bpm(60)
 
- local s1 = sampler("drums:0"):connect(avmix):off()
+ local s1 = sampler("drums:0"):connect(avmix):on()
     :mix(0.5):blend(1)
     --:speed(seq("1 -0.9 1.2 -0.5"):scale(-0.5,0.5))
  
@@ -29,6 +29,6 @@ bpm(60)
  local s4 = sampler("drums:0"):connect(avmix)
     :off():blend(1):mix("0.3 0.9")
     :speed(seq("1 0 0.2 2"):scale(-2, 0.5):fast(2))
-
+    
 function update()
 end

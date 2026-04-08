@@ -108,7 +108,7 @@ public:
             float curG = evalSlot(gainSlot, sampleCycle);
 
             double regionStart = evalSlot(positionSlot, sampleCycle) * (double)totalSamples;
-            double regionLen = evalSlot(loopSizeSlot, sampleCycle) * (double)totalSamples;
+            double regionLen = std::max(1.0, evalSlot(loopSizeSlot, sampleCycle) * (double)totalSamples);
             double regionEnd = regionStart + regionLen;
 
             size_t frameIndex = (size_t)ph;

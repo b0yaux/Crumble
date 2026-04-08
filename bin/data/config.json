@@ -1,5 +1,5 @@
 {
-    "entryScript": "scripts/main.lua",
+    "entryScript": "scripts/subgraph-test.lua",
     "searchPaths": [
         "/Users/jaufre/works/superstratum_video-data",
         "/Users/jaufre/works/Noûs-performance-ka",
@@ -7,10 +7,10 @@
     ],
     "graph": {
         "geometry": {
-            "nodeWidth": 16,
-            "nodeHeight": 16,
+            "nodeWidth": 24,
+            "nodeHeight": 24,
             "padding": 0,
-            "recursiveScale": 10.0,
+            "recursiveScale": 5.0,
             "portalRadius": 2.0
         },
         "theme": {
@@ -21,16 +21,17 @@
             "portalRing": [250, 250, 250, 200]
         },
         "physics": {
+            "energy": 10.0,
             "enabled": true,
             "randomSpawn": false,
-            "damping": 0.5,
-            "maxVelocity": 1000.0,
-            "springStrength": 0.67,
-            "idealEdgeLength": 48.0,
-            "connectionSpacing": 1.5,
-            "repulsionEnabled": false,
+            "damping": 0.67,
+            "maxVelocity": 67.0,
+            "springStrength": 0.067,
+            "idealEdgeLength": 64.0,
+            "connectionSpacing": 4,
+            "repulsionEnabled": true,
             "repulsionStrength": 0.5,
-            "repulsionRadius": 24.0
+            "repulsionRadius": 48.0
         }
     }
 }

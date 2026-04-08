@@ -11,10 +11,10 @@ bpm(120)
 
 local bank = getBank("superstratum_video-data")
 local nodes = {}
-local max_pop = 16
+local max_pop = 64
 local next_spawn = 0
-local spawn_every = 0.01
-local die_every = 0.02
+local spawn_every = 0.001
+local die_every = 0.006
 local next_die = die_every
 local total_born = 0
 local total_died = 0

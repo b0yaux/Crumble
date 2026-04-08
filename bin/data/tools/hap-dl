@@ -1,8 +1,11 @@
 #!/bin/zsh
-# yt-hap: Media to HAP Converter
-# Downloads and encodes videos for A/V performance.
+# hap-dl: Download and encode media for A/V performance (HAP/MJPEG)
+# Supports YouTube, Instagram, Vimeo, and anything yt-dlp handles.
 
 set -e
+
+COOKIE_FILE="${HAP_DL_COOKIES:-$HOME/.config/hap-dl/cookies.txt}"
+HAP_DL_BROWSER="${HAP_DL_BROWSER:-firefox}"
 
 check_dependencies() {
     if ! command -v yt-dlp &> /dev/null; then
@@ -22,25 +25,47 @@ check_dependencies() {
     fi
 }
 
+is_instagram() {
+    [[ "$1" == *instagram.com* ]]
+}
+
+yt_args() {
+    local url="$1"
+    local base_args=()
+
+    if is_instagram "$url"; then
+        if [[ -f "$COOKIE_FILE" ]]; then
+            base_args+=(--cookies "$COOKIE_FILE")
+        else
+            # Default to chrome if no cookie file
+            base_args+=(--cookies-from-browser "$HAP_DL_BROWSER")
+        fi
+    fi
+
+    echo "${base_args[@]}"
+}
+
 convert_video() {
     local url="$1"
-    local target_path="$2" # Can be "name" or "path/to/name"
-    local mode="$3"        # "hap" or "mjpeg"
+    local target_path="$2"
+    local mode="$3"
 
-    # Ensure the directory exists
     local target_dir=$(dirname "$target_path")
     mkdir -p "$target_dir"
-    
+
+    local extra_args=$(yt_args "$url")
+
     echo "Downloading: $url"
-    yt-dlp -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
+    yt-dlp $extra_args \
+           -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
            -o "${target_path}.%(ext)s" \
            "$url"
 
     local downloaded=$(ls -t "${target_path}".* 2>/dev/null | head -1)
-    
+
     if [[ -f "$downloaded" ]]; then
         local output_file="${target_path}.mov"
-        
+
         if [[ "$mode" == "mjpeg" ]]; then
             echo "Converting to Photo-JPEG..."
             ffmpeg -i "$downloaded" -c:v mjpeg -q:v 3 -c:a pcm_s16le "$output_file" -y
@@ -66,14 +91,20 @@ convert_video() {
 }
 
 usage() {
-    echo "Usage: yt-hap [options] <url> [output_path]"
+    echo "Usage: hap-dl [options] <url> [output_path]"
     echo ""
-    echo "Downloads videos from YouTube and many other sites (via yt-dlp) and encodes to HAP or Photo-JPEG."
+    echo "Downloads media (YouTube, Instagram, Vimeo, etc.) and encodes to HAP or Photo-JPEG."
+    echo ""
+    echo "Instagram / Login:"
+    echo "  By default, attempts to use cookies from Firefox: --cookies-from-browser firefox"
+    echo "  You can change the browser: export HAP_DL_BROWSER=chrome"
+    echo "  Or use a cookie file: export HAP_DL_COOKIES=~/.config/hap-dl/cookies.txt"
     echo ""
     echo "Examples:"
-    echo "  yt-hap <url>             Save with auto-title in current folder"
-    echo "  yt-hap <url> clip        Save as 'clip.mov' in current folder"
-    echo "  yt-hap <url> clips/v1    Save as 'v1.mov' in 'clips/' folder"
+    echo "  hap-dl <url>                    Save with auto-title in current folder"
+    echo "  hap-dl <url> clip               Save as 'clip.mov' in current folder"
+    echo "  hap-dl <url> clips/v1           Save as 'v1.mov' in 'clips/' folder"
+    echo "  hap-dl -q <instagram-reel>      Quick save with timestamp name"
     echo ""
     echo "Options:"
     echo "  -q, --quick    Use timestamp as name"
@@ -116,7 +147,8 @@ elif [[ -n "$PATH_INPUT" ]]; then
     FINAL_PATH="$PATH_INPUT"
 else
     echo "Fetching title..."
-    FINAL_PATH=$(yt-dlp --get-filename -o "%(title)s" "$URL" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g' | sed 's/__+/_/g' | sed 's/^_//' | sed 's/_$//')
+    local extra_args=$(yt_args "$URL")
+    FINAL_PATH=$(yt-dlp $extra_args --get-filename -o "%(title)s" "$URL" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g' | sed 's/__+/_/g' | sed 's/^_//' | sed 's/_$//')
 fi
 
 convert_video "$URL" "$FINAL_PATH" "$MODE"

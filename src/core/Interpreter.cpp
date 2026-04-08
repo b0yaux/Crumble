@@ -495,6 +495,7 @@ function NodeMeta:__newindex(key, value)
                                 if upper == "ALPHA" or upper == "NORMAL" then finalVal = 0
                                 elseif upper == "ADD" or upper == "ADDITIVE" then finalVal = 1
                                 elseif upper == "MULTIPLY" or upper == "MUL" then finalVal = 2
+                                elseif upper == "SCREEN" then finalVal = 3
                                 end
                             end
                         end
@@ -524,6 +525,7 @@ function NodeMeta:__newindex(key, value)
                     scale = function(self, l, h) return makeGen({type="scale", l=l, h=h, p=self}) end,
                     snap = function(self, s) return makeGen({type="snap", s=s, p=self}) end,
                     abs = function(self) return makeGen({type="abs", p=self}) end,
+                    pow = function(self, e) return makeGen({type="pow", e=e or 1.0, p=self}) end,
                     accum = function(self, rate, initial) return makeGen({type="accum", rate=rate or 0.5, init=initial or 0, p=self}) end,
                     smooth = function(self, tau) return makeGen({type="smooth", tau=tau or 1.0, p=self}) end,
                     toggle = function(self, thresh) return makeGen({type="toggle", thresh=thresh or 0.5, p=self}) end
@@ -897,6 +899,10 @@ std::shared_ptr<Pattern<float>> parsePattern(lua_State* L, int index) {
         } else if (genType == "abs") {
             lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
             if (p) return std::make_shared<patterns::Abs>(p);
+        } else if (genType == "pow") {
+            lua_getfield(L, index, "e"); float e = (float)lua_tonumber(L, -1); lua_pop(L, 1);
+            lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
+            if (p) return std::make_shared<patterns::Pow>(e, p);
         } else if (genType == "accum") {
             lua_getfield(L, index, "rate"); float rate = (float)lua_tonumber(L, -1); lua_pop(L, 1);
             lua_getfield(L, index, "init"); float init = (float)lua_tonumber(L, -1); lua_pop(L, 1);
