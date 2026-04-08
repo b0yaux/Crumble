@@ -14,7 +14,7 @@ make RunRelease     # Build and run
 
 Build system is openFrameworks `makefileCommon/compile.project.mk`. No cmake, no npm.
 
-**Note for Agents:** `make RunRelease` launches a blocking GUI window. If executed via bash, it must be backgrounded (e.g., `make RunRelease &`) or the command will hang. To verify code changes without launching the GUI, always use the `make` command to ensure the project compiles successfully.
+**Note for Agents:** `make RunRelease` launches a blocking GUI window. The agent cannot interact with it — the user must test visual output. To verify code changes compile, use `make`. Use `make RunRelease` only when the user can observe the result.
 
 ### Config
 
@@ -59,13 +59,23 @@ src/
 │   ├── VideoSource           — HAP video player, clock modes (INTERNAL/EXTERNAL)
 │   ├── AVSampler             — DEPRECATED. Lua sub-graph is canonical.
 │   ├── AudioMixer            — Multi-channel summation
-│   ├── VideoMixer            — GPU compositing with blend modes
+│   ├── VideoMixer            — Single-pass GPU compositing with custom shader, chunked accumulator for >15 layers
 │   ├── AudioOutput           — Hardware audio sink
 │   ├── VideoOutput           — Display sink
 │   └── composite/            — (reserved for future composite nodes)
 └── ui/
     └── GraphUI               — Node graph visualization with physics layout
 ```
+
+### Shaders
+
+```
+bin/data/shaders/
+├── composite.vert            — Passthrough vertex shader (position + texcoord)
+└── composite.frag            — Single-pass blend: ALPHA, ADD, MULTIPLY, SCREEN with per-layer opacity
+```
+
+oF uses `OF_GLSL_SHADER_HEADER` as a placeholder preamble — replaced at load time with the correct `#version` directive. Vertex shader must use attribute names `position`, `texcoord` when `bindDefaults = true`. ofxHapPlayer produces `GL_TEXTURE_2D` textures — shader must use `sampler2D`, not `sampler2DRect`.
 
 ## Architecture Key Points
 

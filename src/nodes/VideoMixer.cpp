@@ -12,10 +12,26 @@ public:
     std::array<ControlSlot*, MAX_INPUTS> opacitySlots = {nullptr};
     std::array<ControlSlot*, MAX_INPUTS> blendSlots = {nullptr};
     std::array<ControlSlot*, MAX_INPUTS> activeSlots = {nullptr};
+    ofShader compositeShader;
+    ofMesh quadMesh;
+    bool shaderLoaded = false;
 
     VideoMixerProcessor() {
         numLayersSlot = getControlPtr(crumble::hashString("numLayers"));
         masterOpacitySlot = getControlPtr(crumble::hashString("opacity"));
+    }
+
+    void buildQuad(float w, float h) {
+        quadMesh.clear();
+        quadMesh.setMode(OF_PRIMITIVE_TRIANGLE_FAN);
+        quadMesh.addVertex(glm::vec3(0, 0, 0));
+        quadMesh.addVertex(glm::vec3(w, 0, 0));
+        quadMesh.addVertex(glm::vec3(w, h, 0));
+        quadMesh.addVertex(glm::vec3(0, h, 0));
+        quadMesh.addTexCoord(glm::vec2(0, 0));
+        quadMesh.addTexCoord(glm::vec2(1, 0));
+        quadMesh.addTexCoord(glm::vec2(1, 1));
+        quadMesh.addTexCoord(glm::vec2(0, 1));
     }
 
     void addInput(VideoProcessor* p, int toInput, int fromOutput) override {
@@ -26,73 +42,158 @@ public:
         activeSlots[toInput] = getControlPtr(crumble::hashString(("active_" + prefix).c_str()));
     }
 
+    ofFbo* resultFbo = nullptr;
+
+    ofTexture* getOutput(int index = 0) override {
+        if (resultFbo && resultFbo->isAllocated()) {
+            return &resultFbo->getTexture();
+        }
+        return nullptr;
+    }
+
     void processVideo(double cycle, double cycleStep) override {
         currentCycle = cycle;
-        
-        if (!writeTex) return;
-        
+
+        if (!shaderLoaded) {
+            compositeShader.load(
+                ofToDataPath("shaders/composite.vert"),
+                ofToDataPath("shaders/composite.frag")
+            );
+            shaderLoaded = compositeShader.isLoaded();
+            if (!shaderLoaded) {
+                ofLogError("VideoMixer") << "Failed to load composite shader";
+                return;
+            }
+            ofLogNotice("VideoMixer") << "Composite shader loaded successfully";
+        }
+
         int numActiveLayers = std::min((int)evalSlot(numLayersSlot, cycle), MAX_INPUTS);
         float masterOpacity = evalSlot(masterOpacitySlot, cycle);
-        
-        // Use ping-pong FBOs to avoid clearing the texture being read by ScreenOutput
-        ofFbo& currentFbo = (writeTex == &tex_A) ? fboA : fboB;
-        
-        if (!currentFbo.isAllocated() || currentFbo.getWidth() != writeTex->getWidth()) {
-            currentFbo.allocate(writeTex->getWidth(), writeTex->getHeight(), GL_RGBA);
-        }
 
-        currentFbo.begin();
-        ofClear(0, 0, 0, 255); // Use opaque black for better additive blending visibility
-        
+        struct LayerData {
+            ofTexture* tex;
+            float opacity;
+            int blendMode;
+        };
+
+        std::vector<LayerData> activeLayers;
+        activeLayers.reserve(numActiveLayers);
+
         for (int i = 0; i < numActiveLayers; i++) {
-            if (i < MAX_INPUTS && inputs[i].processor) {
-                float opacity = evalSlot(opacitySlots[i], cycle);
-                float blendModeVal = evalSlot(blendSlots[i], cycle);
-                float active = evalSlot(activeSlots[i], cycle);
-                
-                if (active > 0.5f) {
-                    ofTexture* tex = inputs[i].processor->getOutput(inputs[i].fromOutput);
-                    
-                    if (tex && tex->isAllocated()) {
-                        // Intelligent Blending:
-                        // 1. Check if the mixer has an explicit override (blend_i != -1)
-                        // 2. If not, use the source node's own 'blend' parameter preference.
-                        int finalBlend = (int)blendModeVal;
-                        if (finalBlend == -1) {
-                            finalBlend = (int)inputs[i].processor->getParam(crumble::hashString("blend"));
-                        }
-                        
-                        BlendMode mode = (BlendMode)std::max(0, finalBlend);
-                        switch (mode) {
-                            case BlendMode::ADD: ofEnableBlendMode(OF_BLENDMODE_ADD); break;
-                            case BlendMode::MULTIPLY: ofEnableBlendMode(OF_BLENDMODE_MULTIPLY); break;
-                            case BlendMode::ALPHA:
-                            default: ofEnableBlendMode(OF_BLENDMODE_ALPHA); break;
-                        }
-                        
-                        // Combined Opacity:
-                        // Multiplies the mixer's layer opacity by the source node's own opacity.
-                        float sourceOpacity = inputs[i].processor->getParam(crumble::hashString("opacity"));
-                        float sourceActive = inputs[i].processor->getParam(crumble::hashString("active"));
-                        
-                        if (sourceActive > 0.5f) {
-                            ofSetColor(255, opacity * masterOpacity * sourceOpacity * 255);
-                            tex->draw(0, 0, currentFbo.getWidth(), currentFbo.getHeight());
-                        }
+            if (i >= MAX_INPUTS || !inputs[i].processor) continue;
 
-                    }
-                }
-            }
+            float opacity = evalSlot(opacitySlots[i], cycle);
+            float blendModeVal = evalSlot(blendSlots[i], cycle);
+            float active = evalSlot(activeSlots[i], cycle);
+
+            if (active < 0.5f) continue;
+
+            ofTexture* tex = inputs[i].processor->getOutput(inputs[i].fromOutput);
+            if (!tex || !tex->isAllocated()) continue;
+
+            float sourceOpacity = inputs[i].processor->getParam(crumble::hashString("opacity"));
+            float sourceActive = inputs[i].processor->getParam(crumble::hashString("active"));
+            if (sourceActive < 0.5f) continue;
+
+            int finalBlend = (int)inputs[i].processor->getParam(crumble::hashString("blend"));
+            int mixerBlend = (int)blendModeVal;
+            if (mixerBlend >= 0) finalBlend = mixerBlend;
+            finalBlend = std::max(0, finalBlend);
+
+            activeLayers.push_back({tex, opacity * masterOpacity * sourceOpacity, finalBlend});
         }
-        
-        ofDisableBlendMode();
-        ofSetColor(255, 255, 255, 255);
-        currentFbo.end();
-        
-        // Copy FBO texture reference to our shadow texture
-        *writeTex = currentFbo.getTexture();
-        
-        swapFbo(); 
+
+        int layerCount = (int)activeLayers.size();
+
+        int fbW = 1920, fbH = 1080;
+        if (layerCount > 0 && activeLayers[0].tex) {
+            fbW = activeLayers[0].tex->getWidth();
+            fbH = activeLayers[0].tex->getHeight();
+        }
+
+        if (!fboA.isAllocated() || fboA.getWidth() != fbW) {
+            ofFbo::Settings fboSettings;
+            fboSettings.width = fbW;
+            fboSettings.height = fbH;
+            fboSettings.internalformat = GL_RGBA;
+            fboSettings.textureTarget = GL_TEXTURE_2D;
+            fboA.allocate(fboSettings);
+            fboB.allocate(fboSettings);
+            buildQuad(fboSettings.width, fboSettings.height);
+        }
+
+        if (layerCount == 0) {
+            fboA.begin();
+            ofClear(0, 0, 0, 255);
+            fboA.end();
+            resultFbo = &fboA;
+            return;
+        }
+
+        static constexpr int CHUNK = 15;
+        int numChunks = (layerCount + CHUNK - 1) / CHUNK;
+
+        static int logCounter = 0;
+        if (++logCounter % 120 == 0 && layerCount > 0) {
+            for (int i = 0; i < layerCount; i++) {
+                ofLogNotice("VideoMixer") << "layer[" << i << "] opacity=" << activeLayers[i].opacity
+                    << " blend=" << activeLayers[i].blendMode;
+            }
+            ofLogNotice("VideoMixer") << "  layerCount=" << layerCount << " numChunks=" << numChunks;
+        }
+
+        ofFbo* writeFbo = &fboA;
+        ofFbo* readFbo = &fboB;
+
+        fboA.begin(); ofClear(0, 0, 0, 255); fboA.end();
+        fboB.begin(); ofClear(0, 0, 0, 255); fboB.end();
+
+        for (int chunk = 0; chunk < numChunks; chunk++) {
+            int chunkStart = chunk * CHUNK;
+            int chunkEnd = std::min(chunkStart + CHUNK, layerCount);
+            int chunkSize = chunkEnd - chunkStart;
+
+            float opacities[CHUNK];
+            int blendModes[CHUNK];
+
+            writeFbo->begin();
+
+            compositeShader.begin();
+            compositeShader.setUniform1i("uNumLayers", chunkSize);
+
+            for (int i = 0; i < chunkSize; i++) {
+                auto& layer = activeLayers[chunkStart + i];
+                ofTextureData& td = layer.tex->getTextureData();
+                glActiveTexture(GL_TEXTURE0 + i);
+                glBindTexture(td.textureTarget, td.textureID);
+                opacities[i] = layer.opacity;
+                blendModes[i] = layer.blendMode;
+            }
+
+            int samplerUnits[CHUNK];
+            for (int i = 0; i < chunkSize; i++) samplerUnits[i] = i;
+            compositeShader.setUniform1iv("uTextures", samplerUnits, chunkSize);
+
+            if (chunk > 0) {
+                ofTextureData& accTd = readFbo->getTexture().getTextureData();
+                glActiveTexture(GL_TEXTURE0 + 15);
+                glBindTexture(accTd.textureTarget, accTd.textureID);
+                compositeShader.setUniform1i("uAccumTex", 15);
+            }
+
+            compositeShader.setUniform1fv("uOpacities", opacities, chunkSize);
+            compositeShader.setUniform1iv("uBlendModes", blendModes, chunkSize);
+            compositeShader.setUniform1i("uHasAccum", chunk > 0 ? 1 : 0);
+
+            quadMesh.draw();
+
+            compositeShader.end();
+            writeFbo->end();
+
+            std::swap(writeFbo, readFbo);
+        }
+
+        resultFbo = readFbo;
     }
 
 private:
@@ -137,8 +238,6 @@ void VideoMixer::setup(int width, int height) {
     
     detectGpuLimits();
 }
-
-
 
 void VideoMixer::resizeLayerArrays(int newSize) {
     int currentSize = (int)layerOpacities.size();
@@ -192,30 +291,22 @@ void VideoMixer::removeLayer(int layerIndex) {
         return;
     }
     
-    // 1. Disconnect the graph connection for this layer
     if (graph) {
         graph->disconnect(nodeId, layerIndex);
-        // Shift higher-numbered connection indices down to close the gap
         graph->compactInputIndices(nodeId, layerIndex);
     }
     
-    // 2. Shift per-layer parameter values down
     for (int i = layerIndex; i < numActiveLayers - 1; i++) {
         layerOpacities[i] = layerOpacities[i + 1];
         layerBlendModes[i] = layerBlendModes[i + 1];
         layerActive[i] = layerActive[i + 1];
     }
     
-    // 3. Shrink layer count
     numActiveLayers--;
-    
-    ofLogVerbose("VideoMixer") << "Removed layer " << layerIndex << " (total: " << numActiveLayers << ")";
 }
 
 void VideoMixer::setLayerCount(int count) {
-    numActiveLayers = count; // This will trigger onNumLayersChanged
-    
-    // Sync to VideoMixerProcessor
+    numActiveLayers = count; 
     if (videoProcessor) {
         if (auto* slot = videoProcessor->getControlPtr(crumble::hashString("numLayers"))) slot->value.store((float)count, std::memory_order_relaxed);
     }
@@ -223,30 +314,19 @@ void VideoMixer::setLayerCount(int count) {
 
 int VideoMixer::addLayer() {
     if (numActiveLayers >= maxSupportedLayers) {
-        ofLogWarning("VideoMixer") << "Cannot add layer: max " << maxSupportedLayers << " reached";
         return -1;
     }
-    
     int newLayerIndex = numActiveLayers;
-    
-    // Increment layer count (triggers onNumLayersChanged)
     numActiveLayers = newLayerIndex + 1;
-    
-    // Initialize defaults
     layerOpacities[newLayerIndex] = 1.0f;
-    
-    // Default blend modes: L1=ALPHA, then ADD/MULT alternating
     if (newLayerIndex == 0) {
         layerBlendModes[newLayerIndex] = (int)BlendMode::ALPHA;
     } else if (newLayerIndex % 2 == 1) {
-        layerBlendModes[newLayerIndex] = (int)BlendMode::ADD;  // L2, L4, L6...
+        layerBlendModes[newLayerIndex] = (int)BlendMode::ADD;
     } else {
-        layerBlendModes[newLayerIndex] = (int)BlendMode::MULTIPLY;  // L3, L5, L7...
+        layerBlendModes[newLayerIndex] = (int)BlendMode::MULTIPLY;
     }
-    
     layerActive[newLayerIndex] = true;
-    
-    ofLogVerbose("VideoMixer") << "Added layer " << newLayerIndex << " (total: " << numActiveLayers << ")";
     return newLayerIndex;
 }
 
@@ -271,9 +351,7 @@ Node* VideoMixer::getLayerSource(int layerIndex) const {
 
 std::string VideoMixer::getLayerSourceName(int layerIndex) const {
     Node* source = getLayerSource(layerIndex);
-    if (!source) {
-        return "--";
-    }
+    if (!source) return "--";
     return source->getDisplayName();
 }
 
@@ -321,13 +399,7 @@ bool VideoMixer::isLayerConnected(int layerIndex) const {
 }
 
 crumble::VideoProcessor* VideoMixer::createVideoProcessor() {
-    auto proc = new crumble::VideoMixerProcessor();
-    proc->allocateTextures(fboWidth, fboHeight);
-    
-    ofLogNotice("VideoMixer") << "createVideoProcessor: allocated textures " << fboWidth << "x" << fboHeight
-                              << " writeTex=" << (proc->writeTex ? "valid" : "null");
-    
-    return proc;
+    return new crumble::VideoMixerProcessor();
 }
 
 ofTexture* VideoMixer::processVideo(int index) {
@@ -335,12 +407,9 @@ ofTexture* VideoMixer::processVideo(int index) {
     return videoProcessor->getOutput(0);
 }
 
-
 ofJson VideoMixer::serialize() const {
     ofJson j;
-    // Serialize ofParameters
     ofSerialize(j, *parameters);
-    // Serialize layer runtime values (not in ofParameters)
     j["layerOpacities"] = ofJson::array();
     j["layerBlendModes"] = ofJson::array();
     j["layerActive"] = ofJson::array();
@@ -354,45 +423,23 @@ ofJson VideoMixer::serialize() const {
 
 void VideoMixer::deserialize(const ofJson& json) {
     ofJson j = json;
+    if (j.contains("group")) j = j["group"];
+    else if (j.contains("params")) j = j["params"];
     
-    // 1. Handle "group" unwrapping if present
-    if (j.contains("group")) {
-        j = j["group"];
-    } else if (j.contains("params")) {
-        j = j["params"];
-    }
-    
-    // 2. Extract numLayers FIRST to resize arrays
     if (j.contains("numLayers")) {
         numActiveLayers = getSafeJson<int>(j, "numLayers", numActiveLayers.get());
         setLayerCount(numActiveLayers);
     }
-    
     if (j.contains("opacity")) {
         opacity->set(getSafeJson<float>(j, "opacity", opacity->get()));
     }
-    
-    // 3. Deserialize ofParameters (covers numLayers, and any named opacity_n if they match)
-    // We still call this for general parameters, but manual sync below handles "loose" types
     ofDeserialize(j, *parameters);
     
-    // 4. Fallback for custom array format (legacy support)
-    if (json.contains("layerOpacities")) {
-        auto& arr = json["layerOpacities"];
-        for (int i = 0; i < (int)arr.size() && i < (int)layerOpacities.size(); i++) {
-            layerOpacities[i] = arr[i].get<float>();
-        }
-    }
-    // ... (blend and active fallbacks omitted for brevity if they match JSON structure)
-    
-    // 5. Explicitly sync numbered params with "loose" type support to prevent Abort trap
     for (int i = 0; i < numActiveLayers; i++) {
         string opKey = "opacity_" + ofToString(i);
         if (j.contains(opKey)) layerOpacities[i] = getSafeJson<float>(j, opKey, layerOpacities[i].get());
-        
         string blKey = "blend_" + ofToString(i);
         if (j.contains(blKey)) layerBlendModes[i] = getSafeJson<int>(j, blKey, layerBlendModes[i].get());
-        
         string acKey = "active_" + ofToString(i);
         if (j.contains(acKey)) layerActive[i] = getSafeJson<bool>(j, acKey, layerActive[i].get());
     }

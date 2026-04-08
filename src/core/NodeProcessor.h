@@ -209,9 +209,11 @@ public:
  * VideoProcessor: Evaluated on the Main Thread alongside ScreenOutput.
  *
  * Both processVideo() (called from Session::update) and getOutput() (called
- * from ScreenOutput::update) run on the same thread, so no atomic ops or
- * locking are needed. The ping-pong double-buffer ensures the texture being
- * read by ScreenOutput is never the one currently being written.
+ * from downstream processors) run on the same thread, so no atomics needed.
+ * Each subclass owns its output strategy via getOutput():
+ *   - VideoSource: returns the player's texture directly
+ *   - VideoMixer: returns its composite FBO texture
+ *   - VideoOutput: returns nullptr (sink node)
  */
 class VideoProcessor : public NodeProcessor {
 public:
@@ -221,9 +223,9 @@ public:
     // Called by Session::update() to generate the frame (main thread)
     virtual void processVideo(double cycle, double cycleStep) {}
     
-    // Called by ScreenOutput::update() to fetch the latest texture (main thread)
+    // Called by downstream processors to fetch the latest texture (main thread)
     virtual ofTexture* getOutput(int index = 0) { 
-        return readyTex;
+        return nullptr;
     }
 
     virtual void addInput(VideoProcessor* p, int toInput, int fromOutput) {
@@ -243,25 +245,6 @@ public:
         int fromOutput = 0;
     };
     std::array<Input, MAX_INPUTS> inputs;
-    
-    // Ping-pong double-buffer: writeTex is written by processVideo(),
-    // readyTex is read by getOutput(). Swapped each frame via swapFbo().
-    // Both pointers live on the main thread — no atomics required.
-    ofTexture tex_A;
-    ofTexture tex_B;
-    ofTexture* readyTex = nullptr;
-    ofTexture* writeTex = nullptr;
-    
-    void allocateTextures(int width, int height) {
-        tex_A.allocate(width, height, GL_RGBA);
-        tex_B.allocate(width, height, GL_RGBA);
-        readyTex = &tex_A;
-        writeTex = &tex_B;
-    }
-
-    void swapFbo() {
-        std::swap(readyTex, writeTex);
-    }
 };
 
 } // namespace crumble

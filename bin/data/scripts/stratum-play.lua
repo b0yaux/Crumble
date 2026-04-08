@@ -21,15 +21,19 @@ local total = #(getBank(bank))
 -- defaults
 local batch = 3
 local idx = 0
-local opacity = 0.6
+local opacity = 1
 local blend = 1
-local blends = { 0, 1, 2 }
+local blends = { 0, 1, 2, 3 }  -- ALPHA, ADD, SCREEN
 local frame = 0
 
 -- joysticks
-local spd = 1.0 + gpad("ly"):accum(0.5):scale(-3, 3)
-local pos = gpad("rx"):accum(0.5) -- seem like it doesn't work : maybe because we're not re-triggering samples currently ? do we even have proper loop in the script ?
-local lsz = gpad("ry"):accum(0.25, 1)
+-- accum(init=0.5) so centered stick → neutral value:
+--   speed: scale(-3,3) maps 0.5→0, so speed = 1.0 at rest
+--   position: accum at 0.5 → loop starts at sample midpoint
+--   loopSize: pow(0.5) for fine control at small sizes, scale floor = 0.0001
+local spd = 1.0 + gpad("ly"):accum(-0.5, 0.5):scale(-3, 3)
+local pos = gpad("rx"):accum(0.3, 0.5)
+local lsz = gpad("ry"):accum(-0.3, 0.707):pow(2.0):scale(0.0001, 1)
 
 local active = {}
 local activeSet = {}
@@ -62,6 +66,13 @@ function update()
     local layerGain = 0.5 / math.sqrt(batch)
     local blendMode = blends[blend]
 
+    -- Apply blend/opacity/gain to all active samplers (not just newly spawned)
+    for _, entry in ipairs(active) do
+        entry.node.blend = blendMode
+        entry.node.opacity = layerOpacity
+        entry.node.gain = layerGain
+    end
+
     for offset = 0, batch - 1 do
         local clipIdx = (idx + offset) % total
         if not activeSet[clipIdx] then
@@ -70,7 +81,10 @@ function update()
             s.position = pos
             s.loop = true
             s.loopSize = lsz
-            connect(s, vmx, { opacity = layerOpacity, blend = blendMode })
+            s.blend = blendMode
+            s.opacity = layerOpacity
+            s.gain = layerGain
+            connect(s, vmx)
             connect(s, amx, { gain = layerGain })
             local entry = { node = s, idx = clipIdx }
             table.insert(active, entry)

@@ -7,6 +7,7 @@ enum class BlendMode {
     ALPHA = 0,
     ADD,
     MULTIPLY,
+    SCREEN,
     COUNT
 };
 
