@@ -12,6 +12,9 @@ xcuserdata/
 *.xccheckout
 *.xcscmblueprint
 
+# AGENTS.md (local only, not yet sanitized for public)
+AGENTS.md
+
 # OS
 .DS_Store
 *.swp
