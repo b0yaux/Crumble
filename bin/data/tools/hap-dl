@@ -4,6 +4,8 @@
 
 set -e
 
+SELF="${(%):-%x}"
+
 COOKIE_FILE="${HAP_DL_COOKIES:-$HOME/.config/hap-dl/cookies.txt}"
 HAP_DL_BROWSER="${HAP_DL_BROWSER:-firefox}"
 
@@ -90,26 +92,659 @@ convert_video() {
     fi
 }
 
+clip_and_encode() {
+    local url="$1"
+    local target_path="$2"
+    local mode="$3"
+    local spec="$4"
+
+    local target_dir
+    target_dir=$(dirname "$target_path")
+    mkdir -p "$target_dir"
+
+    local extra_args
+    extra_args=$(yt_args "$url")
+
+    echo "Downloading: $url"
+    yt-dlp $extra_args \
+           -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
+           -o "${target_path}.%(ext)s" \
+           "$url"
+
+    local downloaded
+    downloaded=$(ls -t "${target_path}".* 2>/dev/null | head -1)
+
+    if [[ ! -f "$downloaded" ]]; then
+        echo "Error: Download failed."
+        exit 1
+    fi
+
+    local dur
+    dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$downloaded" 2>/dev/null)
+    if [[ -z "$dur" || "$dur" == "N/A" ]]; then
+        dur=0
+    fi
+    dur=$(python3 -c "print(int(float('$dur')))" 2>/dev/null || echo 0)
+
+    echo "Duration: ${dur}s"
+    echo "Clip spec: $spec"
+
+    python3 - "$downloaded" "$target_path" "$mode" "$dur" "$spec" << 'PYEOF'
+import json, sys, subprocess, os, random, re
+
+input_file, outpath, mode, total_dur, spec = (
+    sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4]), sys.argv[5]
+)
+
+def get_clips(spec, dur):
+    clips = []
+
+    if spec.startswith("scatter:"):
+        m = re.match(r"scatter:(\d+)x(\d+)", spec)
+        if not m:
+            print(f"Error: invalid scatter spec '{spec}'. Use scatter:NxS (N clips of S seconds)")
+            sys.exit(1)
+        count, length = int(m.group(1)), int(m.group(2))
+        if dur <= length:
+            clips.append((0, length))
+        else:
+            margin = max(0, dur - length)
+            positions = sorted(random.sample(range(0, max(1, margin + 1)), min(count, margin + 1)))
+            for pos in positions[:count]:
+                clips.append((pos, length))
+
+    elif spec.startswith("scene:"):
+        max_len = int(spec.split(":")[1]) if ":" in spec else 60
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "frame=pts_time",
+             "-select_streams", "v:0", "-of", "json", input_file],
+            capture_output=True, text=True
+        )
+        scenes = []
+        if result.returncode == 0:
+            data = json.loads(result.stdout)
+            timestamps = []
+            for frame in data.get("frames", []):
+                t = frame.get("pts_time")
+                if t is not None:
+                    timestamps.append(float(t))
+            timestamps = sorted(set(timestamps))
+            for i in range(len(timestamps) - 1):
+                seg_len = int(timestamps[i + 1] - timestamps[i])
+                if seg_len >= 1:
+                    scenes.append((int(timestamps[i]), min(seg_len, max_len)))
+        if not scenes:
+            print("    No scene changes detected, falling back to head clip")
+            clips.append((0, min(max_len, dur)))
+        else:
+            clips = scenes
+
+    elif spec.startswith("silence:"):
+        min_active = int(spec.split(":")[1]) if ":" in spec else 30
+        result = subprocess.run(
+            ["ffmpeg", "-i", input_file, "-af", "silencedetect=noise=-30dB:d=0.5",
+             "-f", "null", "-y", "/dev/null"],
+            capture_output=True, text=True
+        )
+        silences = re.findall(r"silence_start:\s*([\d.]+)\s*\|.*?silence_end:\s*([\d.]+)", result.stderr)
+        silence_ranges = [(float(s), float(e)) for s, e in silences]
+        active_ranges = []
+        prev_end = 0.0
+        for s, e in silence_ranges:
+            if s - prev_end >= 1.0:
+                active_ranges.append((prev_end, s))
+            prev_end = e
+        if dur - prev_end >= 1.0:
+            active_ranges.append((prev_end, float(dur)))
+        clips = []
+        for start, end in active_ranges:
+            seg_len = int(end - start)
+            if seg_len >= min_active:
+                clips.append((int(start), min(seg_len, 300)))
+        if not clips:
+            print("    No active sections found, falling back to head clip")
+            clips.append((0, min(min_active, dur)))
+
+    elif spec.startswith("rand:") or spec.startswith("random:"):
+        length = int(spec.split(":")[1])
+        if dur <= length:
+            clips.append((0, length))
+        else:
+            offset = random.randint(0, dur - length)
+            clips.append((offset, length))
+
+    elif spec.startswith("mid:") or spec.startswith("center:"):
+        length = int(spec.split(":")[1])
+        if dur <= length:
+            clips.append((0, length))
+        else:
+            offset = (dur - length) // 2
+            clips.append((offset, length))
+
+    elif spec.startswith("-"):
+        length = int(spec.lstrip("-"))
+        if dur <= length:
+            clips.append((0, dur))
+        else:
+            offset = dur - length
+            clips.append((offset, length))
+
+    elif "-" in spec:
+        parts = spec.split("-", 1)
+        start = int(parts[0])
+        length = int(parts[1]) - start
+        clips.append((start, length))
+
+    else:
+        length = int(spec)
+        clips.append((0, min(length, dur)))
+
+    return clips
+
+clips = get_clips(spec, total_dur)
+if not clips:
+    print("No clips to extract.")
+    sys.exit(1)
+
+multi = len(clips) > 1
+if multi:
+    clip_dir = outpath + "_clips"
+    os.makedirs(clip_dir, exist_ok=True)
+    print(f"  Extracting {len(clips)} clip(s) into {clip_dir}/")
+else:
+    clip_dir = None
+
+def encode_clip(input_f, start, length, output_f, mode):
+    vcodec_args = []
+    if mode == "mjpeg":
+        vcodec_args = ["-c:v", "mjpeg", "-q:v", "3"]
+    else:
+        vcodec_args = ["-c:v", "hap", "-format", "hap_q", "-chunks", "4"]
+
+    cmd = [
+        "ffmpeg", "-y", "-ss", str(start), "-i", input_f, "-t", str(length),
+        *vcodec_args, "-c:a", "pcm_s16le", output_f
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0 and mode != "mjpeg":
+        print(f"    HAP failed, falling back to MJPEG...")
+        cmd = [
+            "ffmpeg", "-y", "-ss", str(start), "-i", input_f, "-t", str(length),
+            "-c:v", "mjpeg", "-q:v", "3", "-c:a", "pcm_s16le", output_f
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+    return result.returncode == 0
+
+for i, (start, length) in enumerate(clips):
+    if multi:
+        out_f = os.path.join(clip_dir, f"clip_{i+1:02d}.mov")
+    else:
+        out_f = outpath + ".mov"
+
+    m, s = divmod(start, 60)
+    print(f"  [{i+1}/{len(clips)}] {m:02d}:{s:02d} +{length}s -> {out_f}")
+    encode_clip(input_file, start, length, out_f, mode)
+
+os.remove(input_file)
+
+if multi:
+    print(f"Done: {len(clips)} clips in {clip_dir}/")
+else:
+    print(f"Done: {out_f}")
+PYEOF
+}
+
+search_videos() {
+    local query=""
+    local site="yt"
+    local max_results=64
+    local min_dur=""
+    local max_dur=""
+    local clip_spec=""
+    local download_all=false
+    local output_dir="."
+    local mode="hap"
+
+    local site_prefix
+    local site_name
+    local site_url_fmt
+
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --max) max_results="$2"; shift 2 ;;
+            --min-dur) min_dur="$2"; shift 2 ;;
+            --max-dur) max_dur="$2"; shift 2 ;;
+            --site) site="$2"; shift 2 ;;
+            --clip) clip_spec="$2"; shift 2 ;;
+            -a|--all) download_all=true; shift ;;
+            -o) output_dir="$2"; shift 2 ;;
+            -j|--jpeg) mode="mjpeg"; shift ;;
+            -h|--help) search_usage; return 0 ;;
+            *) query="$query $1"; shift ;;
+        esac
+    done
+
+    case "$site" in
+        yt|youtube)
+            site_prefix="ytsearch"
+            site_name="YouTube"
+            site_url_fmt="https://www.youtube.com/watch?v=%(id)s"
+            ;;
+        sc|soundcloud)
+            site_prefix="scsearch"
+            site_name="SoundCloud"
+            site_url_fmt="%(url)s"
+            ;;
+        bili|bilibili)
+            site_prefix="bilisearch"
+            site_name="Bilibili"
+            site_url_fmt="%(url)s"
+            ;;
+        ia|archive)
+            archive_search "$query" "$max_results" "$min_dur" "$max_dur" "$download_all" "$output_dir" "$mode" "$clip_spec"
+            return $?
+            ;;
+        *)
+            echo "Error: Unknown site '$site'."
+            echo "  Supported: yt (YouTube), sc (SoundCloud), bili (Bilibili), ia (Internet Archive)"
+            return 1
+            ;;
+    esac
+
+    query="${query# }"
+    if [[ -z "$query" ]]; then
+        search_usage
+        return 1
+    fi
+
+    check_dependencies
+
+    local tmpfile
+    tmpfile=$(mktemp)
+    trap "rm -f '$tmpfile'" EXIT
+
+    local filter=""
+    [[ -n "$min_dur" ]] && filter="duration > $min_dur"
+    [[ -n "$max_dur" ]] && { [[ -n "$filter" ]] && filter+=" & "; filter+="duration < $max_dur"; }
+
+    local filter_arg=()
+    [[ -n "$filter" ]] && filter_arg=(--match-filters "$filter")
+
+    echo "Searching $site_name: \"$query\" (max $max_results)"
+
+    yt-dlp --flat-playlist --dump-json "${filter_arg[@]}" "${site_prefix}${max_results}:${query}" 2>/dev/null > "$tmpfile" || true
+
+    local count
+    count=$(python3 -c "import json; print(sum(1 for l in open('$tmpfile') if l.strip()))")
+    if [[ "$count" -eq 0 ]]; then
+        echo "No results found."
+        rm -f "$tmpfile"
+        trap - EXIT
+        return 1
+    fi
+
+    python3 - "$tmpfile" << 'PYEOF'
+import json, sys
+
+tmpfile = sys.argv[1]
+results = [json.loads(l) for l in open(tmpfile) if l.strip()]
+
+for i, v in enumerate(results):
+    dur = int(v.get("duration") or 0)
+    m, s = divmod(dur, 60)
+    ch = v.get("channel", v.get("uploader", "?"))
+    t = v.get("title", "?")
+    print(f"  [{i+1:2d}] {m:02d}:{s:02d}  {ch}  \u2014  {t}")
+
+print(f"---\n{len(results)} results.")
+PYEOF
+
+    local selection
+    if [[ "$download_all" == true ]]; then
+        selection="all"
+        echo "Downloading all results."
+    else
+        echo -n "Select (1 3 5 / 1-5 / a=all / q=quit): "
+        read -r selection
+        if [[ "$selection" == "q" || -z "$selection" ]]; then
+            echo "Cancelled."
+            rm -f "$tmpfile"
+            trap - EXIT
+            return 0
+        fi
+    fi
+
+    python3 - "$tmpfile" "$output_dir" "$selection" "$mode" "$SELF" "$site_url_fmt" "$clip_spec" << 'PYEOF'
+import json, sys, subprocess, os
+
+tmpfile, outdir, sel, mode, self_path, url_fmt, clip_spec = (
+    sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6], sys.argv[7]
+)
+results = [json.loads(l) for l in open(tmpfile) if l.strip()]
+
+def parse_selection(sel, n):
+    if sel.strip().lower() in ("all", "a"):
+        return list(range(n))
+    indices = set()
+    for part in sel.split():
+        if "-" in part and part != "-":
+            a, b = part.split("-", 1)
+            try:
+                indices.update(range(int(a) - 1, int(b)))
+            except ValueError:
+                pass
+        else:
+            try:
+                indices.add(int(part) - 1)
+            except ValueError:
+                pass
+    return sorted(i for i in indices if 0 <= i < n)
+
+selected = parse_selection(sel, len(results))
+if not selected:
+    print("Nothing selected.")
+    sys.exit(0)
+
+print(f"\nDownloading {len(selected)} video(s)...")
+for i, idx in enumerate(selected):
+    v = results[idx]
+    vid = v["id"]
+    title = v.get("title", vid)
+    safe = "".join(c if c.isalnum() or c in " -" else "_" for c in title).strip()
+    safe = "_".join(safe.split())[:60]
+    if not safe:
+        safe = vid
+
+    raw_url = v.get("webpage_url", v.get("url", ""))
+    if not raw_url:
+        raw_url = url_fmt.replace("%(id)s", vid).replace("%(url)s", v.get("url", ""))
+    outpath = os.path.join(outdir, safe)
+
+    print(f"\n[{i+1}/{len(selected)}] {title}")
+    cmd = [self_path, raw_url, outpath]
+    if mode == "mjpeg":
+        cmd.append("-j")
+    if clip_spec:
+        cmd.extend(["--clip", clip_spec])
+    try:
+        subprocess.run(cmd)
+    except KeyboardInterrupt:
+        print("\nInterrupted.")
+        sys.exit(1)
+
+print("\nDone.")
+PYEOF
+
+    rm -f "$tmpfile"
+    trap - EXIT
+}
+
+archive_search() {
+    local query="$1"
+    local max_results="$2"
+    local min_dur="$3"
+    local max_dur="$4"
+    local download_all="$5"
+    local output_dir="$6"
+    local mode="$7"
+    local clip_spec="$8"
+
+    check_dependencies
+
+    echo "Searching Internet Archive: \"$query\" (max $max_results)"
+
+    local tmpfile
+    tmpfile=$(mktemp)
+    trap "rm -f '$tmpfile'" EXIT
+
+    python3 - "$query" "$max_results" "$tmpfile" "$min_dur" "$max_dur" << 'PYEOF'
+import json, sys, urllib.request, urllib.parse
+
+query, max_results, outfile, min_dur, max_dur = (
+    sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4], sys.argv[5]
+)
+
+q_parts = [query]
+if not any(m in query for m in ["mediatype:", "collection:"]):
+    q_parts.append("mediatype:(movies OR audio)")
+if min_dur:
+    q_parts.append(f"duration:>={min_dur}")
+if max_dur:
+    q_parts.append(f"duration:<={max_dur}")
+
+q = " AND ".join(q_parts)
+fields = ["identifier", "title", "year", "duration", "description", "creator", "mediatype"]
+params = urllib.parse.urlencode({
+    "q": q,
+    "rows": max_results,
+    "page": 1,
+    "output": "json",
+})
+fl_parts = "&".join(f"fl[]={urllib.parse.quote(f)}" for f in fields)
+url = f"https://archive.org/advancedsearch.php?{params}&{fl_parts}"
+try:
+    with urllib.request.urlopen(url, timeout=15) as resp:
+        data = json.loads(resp.read())
+except Exception as e:
+    print(f"Error querying archive.org: {e}")
+    sys.exit(1)
+
+docs = data.get("response", {}).get("docs", [])
+if not docs:
+    print("No results found.")
+    sys.exit(1)
+
+total = data["response"]["numFound"]
+results = []
+for doc in docs:
+    identifier = doc.get("identifier", "?")
+    title = doc.get("title", "?")
+    year = doc.get("year", "")
+    duration = doc.get("duration", "")
+    creator = doc.get("creator", "")
+    mediatype = doc.get("mediatype", "?")
+    results.append({
+        "id": identifier,
+        "title": title,
+        "year": year or "",
+        "duration": duration or "",
+        "creator": creator or "",
+        "mediatype": mediatype,
+    })
+
+print(f"---\nShowing {len(results)} of {total} total results.")
+
+for i, r in enumerate(results):
+    dur_str = r["duration"]
+    if dur_str:
+        try:
+            secs = int(float(dur_str))
+            h, rem = divmod(secs, 3600)
+            m, s = divmod(rem, 60)
+            if h > 0:
+                dur_str = f"{h}:{m:02d}:{s:02d}"
+            else:
+                dur_str = f"{m:02d}:{s:02d}"
+        except ValueError:
+            pass
+    else:
+        dur_str = "--:--"
+
+    year_str = f"[{r['year']}] " if r['year'] else ""
+    creator_str = f"{r['creator']}" if r['creator'] else "?"
+    mt = r['mediatype'][0].upper()
+    print(f"  [{i+1:2d}] {dur_str}  [{mt}] {year_str}{creator_str}  \u2014  {r['title'][:70]}")
+
+with open(outfile, "w") as f:
+    for r in results:
+        f.write(json.dumps(r) + "\n")
+PYEOF
+
+    local rc=$?
+    if [[ $rc -ne 0 ]]; then
+        rm -f "$tmpfile"
+        trap - EXIT
+        return $rc
+    fi
+
+    local selection
+    if [[ "$download_all" == true ]]; then
+        selection="all"
+        echo "Downloading all results."
+    else
+        echo -n "Select (1 3 5 / 1-5 / a=all / q=quit): "
+        read -r selection
+        if [[ "$selection" == "q" || -z "$selection" ]]; then
+            echo "Cancelled."
+            rm -f "$tmpfile"
+            trap - EXIT
+            return 0
+        fi
+    fi
+
+    python3 - "$tmpfile" "$output_dir" "$selection" "$mode" "$SELF" "$clip_spec" << 'PYEOF'
+import json, sys, subprocess, os
+
+tmpfile, outdir, sel, mode, self_path, clip_spec = (
+    sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6]
+)
+results = [json.loads(l) for l in open(tmpfile) if l.strip()]
+
+def parse_selection(sel, n):
+    if sel.strip().lower() in ("all", "a"):
+        return list(range(n))
+    indices = set()
+    for part in sel.split():
+        if "-" in part and part != "-":
+            a, b = part.split("-", 1)
+            try:
+                indices.update(range(int(a) - 1, int(b)))
+            except ValueError:
+                pass
+        else:
+            try:
+                indices.add(int(part) - 1)
+            except ValueError:
+                pass
+    return sorted(i for i in indices if 0 <= i < n)
+
+selected = parse_selection(sel, len(results))
+if not selected:
+    print("Nothing selected.")
+    sys.exit(0)
+
+print(f"\nDownloading {len(selected)} item(s)...")
+for i, idx in enumerate(selected):
+    r = results[idx]
+    identifier = r["id"]
+    title = r.get("title", identifier)
+    safe = "".join(c if c.isalnum() or c in " -" else "_" for c in title).strip()
+    safe = "_".join(safe.split())[:60]
+    if not safe:
+        safe = identifier
+
+    url = f"https://archive.org/details/{identifier}"
+    outpath = os.path.join(outdir, safe)
+
+    print(f"\n[{i+1}/{len(selected)}] {title}")
+    cmd = [self_path, url, outpath]
+    if mode == "mjpeg":
+        cmd.append("-j")
+    if clip_spec:
+        cmd.extend(["--clip", clip_spec])
+    try:
+        subprocess.run(cmd)
+    except KeyboardInterrupt:
+        print("\nInterrupted.")
+        sys.exit(1)
+
+print("\nDone.")
+PYEOF
+
+    rm -f "$tmpfile"
+    trap - EXIT
+}
+
+search_usage() {
+    echo "Usage: hap-dl search <query> [options]"
+    echo ""
+    echo "Search media sites, pick results, download + encode to HAP."
+    echo ""
+    echo "Options:"
+    echo "  --site SITE      Site to search (default: yt)"
+    echo "                     yt    YouTube (video, full metadata)"
+    echo "                     sc    SoundCloud (audio, full metadata)"
+    echo "                     bili  Bilibili (video, limited metadata)"
+    echo "                     ia    Internet Archive (video + audio, public domain)"
+    echo "  --max N          Max results (default: 64)"
+    echo "  --min-dur SEC    Minimum duration in seconds"
+    echo "  --max-dur SEC    Maximum duration in seconds"
+    echo "  --clip SPEC      Extract clips instead of full video (see below)"
+    echo "  -a, --all        Download all (skip selection)"
+    echo "  -j, --jpeg       Force Photo-JPEG encoding"
+    echo "  -o DIR           Output directory (default: current)"
+    echo "  -h, --help       Show this help"
+    echo ""
+    echo "Clip specs:"
+    echo '  --clip 60          First 60 seconds'
+    echo '  --clip -60         Last 60 seconds'
+    echo '  --clip 30-90       From 30s to 90s'
+    echo '  --clip rand:60     Random 60s from anywhere'
+    echo '  --clip mid:60      Center 60s'
+    echo '  --clip scatter:10x5  Ten 5-second clips spread across the video'
+    echo '  --clip scene:60    Split at scene changes, up to 60s each'
+    echo '  --clip silence:30  Non-silent sections, 30s minimum'
+    echo ""
+    echo "Examples:"
+    echo '  hap-dl search "minecraft"                          Show 64 results'
+    echo '  hap-dl search "minecraft" --max 50 -a             Download all of top 50'
+    echo '  hap-dl search "abstract visuals" --min-dur 30     Only videos > 30s'
+    echo '  hap-dl search "ambient drone" --site sc            Search SoundCloud'
+    echo '  hap-dl search "glitch" --site bili                Search Bilibili'
+    echo '  hap-dl search "gameplay" -o clips/ -j             Download as MJPEG'
+    echo '  hap-dl search "abstract art" --site ia            Search Internet Archive'
+    echo '  hap-dl search "minecraft" --clip scatter:8x5      8 clips of 5s each'
+    echo '  hap-dl search "dubstep" --site ia --clip 60       First 60s of each'
+    exit 0
+}
+
 usage() {
     echo "Usage: hap-dl [options] <url> [output_path]"
+    echo "       hap-dl search <query> [options]"
     echo ""
-    echo "Downloads media (YouTube, Instagram, Vimeo, etc.) and encodes to HAP or Photo-JPEG."
+    echo "Download media (YouTube, Instagram, Vimeo, etc.) and encode to HAP or Photo-JPEG."
+    echo ""
+    echo "Modes:"
+    echo "  (default)        Download from URL and encode"
+    echo "  search <query>   Search sites (YouTube, SoundCloud, Bilibili),"
+    echo "                     pick videos, download + encode"
+    echo ""
+    echo "Download Options:"
+    echo "  -q, --quick    Use timestamp as name"
+    echo "  -j, --jpeg     Force Photo-JPEG encoding"
+    echo "  --clip SPEC    Extract clips instead of full video"
+    echo "                   60 / -60 / 30-90 / rand:60 / mid:60"
+    echo "                   scatter:10x5 / scene:60 / silence:30"
+    echo "  -h, --help     Show this help"
     echo ""
     echo "Instagram / Login:"
     echo "  By default, attempts to use cookies from Firefox: --cookies-from-browser firefox"
     echo "  You can change the browser: export HAP_DL_BROWSER=chrome"
     echo "  Or use a cookie file: export HAP_DL_COOKIES=~/.config/hap-dl/cookies.txt"
     echo ""
-    echo "Examples:"
+    echo "Download Examples:"
     echo "  hap-dl <url>                    Save with auto-title in current folder"
     echo "  hap-dl <url> clip               Save as 'clip.mov' in current folder"
     echo "  hap-dl <url> clips/v1           Save as 'v1.mov' in 'clips/' folder"
+    echo "  hap-dl <url> --clip 60          First 60 seconds only"
+    echo "  hap-dl <url> --clip scatter:8x5  Eight 5-second clips"
     echo "  hap-dl -q <instagram-reel>      Quick save with timestamp name"
     echo ""
-    echo "Options:"
-    echo "  -q, --quick    Use timestamp as name"
-    echo "  -j, --jpeg     Force Photo-JPEG encoding"
-    echo "  -h, --help     Show this help"
+    echo "Search Examples:"
+    echo '  hap-dl search "minecraft"                          Show 64 results'
+    echo '  hap-dl search "minecraft" --clip scatter:8x5       8 clips of 5s each'
+    echo '  hap-dl search "ambient drone" --site sc            Search SoundCloud'
+    echo '  hap-dl search "abstract art" --site ia --clip 60   Archive, first 60s'
     exit 0
 }
 
@@ -117,12 +752,20 @@ MODE="hap"
 PATH_INPUT=""
 URL=""
 QUICK="false"
+CLIP_SPEC=""
+
+if [[ "${1:-}" == "search" ]]; then
+    shift
+    search_videos "$@"
+    exit $?
+fi
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         -h|--help) usage ;;
         -q|--quick) QUICK="true"; shift ;;
         -j|--jpeg) MODE="mjpeg"; shift ;;
+        --clip) CLIP_SPEC="$2"; shift 2 ;;
         -*) echo "Unknown option: $1"; usage ;;
         *)
             if [[ -z "$URL" ]]; then
@@ -151,4 +794,84 @@ else
     FINAL_PATH=$(yt-dlp $extra_args --get-filename -o "%(title)s" "$URL" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g' | sed 's/__+/_/g' | sed 's/^_//' | sed 's/_$//')
 fi
 
-convert_video "$URL" "$FINAL_PATH" "$MODE"
+if [[ -n "$CLIP_SPEC" ]]; then
+    clip_and_encode "$URL" "$FINAL_PATH" "$MODE" "$CLIP_SPEC"
+else
+    convert_video "$URL" "$FINAL_PATH" "$MODE"
+fi
+
+# ---------------------------------------------------------------------------
+# FEED MODE (Planned — Not Implemented)
+# ---------------------------------------------------------------------------
+#
+# Concept: Given a seed video, automatically discover and download related
+# videos in a continuous session, building a curated library of encoded content.
+#
+# Discovery Method:
+#
+#   YouTube does not expose related videos through yt-dlp (no related_videos
+#   field in --dump-json, no --related flag). The YouTube Data API v3 also
+#   removed relatedToVideoId. The only viable approach is YouTube's internal
+#   innerTube API:
+#
+#     POST https://www.youtube.com/youtubei/v1/next?key=REDACTED
+#     Body: {"context":{"client":{"clientName":"WEB","clientVersion":"2.20240101.00.00"}},"videoId":"VIDEO_ID"}
+#
+#   Response path (2025-era structure, subject to change):
+#     contents.twoColumnWatchNextResults.secondaryResults.secondaryResults.results[]
+#       .lockupViewModel.contentId              → video ID
+#       .lockupViewModel.metadata.lockupMetadataViewModel.title.content → title
+#       .lockupViewModel.metadata.lockupMetadataViewModel.metadata
+#         .contentMetadataViewModel.metadataRows[1].metadataParts[0].text.content → views
+#       .lockupViewModel.contentImage.thumbnailViewModel.overlays[0]
+#         .thumbnailBottomOverlayViewModel.badges[0].thumbnailBadgeViewModel.text → duration
+#
+#   Returns ~21 algorithmically recommended videos. No API key needed — the key
+#   above is hardcoded in every YouTube web client. No per-key rate limit.
+#
+#   Fallback: Self-hosted Invidious instance
+#     GET /api/v1/videos/:id → recommendedVideos[]
+#     Public instances are unreliable (legal pressure). Self-hosting required.
+#
+# Proposed CLI:
+#
+#   hap-dl feed <url> [options]
+#     --depth N          Max hops from seed video (default: 5)
+#     --strategy STRAT   How to pick next video from related results:
+#                          random     — pick any related video (default)
+#                          shortest   — prefer short clips
+#                          longest    — prefer long-form
+#                          views      — most viewed first
+#                          recent     — most recently uploaded
+#     --keyword KW       Only follow related videos matching a keyword
+#     --max-total-dur    Stop after N total seconds of encoded content
+#     --continue FILE    Resume from a saved session state
+#     --dry-run          Show what would be downloaded without downloading
+#     -j, --jpeg         Force Photo-JPEG encoding
+#     -o DIR             Output directory (default: current)
+#
+# Design Considerations:
+#
+#   Deduplication — Track all visited video IDs in a set to avoid cycles.
+#                   The innerTube API will re-suggest already-seen videos.
+#
+#   Session persistence — Save queue + history + position to a JSON file
+#                         so sessions can be interrupted and resumed.
+#
+#   Encoding budget — HAP/MJPEG encoding is CPU-heavy (~minutes per video).
+#                     --max-total-dur lets you cap total encoded duration
+#                     so a session doesn't run for hours unattended.
+#
+#   Rate limiting — YouTube allows ~300 videos/hour for guest sessions.
+#                   Add delays between downloads to avoid throttling.
+#
+#   innerTube fragility — The response structure changes without notice.
+#                         The parser must handle missing fields gracefully.
+#                         Consider versioning the expected structure and
+#                         falling back to older formats if parsing fails.
+#
+#   Recommendation bias — Related videos are algorithmic and vary based on
+#                         watch history, cookies, and session context.
+#                         Anonymous sessions get generic recommendations.
+#                         Using cookies from a real account gives more
+#                         relevant (but biased) suggestions.
