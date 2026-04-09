@@ -136,7 +136,7 @@ void VideoSource::onPathChanged(std::string& p) {
     // so comparing against loadedPath would fail dedup on reload.
     if (!p.empty() && p != lastParamPath) {
         lastParamPath = p;
-        if (bank.get().empty()) bank.set(Node::extractBank(p));
+        if (bank.get().empty()) bank.set(Node::validBank(p));
         load(p);
     }
 }
@@ -144,6 +144,8 @@ void VideoSource::onPathChanged(std::string& p) {
 
 void VideoSource::load(const std::string& vidPath) {
     std::string resolvedPath = resolvePath(vidPath, "video");
+
+    if (resolvedPath.empty()) return;
     
     bool isSameVideo = (loadedResolvedPath == resolvedPath);
     if (isSameVideo && getPlayer().isLoaded()) {

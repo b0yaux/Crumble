@@ -264,8 +264,8 @@ void AVSampler::onParameterChanged(const std::string& paramName) {
         std::string vid = resolvePath(pathVal, "video");
         std::string aud = resolvePath(pathVal, "audio");
 
-        if (audioSource.bank.get().empty()) audioSource.bank.set(Node::extractBank(pathVal));
-        if (videoSource.bank.get().empty()) videoSource.bank.set(Node::extractBank(pathVal));
+        if (audioSource.bank.get().empty()) audioSource.bank.set(Node::validBank(pathVal));
+        if (videoSource.bank.get().empty()) videoSource.bank.set(Node::validBank(pathVal));
         
         bool isEmbedded = (aud == vid && !vid.empty());
         

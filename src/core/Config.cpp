@@ -107,6 +107,5 @@ std::string ConfigManager::resolvePath(const std::string& path) const {
         if (ofFile::doesFileExist(dataPath)) return dataPath;
     }
 
-    // Return original if nothing found (honest failure)
-    return path;
+    return "";
 }

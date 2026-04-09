@@ -3,6 +3,7 @@
 #include "Graph.h"
 #include "Session.h"
 #include "AudioCache.h"
+#include "AssetRegistry.h"
 #include "ofxAudioFile.h"
 #include "NodeProcessor.h"
 #include "ProcessorCommand.h"
@@ -282,10 +283,13 @@ std::string Node::resolvePath(const std::string& path, const std::string& typeHi
     return path;
 }
 
-std::string Node::extractBank(const std::string& path) {
+std::string Node::validBank(const std::string& path) {
     if (path.empty() || path.find('/') != std::string::npos) return "";
     size_t colon = path.find(':');
-    return (colon != std::string::npos) ? path.substr(0, colon) : path;
+    std::string bank = (colon != std::string::npos) ? path.substr(0, colon) : path;
+    if (bank.empty()) return "";
+    if (AssetRegistry::get().getBanks().find(bank) != AssetRegistry::get().getBanks().end()) return bank;
+    return "";
 }
 
 AudioCache* Node::getCache() const {

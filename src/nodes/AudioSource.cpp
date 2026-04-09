@@ -196,7 +196,7 @@ void AudioSource::onPathChanged(std::string& p) {
     // so comparing against loadedPath would fail dedup on reload.
     if (!p.empty() && p != lastParamPath) {
         lastParamPath = p;
-        if (bank.get().empty()) bank.set(Node::extractBank(p));
+        if (bank.get().empty()) bank.set(Node::validBank(p));
         load(p);
     }
 }
@@ -204,8 +204,7 @@ void AudioSource::onPathChanged(std::string& p) {
 void AudioSource::load(const std::string& audioPath) {
     std::string resolved = resolvePath(audioPath, "audio");
     if (resolved.empty()) {
-        // Bank name without index — bank is set for path pattern evaluation.
-        bank.set(Node::extractBank(audioPath));
+        bank.set(Node::validBank(audioPath));
         return;
     }
 
