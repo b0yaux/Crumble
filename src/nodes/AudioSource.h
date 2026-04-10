@@ -45,7 +45,15 @@ public:
 
 private:
     void onPathChanged(std::string& p);
-    void loadEmbedded(const std::string& videoPath);
+    bool loadEmbedded(const std::string& videoPath);
+
     std::string loadedPath;
+    std::string loadedResolvedPath;  // Dedup: last successfully loaded resolved path
     std::string lastParamPath;  // Dedup: last path set via parameter (not pattern)
+
+    // Async decode retry state — AudioCache returns nullptr on first load,
+    // update() polls each frame until the worker finishes decoding.
+    std::string pendingDecodePath;
+    int pendingDecodeRetries = 0;
+    static constexpr int MAX_DECODE_RETRIES = 120;  // ~2s at 60fps
 };

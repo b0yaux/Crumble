@@ -205,19 +205,36 @@ void AudioSource::load(const std::string& audioPath) {
     std::string resolved = resolvePath(audioPath, "audio");
     if (resolved.empty()) {
         bank.set(Node::validBank(audioPath));
+        pendingDecodePath.clear();
+        return;
+    }
+
+    // Same file already loaded — skip redundant LOAD_BUFFER.
+    // The audio-thread pendingRetrigger (set by pattern query) handles
+    // playhead reset sample-accurately. Pushing LOAD_BUFFER again would
+    // redundantly zero the playhead and waste command queue bandwidth.
+    if (resolved == loadedResolvedPath) {
+        pendingDecodePath.clear();
         return;
     }
 
     std::string ext = ofToLower(ofFilePath::getFileExt(resolved));
     if (ext == "mov" || ext == "hap" || ext == "mp4") {
         loadedPath = audioPath;
-        loadEmbedded(resolved);
+        if (loadEmbedded(resolved)) {
+            loadedResolvedPath = resolved;
+            pendingDecodePath.clear();
+        } else {
+            pendingDecodePath = audioPath;
+        }
         return;
     }
 
     auto audioFile = getAudioAsset(resolved);
     if (audioFile && audioFile->loaded()) {
         loadedPath = audioPath;
+        loadedResolvedPath = resolved;
+        pendingDecodePath.clear();
         crumble::ProcessorCommand cmd;
         cmd.type         = crumble::ProcessorCommand::LOAD_BUFFER;
         cmd.nodeId       = nodeId;
@@ -229,22 +246,21 @@ void AudioSource::load(const std::string& audioPath) {
         pushCommand(cmd);
         ofLogVerbose("AudioSource") << "Loaded: " << audioPath;
     } else {
-        ofLogError("AudioSource") << "Failed to load: " << audioPath;
+        // nullptr means async decode is in progress — retry next frame
+        pendingDecodePath = audioPath;
     }
 }
 
-void AudioSource::loadEmbedded(const std::string& videoPath) {
-    if (!audioProcessor) return;
+bool AudioSource::loadEmbedded(const std::string& videoPath) {
+    if (!audioProcessor) return false;
 
     auto* cache = getCache();
-    if (!cache) return;
+    if (!cache) return false;
 
-    // Decode embedded audio via custom ffmpeg logic in AudioCache
     int targetRate = getSampleRate();
     auto decoded = cache->getEmbeddedAudio(videoPath, targetRate);
-    if (!decoded || decoded->numFrames == 0) return;
+    if (!decoded || decoded->numFrames == 0) return false;
 
-    // Push buffer pointer and metadata to the audio thread
     crumble::ProcessorCommand cmd;
     cmd.type           = crumble::ProcessorCommand::LOAD_BUFFER;
     cmd.nodeId         = nodeId;
@@ -256,6 +272,7 @@ void AudioSource::loadEmbedded(const std::string& videoPath) {
     pushCommand(cmd);
     
     ofLogNotice("AudioSource") << "Embedded audio loaded: " << decoded->numFrames << " frames";
+    return true;
 }
 
 crumble::AudioProcessor* AudioSource::createAudioProcessor() {
@@ -295,6 +312,21 @@ void AudioSource::update(float dt) {
     auto* pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
     if (!pProc) return;
 
+    // Retry async decode if a load is pending (AudioCache worker finished or still running)
+    if (!pendingDecodePath.empty()) {
+        load(pendingDecodePath);
+        if (!pendingDecodePath.empty()) {
+            if (++pendingDecodeRetries > MAX_DECODE_RETRIES) {
+                ofLogError("AudioSource") << "Decode timeout: " << pendingDecodePath;
+                pendingDecodePath.clear();
+                pendingDecodeRetries = 0;
+            }
+        } else {
+            pendingDecodeRetries = 0;
+        }
+        return;
+    }
+
     if (pProc->hasPendingPath()) {
         std::string resolvedPath = pProc->getPendingPath();
         if (!resolvedPath.empty()) {
@@ -330,7 +362,7 @@ void AudioSource::deserialize(const ofJson& json) {
 }
 
 double AudioSource::getRelativePosition() const {
-    auto pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
+    auto* pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
     if (!pProc || pProc->totalSamples == 0) return 0.0;
     return pProc->playhead.load() / (double)pProc->totalSamples;
 }

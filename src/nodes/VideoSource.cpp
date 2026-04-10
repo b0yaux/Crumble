@@ -3,6 +3,7 @@
 #include "../core/NodeProcessor.h"
 #include "../core/VideoCache.h"
 
+
 // Shadow processor for the video thread
 class VideoSourceProcessor : public crumble::VideoProcessor {
 public:
@@ -20,12 +21,11 @@ public:
     }
 
     void processVideo(double cycle, double cycleStep) override {
-        currentCycle = cycle; // Update cycle for pattern-aware getParam()
+        currentCycle = cycle;
         
         ofxHapPlayer* p = playerRef.load(std::memory_order_relaxed);
         if (!p || !p->isLoaded()) return;
 
-        // Active parameter controls global bypass.
         if (evalSlot(activeSlot, cycle) < 0.5f) {
             if (!p->isPaused()) p->setPaused(true);
             return;
@@ -35,13 +35,9 @@ public:
         bool isPlaying = evalSlot(playingSlot, cycle) > 0.5f;
         bool isExternal = evalSlot(clockModeSlot, cycle) > 0.5f;
 
-        // In slaved mode (clockMode=EXTERNAL), we keep the player paused to prevent its internal 
-        // timer from advancing. The frame is updated manually via setPosition() calls 
-        // issued from the main thread (e.g. slaved to an audio playhead).
         if (isExternal) {
             if (!p->isPaused()) p->setPaused(true);
         } else {
-            // INTERNAL clock mode: manage pause state based on speed and playing param
             if (!isPlaying || newSpeed == 0.0f) {
                 if (!p->isPaused()) p->setPaused(true);
                 lastSpeed = newSpeed;
@@ -54,7 +50,10 @@ public:
             }
         }
 
-        p->update();
+        // Note: p->update() is NOT called here. ofxHapPlayer auto-updates
+        // via ofEvents().update listener (priority 200, after ofApp::update).
+        // The player's timeout is set to 0 (non-blocking) so seeks show the
+        // previous frame for 1 frame rather than stalling up to 30ms.
     }
     
     ofTexture* getOutput(int index = 0) override {
@@ -87,6 +86,11 @@ VideoSource::VideoSource() {
     parameters->add(position.set("position", 0.0, 0.0, 1.0));
     parameters->add(playing.set("playing", true));
     parameters->add(clockMode.set("clockMode", VideoSource::INTERNAL, VideoSource::INTERNAL, VideoSource::EXTERNAL));
+
+    // Reduced fetch timeout: the default 30ms can cause visible stalls.
+    // 5ms gives the demuxer time to deliver on most SSDs while keeping
+    // the frame responsive for EXTERNAL-mode position updates.
+    localPlayer.setTimeout(5000);
 
     path.addListener(this, &VideoSource::onPathChanged);
     clockMode.addListener(this, &VideoSource::onClockModeChanged);
@@ -127,7 +131,16 @@ void VideoSource::onClockModeChanged(int& mode) {
 }
 
 void VideoSource::onPositionChanged(float& v) {
-    setPosition(v);
+    int total = getTotalFrames();
+    if (total > 0) {
+        int frame = static_cast<int>(v * (total - 1));
+        if (frame != lastSetFrame) {
+            setPosition(v);
+            lastSetFrame = frame;
+        }
+    } else {
+        setPosition(v);
+    }
 }
 
 void VideoSource::onPathChanged(std::string& p) {
@@ -149,11 +162,13 @@ void VideoSource::load(const std::string& vidPath) {
     
     bool isSameVideo = (loadedResolvedPath == resolvedPath);
     if (isSameVideo && getPlayer().isLoaded()) {
-        // Same video reload, just seek to start.
-        // Even if skip reload, must reset position for path patterns (e.g. travaux ~)
-        setPosition(0.0f);
-        if (clockMode == INTERNAL && playing.get()) {
-            getPlayer().play();
+        // EXTERNAL mode: avsampler.lua handles position sync via playhead().
+        // INTERNAL mode: reset to start and resume playback.
+        if (clockMode == INTERNAL) {
+            setPosition(0.0f);
+            if (playing.get()) {
+                getPlayer().play();
+            }
         }
         return;
     }
@@ -176,6 +191,7 @@ void VideoSource::load(const std::string& vidPath) {
     
     // Swap pointers and update processor
     currentPlayer = std::move(cached->player);
+    currentPlayer->setTimeout(5000);  // Reduced fetch timeout (see localPlayer comment)
     if (videoProcessor) {
         static_cast<VideoSourceProcessor*>(videoProcessor)->setPlayer(currentPlayer.get());
     }
@@ -192,6 +208,7 @@ void VideoSource::load(const std::string& vidPath) {
     
     loadedPath = vidPath;
     loadedResolvedPath = resolvedPath;
+    lastSetFrame = -1;
 }
 
 void VideoSource::onParameterChanged(const std::string& paramName) {
@@ -229,12 +246,10 @@ void VideoSource::update(float dt) {
     auto pat = getPattern("path");
     if (pat) {
         if (lastTriggerBars < 0) {
-            // On first run or reload, catch triggers from the start of the current bar
             lastTriggerBars = std::floor(lastCtx.cycle);
         }
         
         if (std::abs(lastCtx.cycle - lastTriggerBars) > 0.5) {
-            // Cycle wrap-around
             lastTriggerBars = std::floor(lastCtx.cycle);
         }
 
@@ -256,10 +271,6 @@ void VideoSource::update(float dt) {
             }
         }
         lastTriggerBars = end;
-    }
-
-    if (getPlayer().isLoaded()) {
-        getPlayer().update();
     }
 }
 

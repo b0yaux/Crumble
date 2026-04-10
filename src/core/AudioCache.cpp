@@ -126,9 +126,70 @@ static bool decodeAudioFromVideo(const std::string& path, DecodedAudio& out, int
 
 } // anonymous namespace
 
-std::shared_ptr<ofxAudioFile> AudioCache::getAudio(const std::string& path) {
-    std::lock_guard<std::mutex> lock(mutex);
+AudioCache::AudioCache() {
+    worker = std::thread(&AudioCache::workerLoop, this);
+}
 
+AudioCache::~AudioCache() {
+    stopping.store(true);
+    queueCv.notify_one();
+    if (worker.joinable()) worker.join();
+}
+
+void AudioCache::workerLoop() {
+    while (true) {
+        DecodeRequest req;
+
+        {
+            std::unique_lock<std::mutex> lock(queueMutex);
+            queueCv.wait(lock, [&] {
+                return stopping.load() || !workQueue.empty();
+            });
+
+            if (stopping.load() && workQueue.empty()) return;
+
+            req = std::move(workQueue.front());
+            workQueue.erase(workQueue.begin());
+        }
+
+        if (req.embedded) {
+            auto decoded = std::make_shared<DecodedAudio>();
+            bool ok = decodeAudioFromVideo(req.resolvedPath, *decoded, req.targetRate);
+
+            {
+                std::lock_guard<std::mutex> lock(cacheMutex);
+                if (ok) {
+                    ofLogNotice("AudioCache") << "Decoded " << decoded->numFrames << " frames, "
+                                              << decoded->channels << " ch, " << decoded->sampleRate << " Hz";
+                    AudioEntry entry;
+                    entry.asset = decoded;
+                    entry.lastUsedTime = ofGetElapsedTimef();
+                    embeddedAudio[req.resolvedPath] = entry;
+                }
+                inProgress.erase(req.resolvedPath);
+            }
+        } else {
+            auto audioFile = std::make_shared<ofxAudioFile>();
+            audioFile->load(req.resolvedPath);
+            bool ok = audioFile->loaded();
+
+            {
+                std::lock_guard<std::mutex> lock(cacheMutex);
+                if (ok) {
+                    AudioEntry entry;
+                    entry.asset = audioFile;
+                    entry.lastUsedTime = ofGetElapsedTimef();
+                    audioFiles[req.resolvedPath] = entry;
+                } else {
+                    ofLogError("AudioCache") << "Failed to load audio: " << req.resolvedPath;
+                }
+                inProgress.erase(req.resolvedPath);
+            }
+        }
+    }
+}
+
+std::shared_ptr<ofxAudioFile> AudioCache::getAudio(const std::string& path) {
     std::string absolutePath = path;
     std::string resolved = AssetRegistry::get().resolve(path, "audio");
     if (!resolved.empty()) {
@@ -138,31 +199,31 @@ std::shared_ptr<ofxAudioFile> AudioCache::getAudio(const std::string& path) {
     }
     if (absolutePath.empty()) return nullptr;
 
-    auto it = audioFiles.find(absolutePath);
-    if (it != audioFiles.end()) {
-        it->second.lastUsedTime = ofGetElapsedTimef();
-        return std::static_pointer_cast<ofxAudioFile>(it->second.asset);
+    {
+        std::lock_guard<std::mutex> lock(cacheMutex);
+        auto it = audioFiles.find(absolutePath);
+        if (it != audioFiles.end()) {
+            it->second.lastUsedTime = ofGetElapsedTimef();
+            return std::static_pointer_cast<ofxAudioFile>(it->second.asset);
+        }
     }
 
-    ofLogNotice("AudioCache") << "Loading audio: " << absolutePath;
-    auto audioFile = std::make_shared<ofxAudioFile>();
-    audioFile->load(absolutePath);
-    if (!audioFile->loaded()) {
-        ofLogError("AudioCache") << "Failed to load audio: " << absolutePath;
-        return nullptr;
+    bool alreadyQueued;
+    {
+        std::lock_guard<std::mutex> lock(queueMutex);
+        alreadyQueued = inProgress.count(absolutePath) > 0;
+        if (!alreadyQueued) {
+            inProgress.insert(absolutePath);
+            workQueue.push_back({absolutePath, 0, false});
+            queueCv.notify_one();
+        }
     }
 
-    AudioEntry entry;
-    entry.asset = audioFile;
-    entry.lastUsedTime = ofGetElapsedTimef();
-    audioFiles[absolutePath] = entry;
-
-    return audioFile;
+    ofLogNotice("AudioCache") << (alreadyQueued ? "Waiting for" : "Queued decode of") << ": " << absolutePath;
+    return nullptr;
 }
 
 std::shared_ptr<DecodedAudio> AudioCache::getEmbeddedAudio(const std::string& videoPath, int targetRate) {
-    std::lock_guard<std::mutex> lock(mutex);
-
     std::string absolutePath = videoPath;
     std::string resolved = AssetRegistry::get().resolve(videoPath, "audio");
     if (!resolved.empty()) {
@@ -172,38 +233,37 @@ std::shared_ptr<DecodedAudio> AudioCache::getEmbeddedAudio(const std::string& vi
     }
     if (absolutePath.empty()) return nullptr;
 
-    auto it = embeddedAudio.find(absolutePath);
-    if (it != embeddedAudio.end()) {
-        auto cached = std::static_pointer_cast<DecodedAudio>(it->second.asset);
-        if (cached->sampleRate == targetRate) {
-            it->second.lastUsedTime = ofGetElapsedTimef();
-            return cached;
+    {
+        std::lock_guard<std::mutex> lock(cacheMutex);
+        auto it = embeddedAudio.find(absolutePath);
+        if (it != embeddedAudio.end()) {
+            auto cached = std::static_pointer_cast<DecodedAudio>(it->second.asset);
+            if (cached->sampleRate == targetRate) {
+                it->second.lastUsedTime = ofGetElapsedTimef();
+                return cached;
+            }
+            embeddedAudio.erase(it);
         }
-        embeddedAudio.erase(it);
     }
 
-    ofLogNotice("AudioCache") << "Decoding embedded audio: " << absolutePath
+    bool alreadyQueued;
+    {
+        std::lock_guard<std::mutex> lock(queueMutex);
+        alreadyQueued = inProgress.count(absolutePath) > 0;
+        if (!alreadyQueued) {
+            inProgress.insert(absolutePath);
+            workQueue.push_back({absolutePath, targetRate, true});
+            queueCv.notify_one();
+        }
+    }
+
+    ofLogNotice("AudioCache") << (alreadyQueued ? "Waiting for" : "Queued decode of") << ": " << absolutePath
                               << " (target rate: " << targetRate << " Hz)";
-
-    auto decoded = std::make_shared<DecodedAudio>();
-    if (!decodeAudioFromVideo(absolutePath, *decoded, targetRate)) {
-        ofLogError("AudioCache") << "Failed to decode embedded audio: " << absolutePath;
-        return nullptr;
-    }
-
-    ofLogNotice("AudioCache") << "Decoded " << decoded->numFrames << " frames, "
-                              << decoded->channels << " ch, " << decoded->sampleRate << " Hz";
-
-    AudioEntry entry;
-    entry.asset = decoded;
-    entry.lastUsedTime = ofGetElapsedTimef();
-    embeddedAudio[absolutePath] = entry;
-
-    return decoded;
+    return nullptr;
 }
 
 void AudioCache::prune(float maxAgeSeconds) {
-    std::lock_guard<std::mutex> lock(mutex);
+    std::lock_guard<std::mutex> lock(cacheMutex);
     float now = ofGetElapsedTimef();
 
     for (auto it = audioFiles.begin(); it != audioFiles.end(); ) {
@@ -226,7 +286,13 @@ void AudioCache::prune(float maxAgeSeconds) {
 }
 
 void AudioCache::clear() {
-    std::lock_guard<std::mutex> lock(mutex);
+    {
+        std::lock_guard<std::mutex> lock(queueMutex);
+        workQueue.clear();
+        inProgress.clear();
+    }
+
+    std::lock_guard<std::mutex> lock(cacheMutex);
     audioFiles.clear();
     embeddedAudio.clear();
 }

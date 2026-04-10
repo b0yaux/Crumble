@@ -81,4 +81,5 @@ private:
     ofxHapPlayer localPlayer; // Fallback if not in cache
     bool _hasAudio = false;
     double lastTriggerBars = -1.0;
+    int lastSetFrame = -1;  // Dedup: avoid redundant seeks within the same video frame
 };

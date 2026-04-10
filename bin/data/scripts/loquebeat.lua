@@ -20,7 +20,8 @@ local lfo1 = sine(1/16):scale(0,64)
 
 bpm(120)
 -- Create samplers with presentation settings
-local drum = sampler("drums:0"):connect(avmix):blend(1)
-    :path(seq("0"):fast(2)):mix(1)
-local trvx = sampler("travaux"):connect(avmix):blend(1)
-    :path(seq("0"):slow(4)):mix(seq("1 0.3"):fast(lfo1))
+local drum = sampler("drums:0"):connect(avmix):blend(1):position(0.2)
+    :path(seq("0"):fast(2)):mix(1):on()
+-- local trvx = sampler("travaux"):connect(avmix):blend(1)
+   -- :mix(seq("1 0.3"):fast(lfo1)):on()
+    --:path(seq("0"):fast(1))
