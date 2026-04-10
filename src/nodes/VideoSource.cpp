@@ -162,8 +162,6 @@ void VideoSource::load(const std::string& vidPath) {
     
     bool isSameVideo = (loadedResolvedPath == resolvedPath);
     if (isSameVideo && getPlayer().isLoaded()) {
-        // EXTERNAL mode: avsampler.lua handles position sync via playhead().
-        // INTERNAL mode: reset to start and resume playback.
         if (clockMode == INTERNAL) {
             setPosition(0.0f);
             if (playing.get()) {
@@ -173,30 +171,41 @@ void VideoSource::load(const std::string& vidPath) {
         return;
     }
 
-    // Acquire from global cache (or load if not cached)
-    auto cached = VideoCache::get().acquire(resolvedPath);
-    if (!cached || !cached->loaded) {
-        ofLogError("VideoSource") << "Failed to acquire video from cache: " << resolvedPath;
-        _hasAudio = false;
-        return;
+    // Return current player to pool for reuse on future swaps.
+    // The player stays alive with its decoded texture; next time we
+    // need this video, we skip the blocking VideoCache::acquire().
+    if (currentPlayer && currentPlayer->isLoaded() && !loadedResolvedPath.empty()) {
+        if (playerPool.size() >= MAX_POOL_SIZE) {
+            playerPool.erase(playerPool.begin());
+        }
+        currentPlayer->setPaused(true);
+        playerPool[loadedResolvedPath] = {std::move(currentPlayer), _hasAudio};
+        currentPlayer = nullptr;
     }
-    
-    // Different video - swap in the cached player
-    ofLogVerbose("VideoSource") << "Swapping to cached video: " << resolvedPath;
-    
-    // Stop current playback
-    if (getPlayer().isLoaded()) {
-        getPlayer().stop();
+
+    // Try pool first (instant), then fall back to VideoCache::acquire() (blocking first load).
+    auto poolIt = playerPool.find(resolvedPath);
+    if (poolIt != playerPool.end() && poolIt->second.player && poolIt->second.player->isLoaded()) {
+        currentPlayer = std::move(poolIt->second.player);
+        _hasAudio = poolIt->second.hasAudio;
+        playerPool.erase(poolIt);
+        ofLogVerbose("VideoSource") << "Reused pooled player: " << resolvedPath;
+    } else {
+        auto cached = VideoCache::get().acquire(resolvedPath);
+        if (!cached || !cached->loaded) {
+            ofLogError("VideoSource") << "Failed to acquire video from cache: " << resolvedPath;
+            _hasAudio = false;
+            return;
+        }
+        currentPlayer = std::move(cached->player);
+        _hasAudio = cached->hasAudio;
     }
-    
-    // Swap pointers and update processor
-    currentPlayer = std::move(cached->player);
-    currentPlayer->setTimeout(5000);  // Reduced fetch timeout (see localPlayer comment)
+
+    currentPlayer->setTimeout(5000);
     if (videoProcessor) {
         static_cast<VideoSourceProcessor*>(videoProcessor)->setPlayer(currentPlayer.get());
     }
-    
-    _hasAudio = cached->hasAudio;
+
     getPlayer().setLoopState(loop ? OF_LOOP_NORMAL : OF_LOOP_NONE);
     
     if (clockMode == VideoSource::INTERNAL) {

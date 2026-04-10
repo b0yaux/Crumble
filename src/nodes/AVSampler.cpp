@@ -127,21 +127,11 @@ void AVSampler::update(float dt) {
     if (!active->get()) return;
 
     if (audioSource.audioProcessor) {
-        if (audioSource.hasPendingPath()) {
-            std::string resolvedPath = audioSource.getPendingPath();
-            if (!resolvedPath.empty()) {
-                ofLogNotice("AVSampler") << "Trigger path received: " << resolvedPath;
-                triggerSampleWithPath(resolvedPath);
-            }
-        } else if (audioSource.hasPendingTrigger()) {
+        if (audioSource.hasPendingTrigger()) {
             int idx = audioSource.getPendingTrigger();
             audioSource.clearPendingTrigger();
             ofLogNotice("AVSampler") << "Trigger index received: " << idx;
             triggerSample(idx);
-        }
-        if (audioSource.hasPendingRest()) {
-            audioSource.clearPendingRest();
-            silenceSample();
         }
     }
 
@@ -188,8 +178,7 @@ void AVSampler::triggerSample(int index) {
     ofLogNotice("AVSampler") << "RETRIGGER: seeking to pos=" << trigPos << " (unmuting)";
     videoSource.setPosition(trigPos);
     audioSource.setRelativePosition(trigPos);
-    audioSource.setMuted(false);
-    
+        
     // Ensure playing
     if (!playing.get()) {
         playing.set(true);
@@ -211,8 +200,7 @@ void AVSampler::triggerSampleWithPath(const std::string& resolvedPath) {
     ofLogNotice("AVSampler") << "TRIGGER: seeking both to pos=" << trigPos;
     videoSource.setPosition(trigPos);
     audioSource.setRelativePosition(trigPos);
-    audioSource.setMuted(false);
-    
+        
     // Ensure playing
     if (!playing.get()) {
         playing.set(true);
@@ -223,8 +211,7 @@ void AVSampler::triggerSampleWithPath(const std::string& resolvedPath) {
 void AVSampler::silenceSample() {
     // Mute audio - video continues to play to maintain sync
     ofLogNotice("AVSampler") << "REST: muting audio, video continues";
-    audioSource.setMuted(true);
-}
+    }
 
 void AVSampler::setupProcessor() {
     audioSource.nodeId = nodeId;

@@ -136,10 +136,10 @@ public:
         static int logCounter = 0;
         if (++logCounter % 120 == 0 && layerCount > 0) {
             for (int i = 0; i < layerCount; i++) {
-                ofLogNotice("VideoMixer") << "layer[" << i << "] opacity=" << activeLayers[i].opacity
+                ofLogVerbose("VideoMixer") << "layer[" << i << "] opacity=" << activeLayers[i].opacity
                     << " blend=" << activeLayers[i].blendMode;
             }
-            ofLogNotice("VideoMixer") << "  layerCount=" << layerCount << " numChunks=" << numChunks;
+            ofLogVerbose("VideoMixer") << "  layerCount=" << layerCount << " numChunks=" << numChunks;
         }
 
         ofFbo* writeFbo = &fboA;

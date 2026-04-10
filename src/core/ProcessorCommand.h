@@ -2,6 +2,8 @@
 
 #include <string>
 #include <memory>
+#include <vector>
+#include <unordered_map>
 #include "Patterns.h"
 
 namespace crumble {
@@ -21,6 +23,18 @@ class AudioProcessor;
 class VideoProcessor;
 
 /**
+ * TriggerMap: immutable ref-to-index mapping for trigger patterns.
+ * Built at set time, sent to audio thread via SET_TRIGGER_MAP command.
+ * Allows the audio thread to convert Event{ref="k"} into an integer
+ * without string copy or mutex.
+ */
+struct TriggerMap {
+    std::unordered_map<std::string, int> refToIndex;
+};
+
+using TriggerMapPtr = std::shared_ptr<TriggerMap>;
+
+/**
  * ProcessorCommand: A lightweight structure for wait-free communication.
  * Contains instructions from the UI/Lua thread to the shadow processor layer
  * (both AudioProcessor and VideoProcessor).  Travels through SPSC queues.
@@ -38,6 +52,7 @@ struct ProcessorCommand {
         SET_PATTERN,        // Install a Pattern object on the audio/video thread for parameter name
         LOAD_BUFFER,
         RELEASE_BUFFER,
+        SET_TRIGGER_MAP,   // Install ref→index mapping for trigger patterns
         REGISTER_ENDPOINT   // Nominate this processor as a Session-driven audio endpoint
     };
 
@@ -66,6 +81,9 @@ struct ProcessorCommand {
     size_t totalSamples = 0;
     int channels = 0;
     std::shared_ptr<void> dataOwner;
+    
+    // For SET_TRIGGER_MAP: ref→index mapping for trigger patterns
+    TriggerMapPtr triggerMap;
     
     int fromOutput = 0;
     int toInput = 0;

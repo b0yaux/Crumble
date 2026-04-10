@@ -1,6 +1,7 @@
 #pragma once
 #include "../core/Node.h"
 #include <string>
+#include <vector>
 
 namespace crumble {
     class AudioProcessor;
@@ -36,24 +37,20 @@ public:
     bool hasPendingTrigger() const;
     int getPendingTrigger() const;
     void clearPendingTrigger();
-    bool hasPendingRest() const;
-    void clearPendingRest();
-    bool hasPendingPath() const;
-    std::string getPendingPath();
-    void setMuted(bool muted);
-    bool getMuted() const;
+
+    void setResolvedPaths(const std::vector<std::string>& paths);
 
 private:
     void onPathChanged(std::string& p);
     bool loadEmbedded(const std::string& videoPath);
 
     std::string loadedPath;
-    std::string loadedResolvedPath;  // Dedup: last successfully loaded resolved path
-    std::string lastParamPath;  // Dedup: last path set via parameter (not pattern)
+    std::string loadedResolvedPath;
+    std::string lastParamPath;
 
-    // Async decode retry state — AudioCache returns nullptr on first load,
-    // update() polls each frame until the worker finishes decoding.
     std::string pendingDecodePath;
     int pendingDecodeRetries = 0;
-    static constexpr int MAX_DECODE_RETRIES = 120;  // ~2s at 60fps
+    static constexpr int MAX_DECODE_RETRIES = 120;
+
+    std::vector<std::string> resolvedPaths;
 };

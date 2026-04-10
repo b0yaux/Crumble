@@ -782,6 +782,72 @@ int Interpreter::lua_getBank(lua_State* L) {
 
 std::shared_ptr<Pattern<float>> parsePattern(lua_State* L, int index);
 
+/**
+ * Walk a Lua gen table tree and collect unique trigger references
+ * (NAME tokens from innermost seq nodes). Recurses through wrapper
+ * tables by following "p", "a", and "b" fields.
+ *
+ * This is the pre-caching mechanism: all refs are known at set time
+ * because patterns are stateless and deterministic. Resolving and
+ * starting async decode here means the cache hits when triggers fire.
+ */
+static void collectLuaTriggerRefs(lua_State* L, int index, std::unordered_set<std::string>& out) {
+    if (index < 0) index = lua_gettop(L) + index + 1;
+    if (lua_type(L, index) != LUA_TTABLE) return;
+
+    lua_getfield(L, index, "type");
+    std::string genType = lua_tostring(L, -1) ? lua_tostring(L, -1) : "";
+    lua_pop(L, 1);
+
+    if (genType == "seq" || genType == "trigger") {
+        lua_getfield(L, index, "val");
+        const char* val = lua_tostring(L, -1);
+        if (val) {
+            std::string s = val;
+            size_t pos = 0;
+            while (pos < s.size()) {
+                while (pos < s.size() && std::isspace((unsigned char)s[pos])) pos++;
+                size_t end = pos;
+                while (end < s.size() && !std::isspace((unsigned char)s[end])) end++;
+                if (end > pos) {
+                    std::string token = s.substr(pos, end - pos);
+                    if (token != "~" && token != "*") {
+                        bool isNumeric = !token.empty();
+                        for (char c : token) {
+                            if (!std::isdigit((unsigned char)c) && c != '.' && c != '-') {
+                                isNumeric = false;
+                                break;
+                            }
+                        }
+                        if (!isNumeric) out.insert(token);
+                    }
+                }
+                pos = end;
+            }
+        }
+        lua_pop(L, 1);
+        return;
+    }
+
+    lua_getfield(L, index, "p");
+    if (lua_istable(L, -1)) {
+        collectLuaTriggerRefs(L, lua_gettop(L), out);
+    }
+    lua_pop(L, 1);
+
+    lua_getfield(L, index, "a");
+    if (lua_istable(L, -1)) {
+        collectLuaTriggerRefs(L, lua_gettop(L), out);
+    }
+    lua_pop(L, 1);
+
+    lua_getfield(L, index, "b");
+    if (lua_istable(L, -1)) {
+        collectLuaTriggerRefs(L, lua_gettop(L), out);
+    }
+    lua_pop(L, 1);
+}
+
 int Interpreter::lua_setGenerator(lua_State* L) {
     if (!s_currentSession) return 0;
     int nodeIdx = (int)luaL_checkinteger(L, 1);
@@ -792,6 +858,57 @@ int Interpreter::lua_setGenerator(lua_State* L) {
     node->touched = true;
     auto pat = parsePattern(L, 3);
     if (!pat) return 0;
+
+    if (paramName == "path") {
+        std::unordered_set<std::string> refs;
+        collectLuaTriggerRefs(L, 3, refs);
+        if (!refs.empty()) {
+            auto triggerMap = std::make_shared<crumble::TriggerMap>();
+            std::vector<std::string> resolvedPaths;
+            int index = 0;
+            for (const auto& ref : refs) {
+                std::string resolved = node->resolvePath(ref, "audio");
+                if (resolved.empty()) continue;
+                triggerMap->refToIndex[ref] = index;
+                resolvedPaths.push_back(resolved);
+                std::string ext = resolved.substr(resolved.find_last_of('.') + 1);
+                std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+                if (ext == "mov" || ext == "hap" || ext == "mp4") {
+                    s_currentSession->getCache().getEmbeddedAudio(resolved);
+                } else {
+                    s_currentSession->getCache().getAudio(resolved);
+                }
+                index++;
+            }
+
+            if (auto* g = dynamic_cast<Graph*>(node)) {
+                auto targets = g->getProxyTargets(paramName);
+                for (auto& [childId, childParam] : targets) {
+                    Node* child = g->getNode(childId);
+                    if (!child) continue;
+                    if (auto* as = dynamic_cast<AudioSource*>(child)) {
+                        as->setResolvedPaths(resolvedPaths);
+                        if (as->audioProcessor) {
+                            crumble::ProcessorCommand cmd;
+                            cmd.type = crumble::ProcessorCommand::SET_TRIGGER_MAP;
+                            cmd.audioProcessor = as->audioProcessor;
+                            cmd.triggerMap = triggerMap;
+                            as->pushCommand(cmd);
+                        }
+                    }
+                }
+            } else if (auto* as = dynamic_cast<AudioSource*>(node)) {
+                as->setResolvedPaths(resolvedPaths);
+                if (as->audioProcessor) {
+                    crumble::ProcessorCommand cmd;
+                    cmd.type = crumble::ProcessorCommand::SET_TRIGGER_MAP;
+                    cmd.audioProcessor = as->audioProcessor;
+                    cmd.triggerMap = triggerMap;
+                    as->pushCommand(cmd);
+                }
+            }
+        }
+    }
 
     if (auto* g = dynamic_cast<Graph*>(node)) {
         auto targets = g->getProxyTargets(paramName);

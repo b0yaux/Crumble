@@ -74,8 +74,8 @@ public:
         if (!slot || !slot->pattern) return;
         auto events = slot->pattern->query(startBars, endBars);
         for (const auto& e : events) {
-            // Convert onset (in bars) to sample offset within buffer
-            double relativePos = e.onset - std::floor(startBars);
+            double cyclePhase = startBars - std::floor(startBars);
+            double relativePos = e.onset - cyclePhase;
             if (relativePos < 0) relativePos += 1.0;
             int offset = static_cast<int>(relativePos * samplesPerBar);
             offset = std::max(0, std::min(bufferSize - 1, offset));

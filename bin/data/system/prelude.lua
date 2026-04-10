@@ -21,17 +21,28 @@ BLEND = {
 local function makeSampler(n, p, prefix)
     local params = (type(p) == "table") and p or {}
     local patternArg = nil
+    local genTable = nil
     
-    if type(p) == "string" then
-        patternArg = p
-        if not params.path then params.path = n end
-    elseif type(n) == "string" and not params.path then
-        local _, count = n:gsub("%S+", "")
-        if count >= 2 then
-            params.path = n:match("^([^%s]+)")
-            patternArg = n
-        else
-            params.path = n
+    if type(n) == "table" and n._isGen then
+        genTable = n
+        n = nil
+    elseif type(p) == "table" and p._isGen then
+        genTable = p
+        p = nil
+    end
+    
+    if not genTable then
+        if type(p) == "string" then
+            patternArg = p
+            if not params.path then params.path = n end
+        elseif type(n) == "string" and not params.path then
+            local _, count = n:gsub("%S+", "")
+            if count >= 2 then
+                params.path = n:match("^([^%s]+)")
+                patternArg = n
+            else
+                params.path = n
+            end
         end
     end
     
@@ -41,11 +52,15 @@ local function makeSampler(n, p, prefix)
 
     local node = addNode("graph", n, params, prefix)
     if node then
-        if deferredPath then
-            node.path = deferredPath
-        end
-        if patternArg then
-            node.path = makeGen({type="seq", val=patternArg})
+        if genTable then
+            node.path = genTable
+        else
+            if deferredPath then
+                node.path = deferredPath
+            end
+            if patternArg then
+                node.path = makeGen({type="seq", val=patternArg})
+            end
         end
     end
     return node

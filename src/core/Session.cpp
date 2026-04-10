@@ -146,16 +146,16 @@ void Session::audioOut(ofSoundBuffer& buffer) {
                 break;
 
             case crumble::ProcessorCommand::REGISTER_ENDPOINT:
-                // Nominate this processor as a session-driven audio endpoint.
-                // Duplicates are guarded: a node rebuilt via hot-reload will
-                // send ADD_NODE + REGISTER_ENDPOINT again, but the old processor
-                // will have been REMOVE_NODE'd first, so this list stays clean.
                 if (ap) {
                     if (std::find(audioEndpoints.begin(), audioEndpoints.end(), ap)
                             == audioEndpoints.end()) {
                         audioEndpoints.push_back(ap);
                     }
                 }
+                break;
+
+            case crumble::ProcessorCommand::SET_TRIGGER_MAP:
+                if (alive(ap)) ap->handleCommand(cmd);
                 break;
 
             default: break;

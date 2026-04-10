@@ -1,6 +1,7 @@
 #pragma once
 #include "../core/Node.h"
 #include "ofxHapPlayer.h"
+#include <unordered_map>
 
 // Video source using HAP codec for high-performance playback
 class VideoSource : public Node {
@@ -82,4 +83,16 @@ private:
     bool _hasAudio = false;
     double lastTriggerBars = -1.0;
     int lastSetFrame = -1;  // Dedup: avoid redundant seeks within the same video frame
+
+    // Player pool: keeps recently-used players alive so swaps between
+    // a small set of videos (e.g. seq("0 1"):fast(2)) are instant.
+    // Each pool entry is keyed by resolved file path. On load(), the
+    // current player is moved to the pool; on next access to that path,
+    // it's reused without calling VideoCache::acquire() (which blocks).
+    struct PooledPlayer {
+        std::unique_ptr<ofxHapPlayer> player;
+        bool hasAudio = false;
+    };
+    std::unordered_map<std::string, PooledPlayer> playerPool;
+    static constexpr size_t MAX_POOL_SIZE = 8;
 };

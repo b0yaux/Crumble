@@ -17,13 +17,13 @@ public:
     ControlSlot* positionSlot = nullptr;
     ControlSlot* loopSizeSlot = nullptr;
 
+    // Unified trigger state: -1 = idle/rest, >= 0 = index into resolved paths
+    std::atomic<int> pendingBufferIndex{-1};
+    // NUMBER triggers (e.g., sampler("0 1 2")) — kept separate for now
     std::atomic<int> pendingTrigger{-1};
-    std::atomic<bool> pendingRest{false};
-    char pendingTriggerPathBuf[512] = {0};
-    std::atomic<bool> hasPendingTriggerPath{false};
-    std::mutex pendingPathMutex;
-    std::atomic<bool> muted{false};
+    // Sample-accurate playhead reset on any trigger
     std::atomic<bool> pendingRetrigger{false};
+    TriggerMapPtr triggerMap;
     double lastTriggerBars = -1.0;
 
     AudioSourceProcessor() {
@@ -43,12 +43,10 @@ public:
         
         if (triggerSlot && triggerSlot->pattern) {
             if (lastTriggerBars < 0) {
-                // On first run or reload, catch triggers from the start of the current bar
                 lastTriggerBars = std::floor(cycle);
             }
             
             if (std::abs(cycle - lastTriggerBars) > 0.5) {
-                // Cycle wrap-around
                 lastTriggerBars = std::floor(cycle);
             }
 
@@ -59,34 +57,30 @@ public:
                       samplesPerBar, (int)buffer.getNumFrames(),
                       [this](const auto& e, int sampleOffset) {
                 if (e.isRest) {
-                    pendingRest.store(true);
+                    pendingBufferIndex.store(-1);
                     pendingTrigger.store(-1);
-                    std::lock_guard<std::mutex> lock(pendingPathMutex);
-                    hasPendingTriggerPath.store(false);
                 } else if (e.ref) {
-                    pendingRest.store(false);
-                    std::string ref = *(e.ref);
-                    std::lock_guard<std::mutex> lock(pendingPathMutex);
-                    size_t len = std::min(ref.length(), sizeof(pendingTriggerPathBuf) - 1);
-                    memcpy(pendingTriggerPathBuf, ref.c_str(), len);
-                    pendingTriggerPathBuf[len] = '\0';
-                    hasPendingTriggerPath.store(true);
+                    int idx = -1;
+                    auto* map = triggerMap.get();
+                    if (map) {
+                        auto it = map->refToIndex.find(*e.ref);
+                        if (it != map->refToIndex.end()) idx = it->second;
+                    }
+                    pendingBufferIndex.store(idx);
+                    pendingRetrigger.store(true);
                     pendingTrigger.store(-1);
                 } else {
-                    pendingRest.store(false);
                     pendingTrigger.store(static_cast<int>(std::floor(e.value)));
-                    pendingRetrigger.store(true);  // Set flag for immediate sample-accurate reset
-                    std::lock_guard<std::mutex> lock(pendingPathMutex);
-                    hasPendingTriggerPath.store(false);
+                    pendingRetrigger.store(true);
+                    pendingBufferIndex.store(-1);
                 }
             });
             lastTriggerBars = endBars;
         }
         
-        bool isMuted = muted.load();
         size_t frames = buffer.getNumFrames();
 
-        if (isMuted || !data || totalSamples == 0) return;
+        if (!data || totalSamples == 0) return;
 
         // Check for sample-accurate re-trigger (atomic flag set by pattern query)
         if (pendingRetrigger.load()) {
@@ -140,29 +134,32 @@ public:
             data        = cmd.audioData;
             totalSamples = cmd.totalSamples;
             channels    = cmd.channels;
-            playhead.store(0.0);
+            // Start from the configured position, not 0. When a trigger
+            // causes a file swap, LOAD_BUFFER may arrive in the next audio
+            // callback — after the re-trigger was already consumed. Resetting
+            // to 0 would leave the playhead stuck there until the next trigger.
+            if (positionSlot && totalSamples > 0) {
+                float posVal = positionSlot->value.load(std::memory_order_relaxed);
+                playhead.store(posVal * (double)totalSamples);
+            } else {
+                playhead.store(0.0);
+            }
         } else if (cmd.type == ProcessorCommand::RELEASE_BUFFER) {
             data        = nullptr;
             totalSamples = 0;
             channels    = 0;
             dataOwner.reset();
+        } else if (cmd.type == ProcessorCommand::SET_TRIGGER_MAP) {
+            triggerMap = cmd.triggerMap;
         }
     }
 
-    void setMuted(bool m) { muted.store(m); }
+    int consumePendingBufferIndex() {
+        return pendingBufferIndex.exchange(-1);
+    }
     bool hasPendingTrigger() const { return pendingTrigger.load() >= 0; }
     int getPendingTrigger() const { return pendingTrigger.load(); }
     void clearPendingTrigger() { pendingTrigger.store(-1); }
-    bool hasPendingRest() const { return pendingRest.load(); }
-    void clearPendingRest() { pendingRest.store(false); }
-
-    bool hasPendingPath() const { return hasPendingTriggerPath.load(); }
-    std::string getPendingPath() {
-        std::lock_guard<std::mutex> lock(pendingPathMutex);
-        std::string p(pendingTriggerPathBuf);
-        hasPendingTriggerPath.store(false);
-        return p;
-    }
 };
 
 } // namespace crumble
@@ -271,7 +268,7 @@ bool AudioSource::loadEmbedded(const std::string& videoPath) {
     cmd.channels       = decoded->channels;
     pushCommand(cmd);
     
-    ofLogNotice("AudioSource") << "Embedded audio loaded: " << decoded->numFrames << " frames";
+    ofLogVerbose("AudioSource") << "Embedded audio loaded: " << decoded->numFrames << " frames";
     return true;
 }
 
@@ -312,7 +309,6 @@ void AudioSource::update(float dt) {
     auto* pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
     if (!pProc) return;
 
-    // Retry async decode if a load is pending (AudioCache worker finished or still running)
     if (!pendingDecodePath.empty()) {
         load(pendingDecodePath);
         if (!pendingDecodePath.empty()) {
@@ -327,22 +323,16 @@ void AudioSource::update(float dt) {
         return;
     }
 
-    if (pProc->hasPendingPath()) {
-        std::string resolvedPath = pProc->getPendingPath();
-        if (!resolvedPath.empty()) {
-            if (resolvedPath != loadedPath) {
-                load(resolvedPath);
-            }
-            setMuted(false);
-        }
+    int idx = pProc->consumePendingBufferIndex();
+    if (idx >= 0 && idx < (int)resolvedPaths.size()) {
+        load(resolvedPaths[idx]);
     } else if (pProc->hasPendingTrigger()) {
-        int idx = pProc->getPendingTrigger();
+        int trigIdx = pProc->getPendingTrigger();
         pProc->clearPendingTrigger();
         std::string b = bank.get();
         if (!b.empty()) {
-            load(b + ":" + std::to_string(idx));
+            load(b + ":" + std::to_string(trigIdx));
         }
-        setMuted(false);
     }
 }
 
@@ -372,16 +362,6 @@ void AudioSource::setRelativePosition(double pct) {
     // Retained for the deprecated C++ AVSampler caller.
 }
 
-void AudioSource::setMuted(bool muted) {
-    auto pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
-    if (pProc) pProc->setMuted(muted);
-}
-
-bool AudioSource::getMuted() const {
-    auto pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
-    return pProc ? pProc->muted.load() : false;
-}
-
 bool AudioSource::hasPendingTrigger() const {
     auto pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
     return pProc ? pProc->hasPendingTrigger() : false;
@@ -397,22 +377,6 @@ void AudioSource::clearPendingTrigger() {
     if (pProc) pProc->clearPendingTrigger();
 }
 
-bool AudioSource::hasPendingRest() const {
-    auto pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
-    return pProc ? pProc->hasPendingRest() : false;
-}
-
-void AudioSource::clearPendingRest() {
-    auto pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
-    if (pProc) pProc->clearPendingRest();
-}
-
-bool AudioSource::hasPendingPath() const {
-    auto pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
-    return pProc ? pProc->hasPendingPath() : false;
-}
-
-std::string AudioSource::getPendingPath() {
-    auto pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
-    return pProc ? pProc->getPendingPath() : "";
+void AudioSource::setResolvedPaths(const std::vector<std::string>& paths) {
+    resolvedPaths = paths;
 }
