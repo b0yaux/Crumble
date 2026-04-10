@@ -10,6 +10,21 @@
 
 std::atomic<int> Node::nextNodeId{0};
 
+bool Node::paramAsFloat(const ofAbstractParameter& p, float& out) {
+    std::string vt = p.valueType();
+    if (vt == "f" || vt == "float" || vt == "d" || vt == "double" || vt == typeid(float).name() || vt == typeid(double).name()) {
+        out = (float)p.cast<float>().get();
+        return true;
+    } else if (vt == "b" || vt == "bool" || vt == typeid(bool).name()) {
+        out = p.cast<bool>().get() ? 1.0f : 0.0f;
+        return true;
+    } else if (vt == "i" || vt == "int" || vt == typeid(int).name()) {
+        out = (float)p.cast<int>().get();
+        return true;
+    }
+    return false;
+}
+
 Node::Node() {
     parameters = std::make_shared<ofParameterGroup>();
     parameters->setName("parameters");
@@ -53,22 +68,7 @@ void Node::setupProcessor() {
 
         auto& param = parameters->get(i);
         float val = 0;
-        bool supported = false;
-
-        std::string vt = param.valueType();
-        // Robust type mapping: handles compiler-specific mangled names and short codes
-        // to ensure cross-platform parameter synchronization.
-        if (vt == "f" || vt == "float" || vt == "d" || vt == "double" || vt == typeid(float).name() || vt == typeid(double).name()) {
-
-            val = (float)param.cast<float>().get();
-            supported = true;
-        } else if (vt == "b" || vt == "bool" || vt == typeid(bool).name()) {
-            val = param.cast<bool>().get() ? 1.0f : 0.0f;
-            supported = true;
-        } else if (vt == "i" || vt == "int" || vt == typeid(int).name()) {
-            val = (float)param.cast<int>().get();
-            supported = true;
-        }
+        bool supported = paramAsFloat(param, val);
 
         if (supported) {
             uint32_t hash = crumble::hashString(param.getName().c_str());
@@ -240,17 +240,7 @@ void Node::onParameterChanged(const std::string& paramName) {
         for (int i = 0; i < (int)parameters->size(); i++) {
             if (parameters->getName(i) == paramName) {
                 auto& p = parameters->get(i);
-                std::string vt = p.valueType();
-                if (vt == "f" || vt == "float" || vt == "d" || vt == "double" || vt == typeid(float).name() || vt == typeid(double).name()) {
-                    val = p.cast<float>().get();
-                    found = true;
-                } else if (vt == "b" || vt == "bool" || vt == typeid(bool).name()) {
-                    val = p.cast<bool>().get() ? 1.0f : 0.0f;
-                    found = true;
-                } else if (vt == "i" || vt == "int" || vt == typeid(int).name()) {
-                    val = (float)p.cast<int>().get();
-                    found = true;
-                }
+                found = paramAsFloat(p, val);
                 break;
             }
         }

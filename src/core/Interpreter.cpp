@@ -5,6 +5,7 @@
 #include "../nodes/AudioSource.h"
 #include "../nodes/VideoSource.h"
 #include <unordered_set>
+#include <sstream>
 
 Session* Interpreter::s_currentSession = nullptr;
 thread_local std::vector<Graph*> Interpreter::s_graphStack;
@@ -637,6 +638,31 @@ int Interpreter::lua_getParam(lua_State* L) {
     return 0;
 }
 
+static void applyLuaValueToParam(lua_State* L, int stackIdx, Node* node, const std::string& paramName, ofAbstractParameter& p) {
+    std::string vt = p.valueType();
+    bool isFloat = (vt == "f" || vt == "float" || vt == typeid(float).name());
+    bool isInt = (vt == "i" || vt == "int" || vt == typeid(int).name());
+    bool isBool = (vt == "b" || vt == "bool" || vt == typeid(bool).name());
+    bool isDouble = (vt == "d" || vt == "double" || vt == typeid(double).name());
+
+    if (lua_isboolean(L, stackIdx)) {
+        if (isBool) p.cast<bool>().set(lua_toboolean(L, stackIdx));
+    } else if (lua_isnumber(L, stackIdx)) {
+        double val = lua_tonumber(L, stackIdx);
+        if (isInt) p.cast<int>().set((int)val);
+        else if (isFloat) p.cast<float>().set((float)val);
+        else if (isDouble) p.cast<double>().set(val);
+        else if (isBool) p.cast<bool>().set(val > 0.5);
+    } else if (lua_isstring(L, stackIdx)) {
+        if (vt == typeid(std::string).name() || vt == "string") {
+            p.fromString(lua_tostring(L, stackIdx));
+        } else {
+            auto pat = std::make_shared<patterns::Seq>(lua_tostring(L, stackIdx));
+            node->modulate(paramName, pat);
+        }
+    }
+}
+
 int Interpreter::lua_setParam(lua_State* L) {
     if (!s_currentSession) return 0;
     if (lua_isnil(L, 1) || lua_isnil(L, 2)) return 0;
@@ -663,29 +689,7 @@ int Interpreter::lua_setParam(lua_State* L) {
                 
                 if (child->parameters->contains(childParam)) {
                     auto& p = child->parameters->get(childParam);
-                    std::string vt = p.valueType();
-                    bool isFloat = (vt == "f" || vt == "float" || vt == typeid(float).name());
-                    bool isInt = (vt == "i" || vt == "int" || vt == typeid(int).name());
-                    bool isBool = (vt == "b" || vt == "bool" || vt == typeid(bool).name());
-                    bool isDouble = (vt == "d" || vt == "double" || vt == typeid(double).name());
-
-                    if (lua_isboolean(L, 3)) {
-                        if (isBool) p.cast<bool>().set(lua_toboolean(L, 3));
-                    } else if (lua_isnumber(L, 3)) {
-                        double val = lua_tonumber(L, 3);
-                        if (isInt) p.cast<int>().set((int)val);
-                        else if (isFloat) p.cast<float>().set((float)val);
-                        else if (isDouble) p.cast<double>().set(val);
-                        else if (isBool) p.cast<bool>().set(val > 0.5);
-                    } else if (lua_isstring(L, 3)) {
-                        if (vt == typeid(std::string).name() || vt == "string") {
-                            p.fromString(lua_tostring(L, 3));
-                        } else {
-                            // Convenience: treat string input to non-string param as a mini-notation sequence
-                            auto pat = std::make_shared<patterns::Seq>(lua_tostring(L, 3));
-                            child->modulate(childParam, pat);
-                        }
-                    }
+                    applyLuaValueToParam(L, 3, child, childParam, p);
                     child->onParameterChanged(childParam);
                 }
             }
@@ -697,28 +701,7 @@ int Interpreter::lua_setParam(lua_State* L) {
     node->clearModulator(paramName);
     if (node->parameters->contains(paramName)) {
         auto& p = node->parameters->get(paramName);
-        std::string vt = p.valueType();
-        bool isFloat = (vt == "f" || vt == "float" || vt == typeid(float).name());
-        bool isInt = (vt == "i" || vt == "int" || vt == typeid(int).name());
-        bool isBool = (vt == "b" || vt == "bool" || vt == typeid(bool).name());
-        bool isDouble = (vt == "d" || vt == "double" || vt == typeid(double).name());
-
-        if (lua_isboolean(L, 3)) {
-            if (isBool) p.cast<bool>().set(lua_toboolean(L, 3));
-        } else if (lua_isnumber(L, 3)) {
-            double val = lua_tonumber(L, 3);
-            if (isInt) p.cast<int>().set((int)val);
-            else if (isFloat) p.cast<float>().set((float)val);
-            else if (isDouble) p.cast<double>().set(val);
-            else if (isBool) p.cast<bool>().set(val > 0.5);
-        } else if (lua_isstring(L, 3)) {
-            if (vt == typeid(std::string).name() || vt == "string") {
-                p.fromString(lua_tostring(L, 3));
-            } else {
-                auto pat = std::make_shared<patterns::Seq>(lua_tostring(L, 3));
-                node->modulate(paramName, pat);
-            }
-        }
+        applyLuaValueToParam(L, 3, node, paramName, p);
         node->onParameterChanged(paramName);
     }
     return 0;
@@ -782,6 +765,35 @@ int Interpreter::lua_getBank(lua_State* L) {
 
 std::shared_ptr<Pattern<float>> parsePattern(lua_State* L, int index);
 
+static inline float luaNumField(lua_State* L, int idx, const char* field) {
+    lua_getfield(L, idx, field);
+    float v = (float)lua_tonumber(L, -1);
+    lua_pop(L, 1);
+    return v;
+}
+
+static inline int luaIntField(lua_State* L, int idx, const char* field) {
+    lua_getfield(L, idx, field);
+    int v = (int)lua_tonumber(L, -1);
+    lua_pop(L, 1);
+    return v;
+}
+
+static inline std::string luaStrField(lua_State* L, int idx, const char* field) {
+    lua_getfield(L, idx, field);
+    const char* s = lua_tostring(L, -1);
+    std::string result = s ? s : "";
+    lua_pop(L, 1);
+    return result;
+}
+
+static inline std::shared_ptr<Pattern<float>> luaPatField(lua_State* L, int idx, const char* field) {
+    lua_getfield(L, idx, field);
+    auto p = parsePattern(L, lua_gettop(L));
+    lua_pop(L, 1);
+    return p;
+}
+
 /**
  * Walk a Lua gen table tree and collect unique trigger references
  * (NAME tokens from innermost seq nodes). Recurses through wrapper
@@ -803,26 +815,12 @@ static void collectLuaTriggerRefs(lua_State* L, int index, std::unordered_set<st
         lua_getfield(L, index, "val");
         const char* val = lua_tostring(L, -1);
         if (val) {
-            std::string s = val;
-            size_t pos = 0;
-            while (pos < s.size()) {
-                while (pos < s.size() && std::isspace((unsigned char)s[pos])) pos++;
-                size_t end = pos;
-                while (end < s.size() && !std::isspace((unsigned char)s[end])) end++;
-                if (end > pos) {
-                    std::string token = s.substr(pos, end - pos);
-                    if (token != "~" && token != "*") {
-                        bool isNumeric = !token.empty();
-                        for (char c : token) {
-                            if (!std::isdigit((unsigned char)c) && c != '.' && c != '-') {
-                                isNumeric = false;
-                                break;
-                            }
-                        }
-                        if (!isNumeric) out.insert(token);
-                    }
+            std::istringstream ss(val);
+            std::string token;
+            while (ss >> token) {
+                if (token != "~" && token.find_first_not_of("0123456789.-") != std::string::npos) {
+                    out.insert(token);
                 }
-                pos = end;
             }
         }
         lua_pop(L, 1);
@@ -885,7 +883,6 @@ int Interpreter::lua_setGenerator(lua_State* L) {
                 auto targets = g->getProxyTargets(paramName);
                 for (auto& [childId, childParam] : targets) {
                     Node* child = g->getNode(childId);
-                    if (!child) continue;
                     if (auto* as = dynamic_cast<AudioSource*>(child)) {
                         as->setResolvedPaths(resolvedPaths);
                         if (as->audioProcessor) {
@@ -934,40 +931,28 @@ std::shared_ptr<Pattern<float>> parsePattern(lua_State* L, int index) {
     int type = lua_type(L, index);
     if (type == LUA_TNUMBER) return std::make_shared<patterns::Constant>((float)lua_tonumber(L, index));
     if (type == LUA_TTABLE) {
-        lua_getfield(L, index, "type");
-        std::string genType = lua_tostring(L, -1) ? lua_tostring(L, -1) : "";
-        lua_pop(L, 1);
+        std::string genType = luaStrField(L, index, "type");
         if (genType == "seq" || genType == "trigger") {
-            lua_getfield(L, index, "val");
-            std::string p = lua_tostring(L, -1) ? lua_tostring(L, -1) : "";
-            lua_pop(L, 1);
-            lua_getfield(L, index, "bank");
-            std::string bank = lua_tostring(L, -1) ? lua_tostring(L, -1) : "";
-            lua_pop(L, 1);
+            std::string p = luaStrField(L, index, "val");
+            std::string bank = luaStrField(L, index, "bank");
             return std::make_shared<patterns::Seq>(p, bank);
         } else if (genType == "osc") {
-            lua_getfield(L, index, "val");
-            float f = (float)lua_tonumber(L, -1);
-            lua_pop(L, 1); return std::make_shared<patterns::Osc>(f);
+            float f = luaNumField(L, index, "val");
+            return std::make_shared<patterns::Osc>(f);
         } else if (genType == "ramp") {
-            lua_getfield(L, index, "val");
-            float f = (float)lua_tonumber(L, -1);
-            lua_pop(L, 1); return std::make_shared<patterns::Ramp>(f);
+            float f = luaNumField(L, index, "val");
+            return std::make_shared<patterns::Ramp>(f);
         } else if (genType == "noise") {
-            lua_getfield(L, index, "f");
-            float f = (float)lua_tonumber(L, -1);
-            lua_pop(L, 1);
-            lua_getfield(L, index, "s");
-            float s = (float)lua_tonumber(L, -1);
-            lua_pop(L, 1);
+            float f = luaNumField(L, index, "f");
+            float s = luaNumField(L, index, "s");
             return std::make_shared<patterns::Noise>(f, s);
         } else if (genType == "mul") {
-            lua_getfield(L, index, "a"); auto pa = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
-            lua_getfield(L, index, "b"); auto pb = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
+            auto pa = luaPatField(L, index, "a");
+            auto pb = luaPatField(L, index, "b");
             if (pa && pb) return std::make_shared<patterns::Product>(pa, pb);
         } else if (genType == "add") {
-            lua_getfield(L, index, "a"); auto pa = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
-            lua_getfield(L, index, "b"); auto pb = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
+            auto pa = luaPatField(L, index, "a");
+            auto pb = luaPatField(L, index, "b");
             if (pa && pb) return std::make_shared<patterns::Sum>(pa, pb);
         } else if (genType == "fast") {
             lua_getfield(L, index, "n");
@@ -979,7 +964,7 @@ std::shared_ptr<Pattern<float>> parsePattern(lua_State* L, int index) {
                 n = (float)lua_tonumber(L, -1);
             }
             lua_pop(L, 1);
-            lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
+            auto p = luaPatField(L, index, "p");
             if (p) {
                 if (speedPat) return std::make_shared<patterns::Density>(speedPat, p);
                 else return std::make_shared<patterns::Density>(n, p);
@@ -994,7 +979,7 @@ std::shared_ptr<Pattern<float>> parsePattern(lua_State* L, int index) {
                 n = (float)lua_tonumber(L, -1);
             }
             lua_pop(L, 1);
-            lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
+            auto p = luaPatField(L, index, "p");
             if (p) {
                 if (speedPat) {
                     auto invPat = std::make_shared<patterns::Scale>(0.01f, 100.0f, speedPat);
@@ -1002,70 +987,70 @@ std::shared_ptr<Pattern<float>> parsePattern(lua_State* L, int index) {
                 } else return std::make_shared<patterns::Density>(1.0f/n, p);
             }
         } else if (genType == "shift") {
-            lua_getfield(L, index, "o"); float o = (float)lua_tonumber(L, -1); lua_pop(L, 1);
-            lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
+            float o = luaNumField(L, index, "o");
+            auto p = luaPatField(L, index, "p");
             if (p) return std::make_shared<patterns::Shift>(o, p);
         } else if (genType == "scale") {
-            lua_getfield(L, index, "l"); float l = (float)lua_tonumber(L, -1); lua_pop(L, 1);
-            lua_getfield(L, index, "h"); float h = (float)lua_tonumber(L, -1); lua_pop(L, 1);
-            lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
+            float l = luaNumField(L, index, "l");
+            float h = luaNumField(L, index, "h");
+            auto p = luaPatField(L, index, "p");
             if (p) return std::make_shared<patterns::Scale>(l, h, p);
         } else if (genType == "snap") {
-            lua_getfield(L, index, "s"); float s = (float)lua_tonumber(L, -1); lua_pop(L, 1);
-            lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
+            float s = luaNumField(L, index, "s");
+            auto p = luaPatField(L, index, "p");
             if (p) return std::make_shared<patterns::Snap>(s, p);
         } else if (genType == "abs") {
-            lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
+            auto p = luaPatField(L, index, "p");
             if (p) return std::make_shared<patterns::Abs>(p);
         } else if (genType == "pow") {
-            lua_getfield(L, index, "e"); float e = (float)lua_tonumber(L, -1); lua_pop(L, 1);
-            lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
+            float e = luaNumField(L, index, "e");
+            auto p = luaPatField(L, index, "p");
             if (p) return std::make_shared<patterns::Pow>(e, p);
         } else if (genType == "accum") {
-            lua_getfield(L, index, "rate"); float rate = (float)lua_tonumber(L, -1); lua_pop(L, 1);
-            lua_getfield(L, index, "init"); float init = (float)lua_tonumber(L, -1); lua_pop(L, 1);
-            lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
+            float rate = luaNumField(L, index, "rate");
+            float init = luaNumField(L, index, "init");
+            auto p = luaPatField(L, index, "p");
             if (p) return std::make_shared<patterns::Accum>(rate, p, init);
         } else if (genType == "smooth") {
-            lua_getfield(L, index, "tau"); float tau = (float)lua_tonumber(L, -1); lua_pop(L, 1);
-            lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
+            float tau = luaNumField(L, index, "tau");
+            auto p = luaPatField(L, index, "p");
             if (p) return std::make_shared<patterns::Smooth>(tau, p);
         } else if (genType == "toggle") {
-            lua_getfield(L, index, "thresh"); float thresh = (float)lua_tonumber(L, -1); lua_pop(L, 1);
-            lua_getfield(L, index, "p"); auto p = parsePattern(L, lua_gettop(L)); lua_pop(L, 1);
+            float thresh = luaNumField(L, index, "thresh");
+            auto p = luaPatField(L, index, "p");
             if (p) return std::make_shared<patterns::Toggle>(p, thresh);
         } else if (genType == "midi") {
-            lua_getfield(L, index, "cc"); int cc = (int)lua_tonumber(L, -1); lua_pop(L, 1);
-            lua_getfield(L, index, "chan"); int chan = (int)lua_tonumber(L, -1); lua_pop(L, 1);
+            int cc = luaIntField(L, index, "cc");
+            int chan = luaIntField(L, index, "chan");
             auto* ptr = Interpreter::s_currentSession->getInputBindings().getMidiBinding(0, chan, cc);
             return std::make_shared<patterns::External>(ptr, "midi:cc:" + std::to_string(chan) + ":" + std::to_string(cc));
         } else if (genType == "midinote") {
-            lua_getfield(L, index, "note"); int note = (int)lua_tonumber(L, -1); lua_pop(L, 1);
-            lua_getfield(L, index, "chan"); int chan = (int)lua_tonumber(L, -1); lua_pop(L, 1);
+            int note = luaIntField(L, index, "note");
+            int chan = luaIntField(L, index, "chan");
             auto* ptr = Interpreter::s_currentSession->getInputBindings().getMidiBinding(1, chan, note);
             return std::make_shared<patterns::External>(ptr, "midi:note:" + std::to_string(chan) + ":" + std::to_string(note));
         } else if (genType == "miditouch") {
-            lua_getfield(L, index, "note"); int note = (int)lua_tonumber(L, -1); lua_pop(L, 1);
-            lua_getfield(L, index, "chan"); int chan = (int)lua_tonumber(L, -1); lua_pop(L, 1);
+            int note = luaIntField(L, index, "note");
+            int chan = luaIntField(L, index, "chan");
             auto* ptr = Interpreter::s_currentSession->getInputBindings().getMidiBinding(2, chan, note);
             return std::make_shared<patterns::External>(ptr, "midi:touch:" + std::to_string(chan) + ":" + std::to_string(note));
         } else if (genType == "channeltouch") {
-            lua_getfield(L, index, "chan"); int chan = (int)lua_tonumber(L, -1); lua_pop(L, 1);
+            int chan = luaIntField(L, index, "chan");
             std::string path = "midi:ctouch:" + std::to_string(chan);
             auto* ptr = Interpreter::s_currentSession->getInputBindings().getBinding(path);
             return std::make_shared<patterns::External>(ptr, path);
         } else if (genType == "oscin") {
-            lua_getfield(L, index, "path"); std::string path = lua_tostring(L, -1); lua_pop(L, 1);
+            std::string path = luaStrField(L, index, "path");
             std::string fullPath = "osc:" + path;
             auto* ptr = Interpreter::s_currentSession->getInputBindings().getBinding(fullPath);
             return std::make_shared<patterns::External>(ptr, fullPath);
         } else if (genType == "gamepadbutton") {
-            lua_getfield(L, index, "id"); int id = (int)lua_tonumber(L, -1); lua_pop(L, 1);
+            int id = luaIntField(L, index, "id");
             std::string path = "gamepad:button:" + std::to_string(id);
             auto* ptr = Interpreter::s_currentSession->getInputBindings().getBinding(path);
             return std::make_shared<patterns::External>(ptr, path);
         } else if (genType == "gamepadaxis") {
-            lua_getfield(L, index, "id"); int id = (int)lua_tonumber(L, -1); lua_pop(L, 1);
+            int id = luaIntField(L, index, "id");
             std::string path = "gamepad:axis:" + std::to_string(id);
             auto* ptr = Interpreter::s_currentSession->getInputBindings().getBinding(path);
             return std::make_shared<patterns::External>(ptr, path);

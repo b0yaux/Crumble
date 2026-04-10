@@ -210,6 +210,19 @@ void Session::sendCommand(const crumble::ProcessorCommand& cmd) {
     }
 }
 
+void Session::enqueueWithRetry(crumble::SPSCQueue<crumble::ProcessorCommand>& queue,
+                               const crumble::ProcessorCommand& cmd,
+                               const std::string& errorContext) {
+    int retries = 0;
+    while (!queue.enqueue(cmd)) {
+        ofSleepMillis(1);
+        if (++retries > 100) {
+            ofLogError("Session") << errorContext;
+            break;
+        }
+    }
+}
+
 void Session::update(float dt) {
     // 1. Process Video Commands (on Main Thread)
     crumble::ProcessorCommand cmd;
@@ -324,26 +337,8 @@ void Session::update(float dt) {
         bool hasAudio = batchedCmd.audioProcessor || batchedCmd.targetAudioProcessor;
         bool hasVideo = batchedCmd.videoProcessor || batchedCmd.targetVideoProcessor;
 
-        if (hasAudio) {
-            int retries = 0;
-            while (!audioCommandQueue.enqueue(batchedCmd)) {
-                ofSleepMillis(1);
-                if (++retries > 100) {
-                    ofLogError("Session") << "Audio Command Queue Overflow during update flush!";
-                    break;
-                }
-            }
-        }
-        if (hasVideo) {
-            int retries = 0;
-            while (!videoCommandQueue.enqueue(batchedCmd)) {
-                ofSleepMillis(1);
-                if (++retries > 100) {
-                    ofLogError("Session") << "Video Command Queue Overflow during update flush!";
-                    break;
-                }
-            }
-        }
+        if (hasAudio) enqueueWithRetry(audioCommandQueue, batchedCmd, "Audio Command Queue Overflow during update flush!");
+        if (hasVideo) enqueueWithRetry(videoCommandQueue, batchedCmd, "Video Command Queue Overflow during update flush!");
     }
     pendingCommands.clear();
 
@@ -392,26 +387,8 @@ void Session::endScript() {
         bool hasAudio = cmd.audioProcessor || cmd.targetAudioProcessor;
         bool hasVideo = cmd.videoProcessor || cmd.targetVideoProcessor;
 
-        if (hasAudio) {
-            int retries = 0;
-            while (!audioCommandQueue.enqueue(cmd)) {
-                ofSleepMillis(1);
-                if (++retries > 100) {
-                    ofLogError("Session") << "Audio Command Queue Overflow during reload drain!";
-                    break;
-                }
-            }
-        }
-        if (hasVideo) {
-            int retries = 0;
-            while (!videoCommandQueue.enqueue(cmd)) {
-                ofSleepMillis(1);
-                if (++retries > 100) {
-                    ofLogError("Session") << "Video Command Queue Overflow during reload drain!";
-                    break;
-                }
-            }
-        }
+        if (hasAudio) enqueueWithRetry(audioCommandQueue, cmd, "Audio Command Queue Overflow during reload drain!");
+        if (hasVideo) enqueueWithRetry(videoCommandQueue, cmd, "Video Command Queue Overflow during reload drain!");
     }
     ofLogNotice("Session") << "endScript: drained " << pendingCommands.size() << " batched commands";
     pendingCommands.clear();

@@ -112,6 +112,10 @@ private:
     // unordered_set for O(1) alive() check in Session::update()
     std::unordered_set<crumble::VideoProcessor*> activeVideoProcessors;
 
+    void enqueueWithRetry(crumble::SPSCQueue<crumble::ProcessorCommand>& queue,
+                          const crumble::ProcessorCommand& cmd,
+                          const std::string& errorContext);
+
     // Batch-reload: accumulate commands during script execution, drain to SPSC after.
     // Prevents queue overflow during hot-reload (150-300+ commands per reload).
     bool reloading = false;

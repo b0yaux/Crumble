@@ -138,6 +138,7 @@ public:
     virtual void beginScript() {}
     
 protected:
+    static bool paramAsFloat(const ofAbstractParameter& p, float& out);
     std::unordered_map<int, Node*> inputNodes;
     std::unordered_map<std::string, std::shared_ptr<Pattern<float>>> modulators;
     
