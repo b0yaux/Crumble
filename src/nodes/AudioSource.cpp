@@ -17,12 +17,13 @@ public:
     ControlSlot* positionSlot = nullptr;
     ControlSlot* loopSizeSlot = nullptr;
 
-    // Unified trigger state: -1 = idle/rest, >= 0 = index into resolved paths
-    std::atomic<int> pendingBufferIndex{-1};
-    // NUMBER triggers (e.g., sampler("0 1 2")) — kept separate for now
-    std::atomic<int> pendingTrigger{-1};
-    // Sample-accurate playhead reset on any trigger
-    std::atomic<bool> pendingRetrigger{false};
+    static constexpr int MAX_TRIGGERS_PER_BUFFER = 64;
+
+    struct PendingTrigger {
+        int sampleOffset;
+        int dataIndex;
+    };
+
     TriggerMapPtr triggerMap;
     double lastTriggerBars = -1.0;
 
@@ -40,54 +41,75 @@ public:
     void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
                  double cycle, double cycleStep) override {
         if (evalSlot(activeSlot, cycle) < 0.5f) return;
-        
+
+        size_t frames = buffer.getNumFrames();
+
+        // Collect trigger events for this buffer into a sorted stack buffer.
+        // querySlot computes per-sample offsets; we consume them in the DSP loop.
+        PendingTrigger triggerBuf[MAX_TRIGGERS_PER_BUFFER];
+        int numTriggers = 0;
+
         if (triggerSlot && triggerSlot->pattern) {
             if (lastTriggerBars < 0) {
                 lastTriggerBars = std::floor(cycle);
             }
-            
+
             if (std::abs(cycle - lastTriggerBars) > 0.5) {
                 lastTriggerBars = std::floor(cycle);
             }
 
             double samplesPerBar = 1.0 / cycleStep;
-            double endBars = cycle + (buffer.getNumFrames() * cycleStep);
+            double endBars = cycle + (frames * cycleStep);
 
             querySlot(triggerSlot, lastTriggerBars, endBars,
-                      samplesPerBar, (int)buffer.getNumFrames(),
-                      [this](const auto& e, int sampleOffset) {
-                if (e.isRest) {
-                    pendingBufferIndex.store(-1);
-                    pendingTrigger.store(-1);
-                } else if (e.ref) {
-                    int idx = -1;
-                    auto* map = triggerMap.get();
-                    if (map) {
+                      samplesPerBar, (int)frames,
+                      [this, &triggerBuf, &numTriggers](const auto& e, int sampleOffset) {
+                if (e.isRest) return;
+                if (numTriggers >= MAX_TRIGGERS_PER_BUFFER) return;
+
+                int idx = -1;
+                auto* map = triggerMap.get();
+                if (map) {
+                    if (e.ref) {
                         auto it = map->refToIndex.find(*e.ref);
                         if (it != map->refToIndex.end()) idx = it->second;
+                    } else {
+                        char buf[16];
+                        snprintf(buf, sizeof(buf), "%d", static_cast<int>(std::floor(e.value)));
+                        auto it = map->refToIndex.find(buf);
+                        if (it != map->refToIndex.end()) idx = it->second;
                     }
-                    pendingBufferIndex.store(idx);
-                    pendingRetrigger.store(true);
-                    pendingTrigger.store(-1);
-                } else {
-                    pendingTrigger.store(static_cast<int>(std::floor(e.value)));
-                    pendingRetrigger.store(true);
-                    pendingBufferIndex.store(-1);
+                }
+
+                if (idx >= 0 && idx < (int)map->audioData.size()) {
+                    const auto& entry = map->audioData[idx];
+                    if (entry.data && entry.totalSamples > 0) {
+                        triggerBuf[numTriggers++] = {sampleOffset, idx};
+                    }
                 }
             });
             lastTriggerBars = endBars;
         }
-        
-        size_t frames = buffer.getNumFrames();
+
+        // Consume triggers before the null guard so the first trigger
+        // swaps in data from the TriggerMap even when data starts null.
+        int triggerIdx = 0;
+        if (numTriggers > 0) {
+            int firstOffset = triggerBuf[0].sampleOffset;
+            double triggerCycle = cycle + firstOffset * cycleStep;
+            while (triggerIdx < numTriggers && triggerBuf[triggerIdx].sampleOffset == firstOffset) {
+                const auto& entry = triggerMap->audioData[triggerBuf[triggerIdx].dataIndex];
+                dataOwner   = entry.owner;
+                data        = entry.data;
+                totalSamples = entry.totalSamples;
+                channels    = entry.channels;
+                double startPos = evalSlot(positionSlot, triggerCycle) * (double)totalSamples;
+                playhead.store(startPos);
+                triggerIdx++;
+            }
+        }
 
         if (!data || totalSamples == 0) return;
-
-        // Check for sample-accurate re-trigger (atomic flag set by pattern query)
-        if (pendingRetrigger.load()) {
-            double startPos = evalSlot(positionSlot, cycle) * (double)totalSamples;
-            playhead.store(startPos);
-            pendingRetrigger.store(false);
-        }
 
         bool isPlaying = evalSlot(playingSlot, cycle) > 0.5f;
         if (!isPlaying) return;
@@ -97,6 +119,18 @@ public:
         int outCh = buffer.getNumChannels();
 
         for (size_t i = 0; i < frames; i++) {
+            // Apply any triggers scheduled at this sample
+            while (triggerIdx < numTriggers && triggerBuf[triggerIdx].sampleOffset == (int)i) {
+                const auto& entry = triggerMap->audioData[triggerBuf[triggerIdx].dataIndex];
+                dataOwner   = entry.owner;
+                data        = entry.data;
+                totalSamples = entry.totalSamples;
+                channels    = entry.channels;
+                double startPos = evalSlot(positionSlot, cycle + i * cycleStep) * (double)totalSamples;
+                ph = startPos;
+                triggerIdx++;
+            }
+
             double sampleCycle = cycle + i * cycleStep;
             float spd = evalSlot(speedSlot, sampleCycle);
             float curG = evalSlot(gainSlot, sampleCycle);
@@ -126,7 +160,6 @@ public:
     }
 
     void handleCommand(const ProcessorCommand& cmd) override {
-        // Handle core parameter and pattern updates via base class
         AudioProcessor::handleCommand(cmd);
 
         if (cmd.type == ProcessorCommand::LOAD_BUFFER) {
@@ -134,10 +167,6 @@ public:
             data        = cmd.audioData;
             totalSamples = cmd.totalSamples;
             channels    = cmd.channels;
-            // Start from the configured position, not 0. When a trigger
-            // causes a file swap, LOAD_BUFFER may arrive in the next audio
-            // callback — after the re-trigger was already consumed. Resetting
-            // to 0 would leave the playhead stuck there until the next trigger.
             if (positionSlot && totalSamples > 0) {
                 float posVal = positionSlot->value.load(std::memory_order_relaxed);
                 playhead.store(posVal * (double)totalSamples);
@@ -153,13 +182,6 @@ public:
             triggerMap = cmd.triggerMap;
         }
     }
-
-    int consumePendingBufferIndex() {
-        return pendingBufferIndex.exchange(-1);
-    }
-    bool hasPendingTrigger() const { return pendingTrigger.load() >= 0; }
-    int getPendingTrigger() const { return pendingTrigger.load(); }
-    void clearPendingTrigger() { pendingTrigger.store(-1); }
 };
 
 } // namespace crumble
@@ -207,9 +229,9 @@ void AudioSource::load(const std::string& audioPath) {
     }
 
     // Same file already loaded — skip redundant LOAD_BUFFER.
-    // The audio-thread pendingRetrigger (set by pattern query) handles
-    // playhead reset sample-accurately. Pushing LOAD_BUFFER again would
-    // redundantly zero the playhead and waste command queue bandwidth.
+    // Trigger-driven swaps happen on the audio thread via TriggerMap.
+    // This path is for initial loads (before TriggerMap exists) and
+    // non-trigger path changes.
     if (resolved == loadedResolvedPath) {
         pendingDecodePath.clear();
         return;
@@ -302,36 +324,86 @@ void AudioSource::onParameterChanged(const std::string& paramName) {
     }
 }
 
+void AudioSource::setPendingTriggerBuild(std::vector<std::string> refs, const std::string& bankName) {
+    pendingTriggerBuild.refs = std::move(refs);
+    pendingTriggerBuild.bankName = bankName;
+}
+
+bool AudioSource::buildTriggerMap(const std::vector<std::string>& refs, const std::string& bankName) {
+    if (!audioProcessor) return false;
+
+    auto* cache = getCache();
+    if (!cache) return false;
+
+    auto triggerMap = std::make_shared<crumble::TriggerMap>();
+    int index = 0;
+    for (const auto& ref : refs) {
+        bool isNumeric = false;
+        try {
+            size_t pos;
+            std::stof(ref, &pos);
+            isNumeric = (pos == ref.size());
+        } catch (...) {}
+
+        std::string resolved;
+        if (isNumeric && !bankName.empty()) {
+            resolved = resolvePath(bankName + ":" + ref, "audio");
+        } else {
+            resolved = resolvePath(ref, "audio");
+        }
+        if (resolved.empty()) continue;
+
+        triggerMap->refToIndex[ref] = index;
+
+        crumble::AudioTriggerEntry entry;
+        std::string ext = resolved.substr(resolved.find_last_of('.') + 1);
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+        if (ext == "mov" || ext == "hap" || ext == "mp4") {
+            auto decoded = cache->getEmbeddedAudio(resolved, getSampleRate());
+            if (decoded) {
+                entry.data = decoded->data.data();
+                entry.totalSamples = decoded->numFrames;
+                entry.channels = decoded->channels;
+                entry.owner = decoded;
+            }
+        } else {
+            auto audioFile = cache->getAudio(resolved);
+            if (audioFile && audioFile->loaded()) {
+                entry.data = audioFile->data();
+                entry.totalSamples = audioFile->length();
+                entry.channels = (int)audioFile->channels();
+                entry.owner = audioFile;
+            }
+        }
+        triggerMap->audioData.push_back(entry);
+        index++;
+    }
+
+    for (const auto& e : triggerMap->audioData) {
+        if (!e.data || e.totalSamples == 0) return false;
+    }
+
+    if (!triggerMap->audioData.empty()) {
+        crumble::ProcessorCommand cmd;
+        cmd.type = crumble::ProcessorCommand::SET_TRIGGER_MAP;
+        cmd.audioProcessor = audioProcessor;
+        cmd.triggerMap = triggerMap;
+        pushCommand(cmd);
+    }
+    return true;
+}
+
 void AudioSource::update(float dt) {
 
     if (!audioProcessor) return;
 
-    auto* pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
-    if (!pProc) return;
-
     if (!pendingDecodePath.empty()) {
         load(pendingDecodePath);
-        if (!pendingDecodePath.empty()) {
-            if (++pendingDecodeRetries > MAX_DECODE_RETRIES) {
-                ofLogError("AudioSource") << "Decode timeout: " << pendingDecodePath;
-                pendingDecodePath.clear();
-                pendingDecodeRetries = 0;
-            }
-        } else {
-            pendingDecodeRetries = 0;
-        }
-        return;
     }
 
-    int idx = pProc->consumePendingBufferIndex();
-    if (idx >= 0 && idx < (int)resolvedPaths.size()) {
-        load(resolvedPaths[idx]);
-    } else if (pProc->hasPendingTrigger()) {
-        int trigIdx = pProc->getPendingTrigger();
-        pProc->clearPendingTrigger();
-        std::string b = bank.get();
-        if (!b.empty()) {
-            load(b + ":" + std::to_string(trigIdx));
+    if (!pendingTriggerBuild.refs.empty()) {
+        if (buildTriggerMap(pendingTriggerBuild.refs, pendingTriggerBuild.bankName)) {
+            pendingTriggerBuild.refs.clear();
         }
     }
 }
@@ -358,25 +430,4 @@ double AudioSource::getRelativePosition() const {
 }
 
 void AudioSource::setRelativePosition(double pct) {
-    // Deprecated: position is now a per-sample ControlSlot on the audio thread.
-    // Retained for the deprecated C++ AVSampler caller.
-}
-
-bool AudioSource::hasPendingTrigger() const {
-    auto pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
-    return pProc ? pProc->hasPendingTrigger() : false;
-}
-
-int AudioSource::getPendingTrigger() const {
-    auto pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
-    return pProc ? pProc->getPendingTrigger() : -1;
-}
-
-void AudioSource::clearPendingTrigger() {
-    auto pProc = static_cast<crumble::AudioSourceProcessor*>(audioProcessor);
-    if (pProc) pProc->clearPendingTrigger();
-}
-
-void AudioSource::setResolvedPaths(const std::vector<std::string>& paths) {
-    resolvedPaths = paths;
 }

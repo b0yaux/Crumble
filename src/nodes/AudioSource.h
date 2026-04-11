@@ -1,5 +1,6 @@
 #pragma once
 #include "../core/Node.h"
+#include "../core/ProcessorCommand.h"
 #include <string>
 #include <vector>
 
@@ -33,13 +34,10 @@ public:
 
     crumble::AudioProcessor* createAudioProcessor() override;
     void onParameterChanged(const std::string& paramName) override;
+
+    bool buildTriggerMap(const std::vector<std::string>& refs, const std::string& bankName);
+    void setPendingTriggerBuild(std::vector<std::string> refs, const std::string& bankName);
     
-    bool hasPendingTrigger() const;
-    int getPendingTrigger() const;
-    void clearPendingTrigger();
-
-    void setResolvedPaths(const std::vector<std::string>& paths);
-
 private:
     void onPathChanged(std::string& p);
     bool loadEmbedded(const std::string& videoPath);
@@ -49,8 +47,10 @@ private:
     std::string lastParamPath;
 
     std::string pendingDecodePath;
-    int pendingDecodeRetries = 0;
-    static constexpr int MAX_DECODE_RETRIES = 120;
 
-    std::vector<std::string> resolvedPaths;
+    struct PendingTriggerBuild {
+        std::vector<std::string> refs;
+        std::string bankName;
+    };
+    PendingTriggerBuild pendingTriggerBuild;
 };

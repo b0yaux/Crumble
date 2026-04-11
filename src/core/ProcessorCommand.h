@@ -23,13 +23,25 @@ class AudioProcessor;
 class VideoProcessor;
 
 /**
- * TriggerMap: immutable ref-to-index mapping for trigger patterns.
+ * AudioTriggerEntry: pre-cached audio data for a single trigger ref.
+ * Immutable after construction. The audio thread reads data/totalSamples/channels
+ * directly without main-thread involvement — no LOAD_BUFFER round-trip needed.
+ */
+struct AudioTriggerEntry {
+    const float* data = nullptr;
+    size_t totalSamples = 0;
+    int channels = 0;
+    std::shared_ptr<void> owner;
+};
+
+/**
+ * TriggerMap: ref-to-index mapping + pre-cached audio data for trigger patterns.
  * Built at set time, sent to audio thread via SET_TRIGGER_MAP command.
- * Allows the audio thread to convert Event{ref="k"} into an integer
- * without string copy or mutex.
+ * audioData is index-aligned: audioData[refToIndex[ref]] holds that ref's audio.
  */
 struct TriggerMap {
     std::unordered_map<std::string, int> refToIndex;
+    std::vector<AudioTriggerEntry> audioData;
 };
 
 using TriggerMapPtr = std::shared_ptr<TriggerMap>;

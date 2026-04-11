@@ -6,6 +6,12 @@
  * PatternMath: High-level functional decorators for the Pattern system.
  * These classes wrap existing patterns to transform their time or value
  * without storing state, maintaining sample-accurate precision.
+ *
+ * NOTE (node chaining): sampler("k s"):fast(4) was deliberately NOT implemented.
+ * It would require hidden state (_pathGen) on nodes to intercept gen table
+ * method calls, coupling makeSampler to NodeMeta.__index with special-casing
+ * for :scale(). The accepted form is sampler(seq("k s"):fast(8)) — gen table
+ * chaining happens before the sampler sees it. Honest, no hidden state.
  */
 namespace patterns {
 
@@ -27,15 +33,33 @@ namespace patterns {
         
         std::vector<Event<float>> query(double start, double end) override {
             if (!pat) return {};
-            if (densityPat) {
-                // Dynamic density: evaluate speed pattern at query boundaries
-                // For simplicity, we sample the speed at the start of the query
-                float speed = std::max(0.1f, densityPat->eval(start));
-                return pat->query(start * speed, end * speed);
-            } else {
-                // Constant density
-                return pat->query(start * constantFactor, end * constantFactor);
+            double factor = densityPat ? std::max(0.1f, densityPat->eval(start)) : constantFactor;
+            double innerStart = start * factor;
+            double innerEnd = end * factor;
+
+            auto events = pat->query(innerStart, innerEnd);
+
+            for (auto& e : events) {
+                // Rescale onset from inner cycle phase to outer cycle phase.
+                // Inner onset is in [0,1) relative to the inner cycle it belongs to.
+                // We disambiguate which inner cycle using the inner query boundaries:
+                //   - If onset >= inner cycle phase of innerStart → same inner cycle as query start
+                //   - If onset < inner cycle phase of innerStart → next inner cycle (wraparound)
+                double innerPhase = innerStart - std::floor(innerStart);
+                double innerCycleNum;
+                if (e.onset >= innerPhase) {
+                    innerCycleNum = std::floor(innerStart);
+                } else {
+                    innerCycleNum = std::floor(innerStart) + 1.0;
+                }
+                double outerAbs = (innerCycleNum + e.onset) / factor;
+                e.onset = outerAbs - std::floor(outerAbs);
+                if (e.duration > 0) {
+                    e.duration /= factor;
+                }
             }
+
+            return events;
         }
         
         float eval(double cycle) override {

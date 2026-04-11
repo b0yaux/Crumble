@@ -127,21 +127,7 @@ void AVSampler::update(float dt) {
     if (!active->get()) return;
 
     if (audioSource.audioProcessor) {
-        if (audioSource.hasPendingTrigger()) {
-            int idx = audioSource.getPendingTrigger();
-            audioSource.clearPendingTrigger();
-            ofLogNotice("AVSampler") << "Trigger index received: " << idx;
-            triggerSample(idx);
-        }
-    }
-
-    if (audioSource.audioProcessor) {
-        // SINGLE-TRUTH SYNC: Audio playhead is the authority. 
-        // We calculate the current relative position from the audio thread's playhead.
         double currentPos = audioSource.getRelativePosition();
-        
-        // Slave the video player to the audio position.
-        // In EXTERNAL mode, this ensures perfect A/V sync without drift.
         videoSource.setPosition((float)currentPos);
         position.set((float)currentPos);
     } else {

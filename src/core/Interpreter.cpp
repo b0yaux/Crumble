@@ -818,7 +818,7 @@ static void collectLuaTriggerRefs(lua_State* L, int index, std::unordered_set<st
             std::istringstream ss(val);
             std::string token;
             while (ss >> token) {
-                if (token != "~" && token.find_first_not_of("0123456789.-") != std::string::npos) {
+                if (token != "~") {
                     out.insert(token);
                 }
             }
@@ -861,47 +861,26 @@ int Interpreter::lua_setGenerator(lua_State* L) {
         std::unordered_set<std::string> refs;
         collectLuaTriggerRefs(L, 3, refs);
         if (!refs.empty()) {
-            auto triggerMap = std::make_shared<crumble::TriggerMap>();
-            std::vector<std::string> resolvedPaths;
-            int index = 0;
-            for (const auto& ref : refs) {
-                std::string resolved = node->resolvePath(ref, "audio");
-                if (resolved.empty()) continue;
-                triggerMap->refToIndex[ref] = index;
-                resolvedPaths.push_back(resolved);
-                std::string ext = resolved.substr(resolved.find_last_of('.') + 1);
-                std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-                if (ext == "mov" || ext == "hap" || ext == "mp4") {
-                    s_currentSession->getCache().getEmbeddedAudio(resolved);
-                } else {
-                    s_currentSession->getCache().getAudio(resolved);
-                }
-                index++;
-            }
-
+            AudioSource* audioSource = nullptr;
             if (auto* g = dynamic_cast<Graph*>(node)) {
                 auto targets = g->getProxyTargets(paramName);
                 for (auto& [childId, childParam] : targets) {
                     Node* child = g->getNode(childId);
                     if (auto* as = dynamic_cast<AudioSource*>(child)) {
-                        as->setResolvedPaths(resolvedPaths);
-                        if (as->audioProcessor) {
-                            crumble::ProcessorCommand cmd;
-                            cmd.type = crumble::ProcessorCommand::SET_TRIGGER_MAP;
-                            cmd.audioProcessor = as->audioProcessor;
-                            cmd.triggerMap = triggerMap;
-                            as->pushCommand(cmd);
-                        }
+                        audioSource = as;
+                        break;
                     }
                 }
-            } else if (auto* as = dynamic_cast<AudioSource*>(node)) {
-                as->setResolvedPaths(resolvedPaths);
-                if (as->audioProcessor) {
-                    crumble::ProcessorCommand cmd;
-                    cmd.type = crumble::ProcessorCommand::SET_TRIGGER_MAP;
-                    cmd.audioProcessor = as->audioProcessor;
-                    cmd.triggerMap = triggerMap;
-                    as->pushCommand(cmd);
+            } else {
+                audioSource = dynamic_cast<AudioSource*>(node);
+            }
+
+            if (audioSource) {
+                std::string bankName = audioSource->bank.get();
+                std::vector<std::string> refVec(refs.begin(), refs.end());
+
+                if (!audioSource->buildTriggerMap(refVec, bankName)) {
+                    audioSource->setPendingTriggerBuild(std::move(refVec), bankName);
                 }
             }
         }
