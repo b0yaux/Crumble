@@ -7,8 +7,8 @@
 class VideoSource : public Node {
 public:
     VideoSource();
+    ~VideoSource();
     
-    // Performance: Members made public to allow AVSampler direct pointer access
     ofParameter<std::string> path;
     ofParameter<std::string> bank;
     ofParameter<float> speed;
@@ -49,7 +49,7 @@ public:
     // Routes through the ofParameter so onClockModeChanged fires correctly.
     void setClockMode(ClockMode mode);
     
-    // Audio access for embedded audio streams (used by AVSampler)
+    // Audio access for embedded audio streams
     bool hasEmbeddedAudio() const { return _hasAudio; }
     ofxHapPlayer& getPlayer() { return currentPlayer ? *currentPlayer : localPlayer; }
     const ofxHapPlayer& getPlayer() const { return currentPlayer ? *currentPlayer : localPlayer; }

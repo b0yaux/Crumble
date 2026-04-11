@@ -199,14 +199,10 @@ void Session::sendCommand(const crumble::ProcessorCommand& cmd) {
     bool hasVideo = cmd.videoProcessor || cmd.targetVideoProcessor;
 
     if (hasAudio) {
-        if (!audioCommandQueue.enqueue(cmd)) {
-            ofLogError("Session") << "Audio Command Queue Overflow!";
-        }
+        enqueueWithRetry(audioCommandQueue, cmd, "Audio Command Queue Overflow!");
     }
     if (hasVideo) {
-        if (!videoCommandQueue.enqueue(cmd)) {
-            ofLogError("Session") << "Video Command Queue Overflow!";
-        }
+        enqueueWithRetry(videoCommandQueue, cmd, "Video Command Queue Overflow!");
     }
 }
 
@@ -399,18 +395,9 @@ void Session::touchNode(int nodeId) {
 }
 
 Node* Session::getNode(int nodeId) { return graph.getNode(nodeId); }
-Node* Session::findNodeByName(const std::string& name) {
-    for (const auto& [id, node] : graph.getNodes()) {
-        if (node->name == name) return node.get();
-    }
-    return nullptr;
-}
 int Session::getNodeCount() const { return static_cast<int>(graph.getNodeCount()); }
 bool Session::save(const std::string& path) { return graph.saveToFile(path); }
 bool Session::load(const std::string& path) { return graph.loadFromFile(path); }
 void Session::registerNodeType(const std::string& type, Graph::NodeCreator creator) {
     graph.registerNodeType(type, creator);
-}
-std::vector<std::string> Session::getRegisteredTypes() const {
-    return graph.getRegisteredTypes();
 }

@@ -108,20 +108,9 @@ void AudioMixer::onInputConnected(int index) {
     }
 }
 
-void AudioMixer::onInputDisconnected(int index) {}
-
-void AudioMixer::addInput() {
-    numActiveInputs++;
-    onInputConnected(numActiveInputs - 1);
-}
-
-void AudioMixer::removeInput() {
-    if (numActiveInputs > 0) {
-        numActiveInputs--;
-        if (!inputGains.empty()) {
-            parameters->remove(*inputGains.back());
-            inputGains.pop_back();
-        }
+void AudioMixer::onInputDisconnected(int index) {
+    if (index < (int)inputGains.size()) {
+        parameters->remove(*inputGains[index]);
     }
 }
 

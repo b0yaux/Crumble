@@ -51,15 +51,13 @@ public:
     // --- Node access ---
     Node* getNode(int nodeId);
     int   getNodeCount() const;
-    Node* findNodeByName(const std::string& name);
-    
+
     // --- Persistence ---
     bool save(const std::string& path);
     bool load(const std::string& path);
 
     // --- Factory ---
     void registerNodeType(const std::string& type, Graph::NodeCreator creator);
-    std::vector<std::string> getRegisteredTypes() const;
 
     Graph&       getGraph() { return graph; }
     const Graph& getGraph() const { return graph; }

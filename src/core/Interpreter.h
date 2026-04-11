@@ -37,9 +37,9 @@ public:
     
     static Session* s_currentSession;
 
-    // Execute multiple scripts in order
+    // Execute multiple scripts in order (future: modular script loading)
     bool runScripts(const std::vector<std::string>& paths);
-    
+
     // Call the global 'update(t)' function if it exists
     void update(const Transport& t);
     
@@ -92,5 +92,5 @@ private:
     static int lua_exposeParam(lua_State* L);
     static int lua_readBinding(lua_State* L);
 
-    static void restoreAutoNames(lua_State* L, int savedAutoNames, int savedAutoIndices, int savedNameCount);
+    static void restoreAutoNames(lua_State* L, int savedAutoNames, int savedNameCount);
 };

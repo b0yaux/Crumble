@@ -51,9 +51,16 @@ function update()
     if held("up") then opacity = math.min(1, opacity + 0.02) end
     if held("down") then opacity = math.max(0, opacity - 0.02) end
 
+    local function inBatch(clipIdx)
+        for offset = 0, batch - 1 do
+            if (idx + offset) % total == clipIdx then return true end
+        end
+        return false
+    end
+
     for i = #active, 1, -1 do
         local entry = active[i]
-        if entry.idx < idx or entry.idx >= idx + batch then
+        if not inBatch(entry.idx) then
             entry.node:destroy()
             activeSet[entry.idx] = nil
             table.remove(active, i)
@@ -61,7 +68,7 @@ function update()
     end
 
     local layerOpacity = opacity / math.sqrt(batch)
-    local layerGain = 0.5 / math.sqrt(batch)
+    local layerGain = 1 / math.sqrt(batch)
     local blendMode = blends[blend]
 
     -- Apply blend/opacity/gain to all active samplers (not just newly spawned)

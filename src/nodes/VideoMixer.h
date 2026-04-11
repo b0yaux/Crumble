@@ -18,8 +18,6 @@ public:
     VideoMixer();
     ~VideoMixer();
     
-    void setup(int width, int height);
-    
     crumble::VideoProcessor* createVideoProcessor() override;
     ofTexture* processVideo(int index = 0) override;
     
@@ -28,10 +26,7 @@ public:
     
     // Dynamic layer management
 
-
-
     int addLayer();                            // Returns layer index, -1 if full
-    void removeLayer(int layerIndex);
     void setLayerCount(int count);
     int getLayerCount() const { return numActiveLayers; }
     int getMaxSupportedLayers() const { return maxSupportedLayers; }
@@ -59,9 +54,6 @@ public:
     
 private:
     void onNumLayersChanged(int& count);      // Listener for numActiveLayers
-    
-
-    void detectGpuLimits();                   // Query GL_MAX_TEXTURE_IMAGE_UNITS
     void resizeLayerArrays(int newSize);      // Resize parameter arrays
     
     int fboWidth = 1920;

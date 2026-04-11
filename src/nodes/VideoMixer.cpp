@@ -217,26 +217,7 @@ VideoMixer::VideoMixer() {
 }
 
 VideoMixer::~VideoMixer() {
-}
-
-void VideoMixer::detectGpuLimits() {
-    GLint maxSamplers = 16;  // OpenGL minimum
-    glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &maxSamplers);
-    
-    // Cap at 128 for practical purposes (M1 Pro supports 128)
-    maxSupportedLayers = std::min(128, (int)maxSamplers);
-    
-    ofLogNotice("VideoMixer") << "GPU detected: " << maxSupportedLayers << " texture samplers available";
-    
-    // Update parameter range
-    numActiveLayers.setMax(maxSupportedLayers);
-}
-
-void VideoMixer::setup(int width, int height) {
-    fboWidth = width;
-    fboHeight = height;
-    
-    detectGpuLimits();
+    numActiveLayers.removeListener(this, &VideoMixer::onNumLayersChanged);
 }
 
 void VideoMixer::resizeLayerArrays(int newSize) {
@@ -284,25 +265,6 @@ void VideoMixer::onNumLayersChanged(int& count) {
     numActiveLayers.setWithoutEventNotifications(newCount);
     
     ofLogVerbose("VideoMixer") << "Set layer count to " << newCount;
-}
-
-void VideoMixer::removeLayer(int layerIndex) {
-    if (layerIndex < 0 || layerIndex >= numActiveLayers) {
-        return;
-    }
-    
-    if (graph) {
-        graph->disconnect(nodeId, layerIndex);
-        graph->compactInputIndices(nodeId, layerIndex);
-    }
-    
-    for (int i = layerIndex; i < numActiveLayers - 1; i++) {
-        layerOpacities[i] = layerOpacities[i + 1];
-        layerBlendModes[i] = layerBlendModes[i + 1];
-        layerActive[i] = layerActive[i + 1];
-    }
-    
-    numActiveLayers--;
 }
 
 void VideoMixer::setLayerCount(int count) {

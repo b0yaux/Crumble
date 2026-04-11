@@ -97,6 +97,12 @@ VideoSource::VideoSource() {
     position.addListener(this, &VideoSource::onPositionChanged);
 }
 
+VideoSource::~VideoSource() {
+    path.removeListener(this, &VideoSource::onPathChanged);
+    clockMode.removeListener(this, &VideoSource::onClockModeChanged);
+    position.removeListener(this, &VideoSource::onPositionChanged);
+}
+
 crumble::VideoProcessor* VideoSource::createVideoProcessor() {
     return new VideoSourceProcessor(currentPlayer ? currentPlayer.get() : &localPlayer);
 }

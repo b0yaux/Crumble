@@ -10,10 +10,6 @@ struct LogicalAsset {
     std::string name;
     std::string videoPath;
     std::string audioPath;
-    
-    bool hasVideo() const { return !videoPath.empty(); }
-    bool hasAudio() const { return !audioPath.empty(); }
-    bool isComplete() const { return hasVideo() && hasAudio(); }
 };
 
 /**
@@ -56,7 +52,6 @@ public:
      */
     void registerAlias(const std::string& alias, const std::string& target);
 
-    const std::map<std::string, LogicalAsset>& getAssets() const { return assets; }
     const std::map<std::string, std::vector<LogicalAsset>>& getBanks() const { return banks; }
 
 private:

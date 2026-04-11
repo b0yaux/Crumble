@@ -70,7 +70,7 @@ bool Interpreter::runScript(const std::string& path) {
     session->beginScript();
     
     // Reset auto-indexing and connections for idempotency
-    lua.doString("_autoIndices = {}; _autoNames = {}; _nameCount = {}");
+    lua.doString("_autoNames = {}; _nameCount = {}");
     session->getGraph().markConnectionsStale();
     
     bool success = lua.doScript(path, true);
@@ -108,13 +108,11 @@ bool Interpreter::runScriptInGraph(const std::string& path, Graph* nestedGraph) 
     // doesn't clobber the parent's or sibling sub-graphs' counters.
     lua_getglobal(L, "_autoNames");
     int savedAutoNames = luaL_ref(L, LUA_REGISTRYINDEX);
-    lua_getglobal(L, "_autoIndices");
-    int savedAutoIndices = luaL_ref(L, LUA_REGISTRYINDEX);
     lua_getglobal(L, "_nameCount");
     int savedNameCount = luaL_ref(L, LUA_REGISTRYINDEX);
 
     // Reset auto-name counters for stable name generation within this sub-graph
-    lua.doString("_autoIndices = {}; _autoNames = {}; _nameCount = {}");
+    lua.doString("_autoNames = {}; _nameCount = {}");
 
     // Idempotent reload: mark children, re-execute, GC untouched
     nestedGraph->beginScript();
@@ -135,7 +133,7 @@ bool Interpreter::runScriptInGraph(const std::string& path, Graph* nestedGraph) 
         std::string err = lua_tostring(L, -1);
         ofLogError("Lua") << "Error loading subgraph script: " << err;
         lua_pop(L, 2);
-        restoreAutoNames(L, savedAutoNames, savedAutoIndices, savedNameCount);
+        restoreAutoNames(L, savedAutoNames, savedNameCount);
         s_currentSession = saved;
         return false;
     }
@@ -152,7 +150,7 @@ bool Interpreter::runScriptInGraph(const std::string& path, Graph* nestedGraph) 
         nestedGraph->endScript();
         nestedGraph->clearUntouchedModulators();
         nestedGraph->pruneStaleConnections();
-        restoreAutoNames(L, savedAutoNames, savedAutoIndices, savedNameCount);
+        restoreAutoNames(L, savedAutoNames, savedNameCount);
         s_currentSession = saved;
         return false;
     }
@@ -199,19 +197,15 @@ bool Interpreter::runScriptInGraph(const std::string& path, Graph* nestedGraph) 
         Interpreter::unref(envRef);
     };
     
-    restoreAutoNames(L, savedAutoNames, savedAutoIndices, savedNameCount);
+    restoreAutoNames(L, savedAutoNames, savedNameCount);
     s_currentSession = saved;
     return true;
 }
 
-void Interpreter::restoreAutoNames(lua_State* L, int savedAutoNames, int savedAutoIndices, int savedNameCount) {
+void Interpreter::restoreAutoNames(lua_State* L, int savedAutoNames, int savedNameCount) {
     lua_rawgeti(L, LUA_REGISTRYINDEX, savedAutoNames);
     lua_setglobal(L, "_autoNames");
     luaL_unref(L, LUA_REGISTRYINDEX, savedAutoNames);
-
-    lua_rawgeti(L, LUA_REGISTRYINDEX, savedAutoIndices);
-    lua_setglobal(L, "_autoIndices");
-    luaL_unref(L, LUA_REGISTRYINDEX, savedAutoIndices);
 
     lua_rawgeti(L, LUA_REGISTRYINDEX, savedNameCount);
     lua_setglobal(L, "_nameCount");
@@ -239,7 +233,9 @@ void Interpreter::update(const Transport& t) {
     GraphContext rootContext(&session->getGraph());
 
     lua_State* L = lua;
-    
+
+    lua.doString("_nameCount = {}");
+
     // Create 'Time' table
     lua_newtable(L);
     
@@ -446,9 +442,12 @@ function NodeMeta:__newindex(key, value)
         end
         
         function clear() 
-            _clear() 
+            for id, node in pairs(_G._allNodes) do
+                if type(node) == "table" and node.name then
+                    _G[node.name] = nil
+                end
+            end
             _G._allNodes = {} 
-            _G._autoIndices = {} 
             _G._autoNames = {}
             _G._nameCount = {}
         end

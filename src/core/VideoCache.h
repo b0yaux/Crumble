@@ -49,12 +49,7 @@ public:
      * Clear all cached videos to free memory.
      */
     void clear();
-    
-    /**
-     * Get cache statistics for debugging.
-     */
-    size_t getCacheSize() const;
-    
+
 private:
     VideoCache() = default;
     ~VideoCache() = default;

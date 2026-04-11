@@ -90,10 +90,6 @@ public:
     void compactInputIndices(int toNode, int removedInput);
     const std::vector<Connection>& getConnections() const { return connections; }
 
-    // --- Navigation ---
-    Graph* getParentGraph() const;
-    Node* getContainingNode() const;
-
     // --- Routing overrides (sub-graph boundary resolution) ---
     Node* resolveInput(int toInput) override;
     Node* resolveOutput(int fromOutput) override;

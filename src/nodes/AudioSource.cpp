@@ -69,16 +69,15 @@ public:
 
                 int idx = -1;
                 auto* map = triggerMap.get();
-                if (map) {
-                    if (e.ref) {
-                        auto it = map->refToIndex.find(*e.ref);
-                        if (it != map->refToIndex.end()) idx = it->second;
-                    } else {
-                        char buf[16];
-                        snprintf(buf, sizeof(buf), "%d", static_cast<int>(std::floor(e.value)));
-                        auto it = map->refToIndex.find(buf);
-                        if (it != map->refToIndex.end()) idx = it->second;
-                    }
+                if (!map) return;
+                if (e.ref) {
+                    auto it = map->refToIndex.find(*e.ref);
+                    if (it != map->refToIndex.end()) idx = it->second;
+                } else {
+                    char buf[16];
+                    snprintf(buf, sizeof(buf), "%d", static_cast<int>(std::floor(e.value)));
+                    auto it = map->refToIndex.find(buf);
+                    if (it != map->refToIndex.end()) idx = it->second;
                 }
 
                 if (idx >= 0 && idx < (int)map->audioData.size()) {

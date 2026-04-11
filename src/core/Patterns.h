@@ -227,12 +227,6 @@ namespace patterns {
     };
 
     /**
-     * REST sentinel value for mini-notation rests (~)
-     */
-    static constexpr float REST_VALUE = -999.0f;
-    inline bool isRest(float v) { return v <= REST_VALUE + 0.1f && v >= REST_VALUE - 0.1f; }
-
-    /**
      * Seq: Discrete step sequencer with mini-notation support.
      * 
      * Mini-notation syntax (Tidal/Strudel-style):
@@ -303,12 +297,6 @@ namespace patterns {
         }
 
         std::string getSignature() const override { return "seq:" + raw + ":" + defaultBank; }
-        
-        const std::vector<Step>& getSteps() const { return steps; }
-        bool isStepRest(int index) const {
-            if (index < 0 || index >= (int)steps.size()) return true;
-            return steps[index].isRest();
-        }
 
     private:
         std::string raw;

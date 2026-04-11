@@ -99,8 +99,3 @@ void VideoCache::clear() {
     cache.clear();
     ofLogNotice("VideoCache") << "Cache cleared";
 }
-
-size_t VideoCache::getCacheSize() const {
-    std::lock_guard<std::mutex> lock(mutex);
-    return cache.size();
-}

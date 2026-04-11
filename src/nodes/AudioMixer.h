@@ -18,9 +18,6 @@ public:
     void onInputConnected(int toInput) override;
     void onInputDisconnected(int toInput) override;
 
-    void addInput();
-    void removeInput();
-
     ofJson serialize() const override;
     void deserialize(const ofJson& json) override;
 
