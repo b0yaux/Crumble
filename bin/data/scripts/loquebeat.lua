@@ -20,7 +20,11 @@ local lfo1 = sine(1/16):scale(0,64)
 
 bpm(120)
 -- Create samplers with presentation settings
-local drum = sampler(seq("s ~ s k k"):fast(2))        :connect(avmix):blend(1):mix(1):on()
+local d = delay():on():time(0.375):feedback(0.7):wet(0.8)
+d:connect(amix)
+
+local drum = sampler(seq("s ~ s k k"):fast(2))
+    :connect(d):connect(vmix):blend(1):mix(1):on()
     :position(osc(1/2):shift(0.21))
     :speed(0.67)
     

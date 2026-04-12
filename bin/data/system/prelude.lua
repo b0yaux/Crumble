@@ -96,6 +96,8 @@ function vout(n, p) return addNode("videoout", n, p, "vout") end
 
 function split(n, p) return addNode("split", n, p, "split") end
 
+function delay(n, p) return addNode("delay", n, p, "delay") end
+
 -- =============================================================================
 -- SAMPLE ALIASES
 -- Define short names for samples, Strudel-style
