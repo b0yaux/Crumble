@@ -31,20 +31,19 @@ is_instagram() {
     [[ "$1" == *instagram.com* ]]
 }
 
+YT_ARGS=()
+
 yt_args() {
     local url="$1"
-    local base_args=()
+    YT_ARGS=()
 
     if is_instagram "$url"; then
         if [[ -f "$COOKIE_FILE" ]]; then
-            base_args+=(--cookies "$COOKIE_FILE")
+            YT_ARGS+=(--cookies "$COOKIE_FILE")
         else
-            # Default to chrome if no cookie file
-            base_args+=(--cookies-from-browser "$HAP_DL_BROWSER")
+            YT_ARGS+=(--cookies-from-browser "$HAP_DL_BROWSER")
         fi
     fi
-
-    echo "${base_args[@]}"
 }
 
 convert_video() {
@@ -55,10 +54,10 @@ convert_video() {
     local target_dir=$(dirname "$target_path")
     mkdir -p "$target_dir"
 
-    local extra_args=$(yt_args "$url")
+    yt_args "$url"
 
     echo "Downloading: $url"
-    yt-dlp $extra_args \
+    yt-dlp "${YT_ARGS[@]}" \
            -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
            -o "${target_path}.%(ext)s" \
            "$url"
@@ -102,11 +101,10 @@ clip_and_encode() {
     target_dir=$(dirname "$target_path")
     mkdir -p "$target_dir"
 
-    local extra_args
-    extra_args=$(yt_args "$url")
+    yt_args "$url"
 
     echo "Downloading: $url"
-    yt-dlp $extra_args \
+    yt-dlp "${YT_ARGS[@]}" \
            -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
            -o "${target_path}.%(ext)s" \
            "$url"
@@ -790,8 +788,8 @@ elif [[ -n "$PATH_INPUT" ]]; then
     FINAL_PATH="$PATH_INPUT"
 else
     echo "Fetching title..."
-    local extra_args=$(yt_args "$URL")
-    FINAL_PATH=$(yt-dlp $extra_args --get-filename -o "%(title)s" "$URL" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g' | sed 's/__+/_/g' | sed 's/^_//' | sed 's/_$//')
+    yt_args "$URL"
+    FINAL_PATH=$(yt-dlp "${YT_ARGS[@]}" --get-filename -o "%(title)s" "$URL" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/_/g' | sed 's/__+/_/g' | sed 's/^_//' | sed 's/_$//')
 fi
 
 if [[ -n "$CLIP_SPEC" ]]; then
