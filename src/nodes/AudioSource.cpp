@@ -300,9 +300,6 @@ crumble::AudioProcessor* AudioSource::createAudioProcessor() {
     return new crumble::AudioSourceProcessor();
 }
 
-void AudioSource::processAudio(ofSoundBuffer& buffer, int index) {
-}
-
 void AudioSource::onParameterChanged(const std::string& paramName) {
     Node::onParameterChanged(paramName);
 

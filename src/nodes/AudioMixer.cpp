@@ -77,8 +77,6 @@ crumble::AudioProcessor* AudioMixer::createAudioProcessor() {
     return new crumble::AudioMixerProcessor();
 }
 
-void AudioMixer::processAudio(ofSoundBuffer& buffer, int index) {}
-
 std::string AudioMixer::getDisplayName() const {
     return "Audio Mixer";
 }

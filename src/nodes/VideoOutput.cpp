@@ -41,11 +41,9 @@ VideoOutput::VideoOutput() {
 
 void VideoOutput::setupProcessor() {
     Node::setupProcessor();
-    if (videoProcessor) {
-        crumble::ProcessorCommand cmd;
-        cmd.type = crumble::ProcessorCommand::REGISTER_ENDPOINT;
-        pushCommand(cmd);
-    }
+    // Note: VideoOutput does NOT register as an audio endpoint.
+    // REGISTER_ENDPOINT is audio-only — video endpoints are iterated
+    // directly from activeVideoProcessors in Session::update().
 }
 
 void VideoOutput::onParameterChanged(const std::string& paramName) {

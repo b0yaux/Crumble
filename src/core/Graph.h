@@ -45,7 +45,6 @@ public:
     void prepare(const Context& ctx) override;
     void update(float dt) override;
     void draw() override;
-    void processAudio(ofSoundBuffer& buffer, int index = 0) override;
     void onParameterChanged(const std::string& paramName) override;
 
     // --- Node Management ---

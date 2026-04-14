@@ -128,18 +128,6 @@ void Node::prepare(const Context& ctx) {
     }
 }
 
-void Node::pullAudio(ofSoundBuffer& buffer, int index) {
-    if (!active->get()) {
-        processAudioBypass(buffer, index);
-        return;
-    }
-    processAudio(buffer, index);
-}
-
-void Node::processAudioBypass(ofSoundBuffer& buffer, int index) {
-    buffer.set(0);
-}
-
 ofTexture* Node::getVideoOutput(int index) {
     if (!active->get()) return processVideoBypass(index);
     return processVideo(index);

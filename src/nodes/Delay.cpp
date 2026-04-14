@@ -10,13 +10,14 @@ public:
     ControlSlot* feedbackSlot = nullptr;
     ControlSlot* wetSlot = nullptr;
 
-    static constexpr int MAX_DELAY_SAMPLES = 88200; // 2 seconds at 44100 Hz
+    // Max delay time in seconds. Ring buffer is sized to fit this at the
+    // current sample rate. Resized once on the first process() call.
+    static constexpr float MAX_DELAY_SECONDS = 2.0f;
 
     DelayAudioProcessor() {
         timeSlot = getControlPtr(hashString("time"));
         feedbackSlot = getControlPtr(hashString("feedback"));
         wetSlot = getControlPtr(hashString("wet"));
-        ringBuffer.resize(MAX_DELAY_SAMPLES, 0.0f);
     }
 
     void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
@@ -39,6 +40,16 @@ public:
         float* pIn = pullBuf.getBuffer().data();
         float* pOut = buffer.getBuffer().data();
 
+        // Size ring buffer for the current sample rate (one-time resize).
+        size_t neededSize = static_cast<size_t>(MAX_DELAY_SECONDS * sampleRate) + 1;
+        if (ringBuffer.size() < neededSize) {
+            size_t oldSize = ringBuffer.size();
+            ringBuffer.resize(neededSize, 0.0f);
+            // Zero the new region to avoid noise from uninitialized memory.
+            for (size_t i = oldSize; i < neededSize; i++) ringBuffer[i] = 0.0f;
+            writePos = 0; // Reset write position after resize.
+        }
+
         for (size_t f = 0; f < numFrames; f++) {
             double sampleCycle = cycle + f * cycleStep;
 
@@ -51,13 +62,13 @@ public:
             wet = std::clamp(wet, 0.0f, 1.0f);
 
             int delaySamples = static_cast<int>(time * sampleRate);
-            delaySamples = std::min(delaySamples, MAX_DELAY_SAMPLES - 1);
+            delaySamples = std::min(delaySamples, static_cast<int>(ringBuffer.size()) - 1);
 
             for (int c = 0; c < numChannels; c++) {
                 float dry = pIn[f * numChannels + c];
 
                 int readPos = writePos - delaySamples;
-                if (readPos < 0) readPos += MAX_DELAY_SAMPLES;
+                if (readPos < 0) readPos += static_cast<int>(ringBuffer.size());
 
                 float delayed = ringBuffer[readPos];
                 ringBuffer[writePos] = dry + feedback * delayed;
@@ -65,7 +76,7 @@ public:
                 pOut[f * numChannels + c] = dry * (1.0f - wet) + delayed * wet;
             }
 
-            writePos = (writePos + 1) % MAX_DELAY_SAMPLES;
+            writePos = (writePos + 1) % static_cast<int>(ringBuffer.size());
         }
     }
 

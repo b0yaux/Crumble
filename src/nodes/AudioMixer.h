@@ -10,7 +10,6 @@ class AudioMixer : public Node {
 public:
     AudioMixer();
 
-    void processAudio(ofSoundBuffer& buffer, int index = 0) override;
     std::string getDisplayName() const override;
 
     crumble::AudioProcessor* createAudioProcessor() override;

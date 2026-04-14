@@ -16,7 +16,6 @@
 static thread_local int g_perfFrameCount = 0;
 static thread_local double g_perfUpdateUs = 0.0;
 static thread_local double g_perfOnUpdateUs = 0.0;
-static thread_local double g_perfAudioUs = 0.0;
 static thread_local int g_perfGraphUpdateCalls = 0;
 #endif
 
@@ -413,11 +412,10 @@ void Graph::update(float dt) {
     if (g_perfFrameCount >= 60) {
         ofLogNotice("PERF") << "update: " << g_perfUpdateUs << " us/call ("
             << g_perfGraphUpdateCalls << " calls/60f) | onUpdate: "
-            << g_perfOnUpdateUs << " us/call | audio: " << g_perfAudioUs << " us/60f";
+            << g_perfOnUpdateUs << " us/call";
         g_perfFrameCount = 0;
         g_perfUpdateUs = 0.0;
         g_perfOnUpdateUs = 0.0;
-        g_perfAudioUs = 0.0;
         g_perfGraphUpdateCalls = 0;
     }
 #endif
@@ -446,22 +444,6 @@ ofTexture* Graph::processVideo(int index) {
     return nullptr;
 }
 
-void Graph::processAudio(ofSoundBuffer& buffer, int index) {
-#if CRUMBLE_PERF
-    auto t0 = std::chrono::steady_clock::now();
-#endif
-    std::lock_guard<std::recursive_mutex> lock(audioMutex);
-    Node* audioNode = resolveAudioOutput(index);
-    if (audioNode) {
-        audioNode->pullAudio(buffer);
-#if CRUMBLE_PERF
-        g_perfAudioUs += std::chrono::duration<double, std::micro>(
-            std::chrono::steady_clock::now() - t0).count();
-#endif
-        return;
-    }
-    buffer.set(0);
-}
 
 bool Graph::validateTopology() {
     traversalOrder.clear();

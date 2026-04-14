@@ -53,12 +53,9 @@ public:
     
     virtual void prepare(const Context& ctx);
     virtual void update(float dt) {}
-    void pullAudio(ofSoundBuffer& buffer, int index = 0);
     virtual ofTexture* getVideoOutput(int index = 0);
 
-    virtual void processAudio(ofSoundBuffer& buffer, int index = 0) {}
     virtual ofTexture* processVideo(int index = 0) { return nullptr; }
-    virtual void processAudioBypass(ofSoundBuffer& buffer, int index = 0);
     virtual ofTexture* processVideoBypass(int index = 0);
 
     Control getControl(ofParameter<float>& param) const;

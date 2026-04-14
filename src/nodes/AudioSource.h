@@ -21,7 +21,6 @@ public:
     ofParameter<bool> loop;
     ofParameter<float> loopSize;
 
-    void processAudio(ofSoundBuffer& buffer, int index = 0) override;
     void update(float dt) override;
     void load(const std::string& path);
     std::string getDisplayName() const override;
