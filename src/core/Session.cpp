@@ -156,6 +156,7 @@ void Session::audioOut(ofSoundBuffer& buffer) {
 
             case crumble::ProcessorCommand::SET_TRIGGER_MAP:
                 if (alive(ap)) ap->handleCommand(cmd);
+                commandGarbageQueue.enqueue(std::move(cmd));
                 break;
 
             default: break;

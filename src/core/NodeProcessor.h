@@ -25,7 +25,7 @@ public:
     NodeProcessor() = default;
     virtual ~NodeProcessor() = default;
 
-    virtual void handleCommand(const ProcessorCommand& cmd) {}
+    virtual void handleCommand(ProcessorCommand& cmd) {}
 
     // --- Pattern evaluation ---
     

@@ -96,6 +96,9 @@ struct ProcessorCommand {
     
     // For SET_TRIGGER_MAP: ref→index mapping for trigger patterns
     TriggerMapPtr triggerMap;
+    // For SET_TRIGGER_MAP: the old TriggerMap being returned to the main thread
+    // for safe destruction (same displaced-pattern pattern as SET_PATTERN).
+    TriggerMapPtr displacedTriggerMap;
     
     int fromOutput = 0;
     int toInput = 0;

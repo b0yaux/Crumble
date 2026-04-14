@@ -158,7 +158,7 @@ public:
         playhead.store(ph);
     }
 
-    void handleCommand(const ProcessorCommand& cmd) override {
+    void handleCommand(ProcessorCommand& cmd) override {
         AudioProcessor::handleCommand(cmd);
 
         if (cmd.type == ProcessorCommand::LOAD_BUFFER) {
@@ -178,6 +178,9 @@ public:
             channels    = 0;
             dataOwner.reset();
         } else if (cmd.type == ProcessorCommand::SET_TRIGGER_MAP) {
+            // Displace the old TriggerMap so its destructor runs on the main thread,
+            // not inside the real-time audio callback. Same pattern as SET_PATTERN.
+            cmd.displacedTriggerMap = std::move(triggerMap);
             triggerMap = cmd.triggerMap;
         }
     }
