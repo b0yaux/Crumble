@@ -368,7 +368,9 @@ This enables stable live-coding: editing the current script preserves playback s
 | | `VideoOutput` | `videoout` | Master video sink |
 | **Audio** | `AudioSource` | `audio` | RAM-cached sample player |
 | | `AudioMixer` | `audiomix` | Multi-channel summation |
+| | `Delay` | `delay` | Feedback delay line |
 | | `AudioOutput` | `audioout` | Master audio sink |
+| **Routing** | `Split` | `split` | Signal fan-out (1→N) |
 | **AV** | `AVSampler` | `sampler` | Unified audio+video player |
 
 ## Robustness
