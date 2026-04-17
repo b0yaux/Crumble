@@ -9,7 +9,7 @@ local amx = audiomix("ax"):connect(speakers):on():gain(0.2)
 local source = "drums:0" 
 
 -- 2. Create voices of the SAME sample
-local voices = 96
+local voices = 16
 
 for i = 1, voices do
     local name = "v" .. i
@@ -29,7 +29,7 @@ for i = 1, voices do
     }, track)
     
     -- Phasing: slight speed drift + noise per voice
-    s.speed = 1.0 + (i * 0.01) -- * noise(i * 0.5):scale(0.8, 1.2)
+    s.speed = 1.0 + (i * 0.001) -- * noise(i * 0.5):scale(0.8, 1.2)
     
     -- Rhythmic offset per voice
     --s.path = seq("0"):slow(i):shift(i * 0.125)

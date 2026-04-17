@@ -27,7 +27,7 @@ local drum = sampler(seq("s ~ s k k"):fast(2))
     :blend(1):mix(1):off()
     :position(osc(1/2):shift(0.21))
     :speed(0.67)
-    
+
 
 local clip = s("muzicvids:10"):connect(avmix):blend(1):off()  
 

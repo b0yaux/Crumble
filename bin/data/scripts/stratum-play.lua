@@ -19,7 +19,7 @@ local bank = "superstratum_video-data"
 local total = #(getBank(bank))
 
 -- defaults
-local batch = 3
+local batch = 1
 local idx = 0
 local opacity = 1
 local blend = 1
@@ -33,7 +33,7 @@ local frame = 0
 --   loopSize: pow(0.5) for fine control at small sizes, scale floor = 0.0001
 local spd = 1.0 + gpad("ly"):accum(-0.5, 0.5):scale(-3, 3)
 local pos = gpad("rx"):accum(0.3, 0.5)
-local lsz = gpad("ry"):accum(-0.3, 0.707):pow(2.0):scale(0.0001, 1)
+local lsz = gpad("ry"):accum(-0.3, 0.4):pow(2.0):scale(0.0001, 1)
 
 local active = {}
 local activeSet = {}
