@@ -7,5 +7,4 @@ public:
     
     crumble::AudioProcessor* createAudioProcessor() override;
     void setupProcessor() override;
-    void onParameterChanged(const std::string& paramName) override;
 };

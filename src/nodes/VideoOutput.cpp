@@ -46,10 +46,6 @@ void VideoOutput::setupProcessor() {
     // directly from activeVideoProcessors in Session::update().
 }
 
-void VideoOutput::onParameterChanged(const std::string& paramName) {
-    Node::onParameterChanged(paramName);
-}
-
 VideoProcessor* VideoOutput::createVideoProcessor() {
     return new VideoOutputProcessor();
 }

@@ -13,7 +13,6 @@ public:
     
     crumble::VideoProcessor* createVideoProcessor() override;
     void setupProcessor() override;
-    void onParameterChanged(const std::string& paramName) override;
     
     ofParameter<bool> autoFullscreen;
     ofParameter<float> x, y, width, height;

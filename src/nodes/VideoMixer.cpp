@@ -67,7 +67,7 @@ public:
             ofLogNotice("VideoMixer") << "Composite shader loaded successfully";
         }
 
-        int numActiveLayers = std::min((int)evalSlot(numLayersSlot, cycle), MAX_INPUTS);
+        int evaluatedLayerCount = std::min((int)evalSlot(numLayersSlot, cycle), MAX_INPUTS);
         float masterOpacity = evalSlot(masterOpacitySlot, cycle);
 
         struct LayerData {
@@ -77,9 +77,9 @@ public:
         };
 
         std::vector<LayerData> activeLayers;
-        activeLayers.reserve(numActiveLayers);
+        activeLayers.reserve(evaluatedLayerCount);
 
-        for (int i = 0; i < numActiveLayers; i++) {
+        for (int i = 0; i < evaluatedLayerCount; i++) {
             if (i >= MAX_INPUTS || !inputs[i].processor) continue;
 
             float opacity = evalSlot(opacitySlots[i], cycle);

@@ -81,10 +81,6 @@ std::string AudioMixer::getDisplayName() const {
     return "Audio Mixer";
 }
 
-void AudioMixer::onParameterChanged(const std::string& paramName) {
-    Node::onParameterChanged(paramName);
-}
-
 void AudioMixer::onInputConnected(int index) {
     if (index >= (int)inputGains.size()) {
         int currentSize = inputGains.size();

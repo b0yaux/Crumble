@@ -55,7 +55,3 @@ void AudioOutput::setupProcessor() {
         pushCommand(cmd);
     }
 }
-
-void AudioOutput::onParameterChanged(const std::string& paramName) {
-    Node::onParameterChanged(paramName);
-}

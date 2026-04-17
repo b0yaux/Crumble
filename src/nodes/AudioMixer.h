@@ -13,7 +13,6 @@ public:
     std::string getDisplayName() const override;
 
     crumble::AudioProcessor* createAudioProcessor() override;
-    void onParameterChanged(const std::string& paramName) override;
     void onInputConnected(int toInput) override;
     void onInputDisconnected(int toInput) override;
 
