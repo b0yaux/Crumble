@@ -7,18 +7,13 @@ using namespace crumble;
 
 class VideoOutputProcessor : public VideoProcessor {
 public:
-    ControlSlot* activeSlot = nullptr;
-
-    VideoOutputProcessor() {
-        activeSlot = getControlPtr(crumble::hashString("active"));
-    }
+    VideoOutputProcessor() = default;
 
     void processVideo(double cycle, double cycleStep) override {
         currentCycle = cycle;
     }
 
     ofTexture* getOutput(int index = 0) override {
-        if (evalSlot(activeSlot, currentCycle) < 0.5f) return nullptr;
         return nullptr; // This node is a sink, it doesn't provide output to others.
     }
 };

@@ -9,14 +9,12 @@ class VideoSourceProcessor : public crumble::VideoProcessor {
 public:
     crumble::ControlSlot* speedSlot = nullptr;
     crumble::ControlSlot* playingSlot = nullptr;
-    crumble::ControlSlot* activeSlot = nullptr;
     crumble::ControlSlot* clockModeSlot = nullptr;
 
     VideoSourceProcessor(ofxHapPlayer* p) : lastSpeed(1.0f) {
         playerRef.store(p);
         speedSlot = getControlPtr(crumble::hashString("speed"));
         playingSlot = getControlPtr(crumble::hashString("playing"));
-        activeSlot = getControlPtr(crumble::hashString("active"));
         clockModeSlot = getControlPtr(crumble::hashString("clockMode"));
     }
 
@@ -25,11 +23,6 @@ public:
         
         ofxHapPlayer* p = playerRef.load(std::memory_order_relaxed);
         if (!p || !p->isLoaded()) return;
-
-        if (evalSlot(activeSlot, cycle) < 0.5f) {
-            if (!p->isPaused()) p->setPaused(true);
-            return;
-        }
 
         float newSpeed = evalSlot(speedSlot, cycle);
         bool isPlaying = evalSlot(playingSlot, cycle) > 0.5f;
@@ -57,8 +50,6 @@ public:
     }
     
     ofTexture* getOutput(int index = 0) override {
-        if (evalSlot(activeSlot, currentCycle) < 0.5f) return nullptr;
-        
         ofxHapPlayer* p = playerRef.load(std::memory_order_relaxed);
         if (p && p->isLoaded()) {
             ofTexture* tex = p->getTexture();

@@ -136,7 +136,8 @@ public:
 class AudioProcessor : public NodeProcessor {
 public:
     AudioProcessor() {
-        internalBuffer.allocate(1024, 2); 
+        internalBuffer.allocate(1024, 2);
+        activeSlot = getControlPtr(hashString("active"));
     }
     virtual ~AudioProcessor() = default;
 
@@ -157,6 +158,14 @@ public:
         internalBuffer.setSampleRate(buffer.getSampleRate());
         internalBuffer.set(0);
         
+        // Universal active bypass: when inactive, skip process() entirely.
+        // internalBuffer stays zero, so mixTo() adds silence to the output.
+        if (evalSlot(activeSlot, cycle) < 0.5f) {
+            lastProcessedFrame = frameCounter;
+            mixTo(buffer);
+            return;
+        }
+        
         process(internalBuffer, index, frameCounter, cycle, cycleStep);
         
         lastProcessedFrame = frameCounter;
@@ -176,6 +185,7 @@ public:
         }
     }
 
+    ControlSlot* activeSlot = nullptr;
     ofSoundBuffer internalBuffer;
     uint64_t lastProcessedFrame = 0;
     

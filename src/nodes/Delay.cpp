@@ -9,7 +9,6 @@ public:
     ControlSlot* timeSlot = nullptr;
     ControlSlot* feedbackSlot = nullptr;
     ControlSlot* wetSlot = nullptr;
-    ControlSlot* activeSlot = nullptr;
 
     // Max delay time in seconds. Ring buffer is sized to fit this at the
     // current sample rate. Resized once on the first process() call.
@@ -19,19 +18,12 @@ public:
         timeSlot = getControlPtr(hashString("time"));
         feedbackSlot = getControlPtr(hashString("feedback"));
         wetSlot = getControlPtr(hashString("wet"));
-        activeSlot = getControlPtr(hashString("active"));
     }
 
     void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
                  double cycle, double cycleStep) override {
         auto& input = inputs[0];
         if (!input.processor) return;
-
-        // When inactive, pass input through dry (no delay processing).
-        if (evalSlot(activeSlot, cycle) < 0.5f) {
-            input.processor->pull(buffer, input.fromOutput, frameCounter, cycle, cycleStep);
-            return;
-        }
 
         if (pullBuf.getNumFrames() != buffer.getNumFrames() ||
             pullBuf.getNumChannels() != buffer.getNumChannels()) {

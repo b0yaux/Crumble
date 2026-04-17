@@ -11,7 +11,6 @@ public:
     ControlSlot* speedSlot = nullptr;
     ControlSlot* playingSlot = nullptr;
     ControlSlot* loopSlot = nullptr;
-    ControlSlot* activeSlot = nullptr;
     ControlSlot* gainSlot = nullptr;
     ControlSlot* triggerSlot = nullptr;
     ControlSlot* positionSlot = nullptr;
@@ -29,7 +28,6 @@ public:
 
     AudioSourceProcessor() {
         playingSlot = getControlPtr(crumble::hashString("playing"));
-        activeSlot = getControlPtr(crumble::hashString("active"));
         speedSlot = getControlPtr(crumble::hashString("speed"));
         gainSlot = getControlPtr(crumble::hashString("gain"));
         triggerSlot = getControlPtr(crumble::hashString("path"));
@@ -40,8 +38,6 @@ public:
 
     void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
                  double cycle, double cycleStep) override {
-        if (evalSlot(activeSlot, cycle) < 0.5f) return;
-
         size_t frames = buffer.getNumFrames();
 
         // Collect trigger events for this buffer into a sorted stack buffer.
