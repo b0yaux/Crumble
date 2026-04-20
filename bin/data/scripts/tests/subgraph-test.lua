@@ -19,12 +19,12 @@ bpm(60)
  
  local s2 = sampler("drums"):connect(avmix):blend(1):on()
     :path(seq("0 ~ 1 ~ ~"):fast(2))
-    --:speed(0.5):position(osc(1/4)) -- 'position' pattern is evaluated     at frame-rate
+    --:speed(0.5):start(osc(1/4)) -- 'start' pattern is evaluated at frame-rate
 --    :mix(gpad("circle")
 
     -- travaux
  local s3 = sampler("travaux"):connect(avmix)
-    :path(seq("travaux ~")):off():blend(0):speed(0.8):position(0.6)
+    :path(seq("travaux ~")):off():blend(0):speed(0.8):start(0.6)
 
  local s4 = sampler("drums:0"):connect(avmix)
     :off():blend(1):mix("0.3 0.9")

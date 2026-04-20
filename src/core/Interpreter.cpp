@@ -388,6 +388,14 @@ function NodeMeta:__newindex(key, value)
                     end
                     return self
                 end
+            elseif k == "region" then
+                return function(self, regionStart, regionEnd)
+                    if type(regionStart) == "table" and regionStart._isGen then _setGen(self.id, "start", regionStart)
+                    else _set(self.id, "start", regionStart) end
+                    if type(regionEnd) == "table" and regionEnd._isGen then _setGen(self.id, "end", regionEnd)
+                    else _set(self.id, "end", regionEnd) end
+                    return self
+                end
             else 
                 -- Chainable Setter: s:gain(0.5) returns s
                 return function(self, val)

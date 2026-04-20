@@ -13,8 +13,8 @@ public:
     ControlSlot* loopSlot = nullptr;
     ControlSlot* gainSlot = nullptr;
     ControlSlot* triggerSlot = nullptr;
-    ControlSlot* positionSlot = nullptr;
-    ControlSlot* loopSizeSlot = nullptr;
+    ControlSlot* startSlot = nullptr;
+    ControlSlot* endSlot = nullptr;
 
     static constexpr int MAX_TRIGGERS_PER_BUFFER = 64;
 
@@ -32,8 +32,8 @@ public:
         gainSlot = getControlPtr(crumble::hashString("gain"));
         triggerSlot = getControlPtr(crumble::hashString("path"));
         loopSlot = getControlPtr(crumble::hashString("loop"));
-        positionSlot = getControlPtr(crumble::hashString("position"));
-        loopSizeSlot = getControlPtr(crumble::hashString("loopSize"));
+        startSlot = getControlPtr(crumble::hashString("start"));
+        endSlot = getControlPtr(crumble::hashString("end"));
     }
 
     void process(ofSoundBuffer& buffer, int index, uint64_t frameCounter,
@@ -98,7 +98,7 @@ public:
                 data        = entry.data;
                 totalSamples = entry.totalSamples;
                 channels    = entry.channels;
-                double startPos = evalSlot(positionSlot, triggerCycle) * (double)totalSamples;
+                double startPos = evalSlot(startSlot, triggerCycle) * (double)totalSamples;
                 playhead.store(startPos);
                 triggerIdx++;
             }
@@ -121,7 +121,7 @@ public:
                 data        = entry.data;
                 totalSamples = entry.totalSamples;
                 channels    = entry.channels;
-                double startPos = evalSlot(positionSlot, cycle + i * cycleStep) * (double)totalSamples;
+                double startPos = evalSlot(startSlot, cycle + i * cycleStep) * (double)totalSamples;
                 ph = startPos;
                 triggerIdx++;
             }
@@ -130,12 +130,11 @@ public:
             float spd = evalSlot(speedSlot, sampleCycle);
             float curG = evalSlot(gainSlot, sampleCycle);
 
-            double regionStart = evalSlot(positionSlot, sampleCycle) * (double)totalSamples;
-            double regionLen = std::max(1.0, evalSlot(loopSizeSlot, sampleCycle) * (double)totalSamples);
-            if (regionStart + regionLen > (double)totalSamples) {
-                regionStart = (double)totalSamples - regionLen;
-            }
-            double regionEnd = regionStart + regionLen;
+            double regionStart = evalSlot(startSlot, sampleCycle) * (double)totalSamples;
+            double regionEnd   = evalSlot(endSlot, sampleCycle) * (double)totalSamples;
+            regionEnd = std::min(regionEnd, (double)totalSamples);
+            if (regionEnd <= regionStart) regionEnd = regionStart + 1.0;
+            double regionLen = regionEnd - regionStart;
 
             // Linear interpolation: reads two consecutive samples and
             // blends by the fractional part of the playhead. This eliminates
@@ -181,8 +180,8 @@ public:
             data        = cmd.audioData;
             totalSamples = cmd.totalSamples;
             channels    = cmd.channels;
-            if (positionSlot && totalSamples > 0) {
-                float posVal = positionSlot->value.load(std::memory_order_relaxed);
+            if (startSlot && totalSamples > 0) {
+                float posVal = startSlot->value.load(std::memory_order_relaxed);
                 playhead.store(posVal * (double)totalSamples);
             } else {
                 playhead.store(0.0);
@@ -209,9 +208,9 @@ AudioSource::AudioSource() {
     parameters->add(bank.set("bank", ""));
     parameters->add(speed.set("speed", 1.0, -4.0, 4.0));
     parameters->add(playing.set("playing", true));
-    parameters->add(position.set("position", 0.0, 0.0, 1.0));
+    parameters->add(start.set("start", 0.0, 0.0, 1.0));
     parameters->add(loop.set("loop", true));
-    parameters->add(loopSize.set("loopSize", 1.0, 0.01, 1.0));
+    parameters->add(end.set("end", 1.0, 0.0, 1.0));
 
     path.addListener(this, &AudioSource::onPathChanged);
 }

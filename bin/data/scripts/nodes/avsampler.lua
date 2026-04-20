@@ -1,7 +1,7 @@
 -- nodes/avsampler.lua
 -- Lua sub-graph replacement for C++ AVSampler.
 -- Parent usage: graph("name", {script="nodes/avsampler.lua"})
--- API identical to sampler(): path, speed, mix(), blend(), position, on()/off()
+-- API identical to sampler(): path, speed, mix(), blend(), start, on()/off()
 
 local a = audio("")
 local v = video("")
@@ -11,12 +11,12 @@ v:outlet(0)
 
 v.clockMode = 1 -- EXTERNAL
 
-expose(a, "speed", "path", "gain", "loop", "position", "loopSize")
+expose(a, "speed", "path", "gain", "loop", "start", "end")
 expose(v, "speed", "path", "opacity", "blend")
 -- "active" is NOT exposed — Graph::onParameterChanged("active")
 -- propagates to all children automatically.
 
 function update()
     v.position = playhead(a)
-    -- position on video is slaved to audio playhead in update() — not exposed to parent.
+    -- start/end on video is slaved to audio playhead in update() — not exposed to parent.
 end

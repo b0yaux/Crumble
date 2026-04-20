@@ -10,7 +10,6 @@ local amix = amix("amix"):connect(speakers):on()
 local s = sampler("superstratum_video-data:0"):connect({vmix, amix}):on()
 s.speed = 1.0
 s.loop = true
-s.position = 0
-s.loopSize = 1
+s:region(0, 1)
 
 print("test-minimal: 1 sampler, static values")

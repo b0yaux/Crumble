@@ -17,9 +17,9 @@ public:
     ofParameter<std::string> bank;
     ofParameter<bool> playing;
     ofParameter<float> speed;
-    ofParameter<float> position;
+    ofParameter<float> start;
     ofParameter<bool> loop;
-    ofParameter<float> loopSize;
+    ofParameter<float> end;
 
     void update(float dt) override;
     void load(const std::string& path);

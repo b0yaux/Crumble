@@ -202,7 +202,7 @@ namespace patterns {
     /**
      * Pow: Power curve. Applies sign(x) * |x|^p to reshape response.
      *
-     *   p < 1 (e.g. 0.5): sqrt — more resolution near zero (loopSize, gain)
+     *   p < 1 (e.g. 0.5): sqrt — more resolution near zero (end, gain)
      *   p > 1 (e.g. 2.0): quadratic — more resolution near extremes (speed)
      *   p = 1.0: linear identity
      *

@@ -2,8 +2,8 @@
 -- DualSense gamepad → multi-layered AV loop scrubber
 --
 --   L3 Y           → speed (analog, pattern)
---   R3 X           → loop position (analog, pattern)
---   R3 Y           → loopSize (analog, pattern)
+--   R3 X           → region start (analog, pattern)
+--   R3 Y           → region width (analog, pattern)
 --   L1 / R1        → batch size (digital, update)
 --   L2 / R2        → scroll clips (digital, update, axes lt/rt)
 --   Triangle       → cycle blend mode (digital, update)
@@ -29,8 +29,10 @@ local frame = 0
 -- joysticks
 -- accum(init=0.5) so centered stick → neutral value:
 --   speed: scale(-3,3) maps 0.5→0, so speed = 1.0 at rest
---   position: accum at 0.5 → loop starts at sample midpoint
---   loopSize: pow(0.5) for fine control at small sizes, scale floor = 0.0001
+--   start: accum at 0.3 → loop starts near sample start
+--   width: pow(0.5) for fine control at small sizes, scale floor = 0.0001
+--   start + width: absolute endpoint via pattern composition (Sum pattern)
+--   Use s:region(start, start + width) for atomic set
 local spd = 1.0 + gpad("ly"):accum(-0.5, 0.5):scale(-3, 3)
 local pos = gpad("rx"):accum(0.3, 0.5)
 local lsz = gpad("ry"):accum(-0.3, 0.4):pow(2.0):scale(0.0001, 1)
@@ -83,9 +85,8 @@ function update()
         if not activeSet[clipIdx] then
             local s = sampler(bank .. ":" .. clipIdx):on()
             s.speed = spd
-            s.position = pos
+            s:region(pos, pos + lsz)
             s.loop = true
-            s.loopSize = lsz
             s.blend = blendMode
             s.opacity = layerOpacity
             s.gain = layerGain
