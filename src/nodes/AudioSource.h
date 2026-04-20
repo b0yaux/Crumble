@@ -34,6 +34,10 @@ public:
     crumble::AudioProcessor* createAudioProcessor() override;
     void onParameterChanged(const std::string& paramName) override;
 
+    // Trigger system
+    std::vector<std::string> getTriggerInputs() const override { return {"path"}; }
+    void prepareTrigger(const std::string& name, std::shared_ptr<Pattern<float>> pat) override;
+
     bool buildTriggerMap(const std::vector<std::string>& refs, const std::string& bankName);
     void setPendingTriggerBuild(std::vector<std::string> refs, const std::string& bankName);
     

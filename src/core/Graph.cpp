@@ -378,6 +378,16 @@ void Graph::clearUntouchedModulators() {
     }
 }
 
+void Graph::clearUntouchedTriggers() {
+    std::lock_guard<std::recursive_mutex> lock(audioMutex);
+    for (auto& [id, node] : nodes) {
+        node->clearUntouchedTriggers();
+        if (auto* g = dynamic_cast<Graph*>(node.get())) {
+            g->clearUntouchedTriggers();
+        }
+    }
+}
+
 void Graph::update(float dt) {
 #if CRUMBLE_PERF
     auto t0 = std::chrono::steady_clock::now();

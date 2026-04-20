@@ -199,6 +199,51 @@ void Node::clearUntouchedModulators() {
     for (const auto& name : toRemove) clearModulator(name);
 }
 
+void Node::setTrigger(const std::string& name, std::shared_ptr<Pattern<float>> pat) {
+    std::lock_guard<std::recursive_mutex> lock(modMutex);
+    triggers[name] = pat;
+    triggersTouched.insert(name);
+
+    // Prepare node-specific resources (e.g. AudioSource builds TriggerMap)
+    prepareTrigger(name, pat);
+
+    // Transport the pattern to the audio thread — same mechanism as modulate().
+    // The ControlSlot doesn't care whether its pattern is consumed via eval() or query().
+    if (audioProcessor || videoProcessor) {
+        crumble::ProcessorCommand cmd;
+        cmd.type = crumble::ProcessorCommand::SET_PATTERN;
+        cmd.paramHash = crumble::hashString(name.c_str());
+        cmd.pattern = pat;
+        pushCommand(cmd);
+    }
+}
+
+void Node::clearTrigger(const std::string& name) {
+    std::lock_guard<std::recursive_mutex> lock(modMutex);
+    triggers.erase(name);
+    triggersTouched.insert(name);
+
+    if (audioProcessor || videoProcessor) {
+        crumble::ProcessorCommand cmd;
+        cmd.type = crumble::ProcessorCommand::SET_PATTERN;
+        cmd.paramHash = crumble::hashString(name.c_str());
+        cmd.pattern = nullptr;
+        pushCommand(cmd);
+    }
+}
+
+void Node::clearUntouchedTriggers() {
+    std::lock_guard<std::recursive_mutex> lock(modMutex);
+    std::vector<std::string> toRemove;
+    for (const auto& [name, _] : triggers) {
+        if (triggersTouched.find(name) == triggersTouched.end()) {
+            toRemove.push_back(name);
+        }
+    }
+    triggersTouched.clear();
+    for (const auto& name : toRemove) clearTrigger(name);
+}
+
 std::shared_ptr<Pattern<float>> Node::getPattern(const std::string& paramName) const {
     std::lock_guard<std::recursive_mutex> lock(modMutex);
     auto it = modulators.find(paramName);

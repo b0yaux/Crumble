@@ -124,6 +124,15 @@ public:
     void clearModulators();
     void clearUntouchedModulators();
     std::shared_ptr<Pattern<float>> getPattern(const std::string& paramName) const;
+
+    // --- Trigger system ---
+    // Triggers are discrete event inputs (consumed via query()).
+    // Mirrors the modulator API but with separate storage and prepareTrigger() for resource resolution.
+    virtual std::vector<std::string> getTriggerInputs() const { return {}; }
+    virtual void prepareTrigger(const std::string& name, std::shared_ptr<Pattern<float>> pat) {}
+    void setTrigger(const std::string& name, std::shared_ptr<Pattern<float>> pat);
+    void clearTrigger(const std::string& name);
+    void clearUntouchedTriggers();
     
     bool touched = false;
     std::unordered_set<std::string> modulatorsTouched;
@@ -138,6 +147,8 @@ protected:
     static bool paramAsFloat(const ofAbstractParameter& p, float& out);
     std::unordered_map<int, Node*> inputNodes;
     std::unordered_map<std::string, std::shared_ptr<Pattern<float>>> modulators;
+    std::unordered_map<std::string, std::shared_ptr<Pattern<float>>> triggers;
+    std::unordered_set<std::string> triggersTouched;
     
     mutable std::recursive_mutex modMutex;
     mutable std::unordered_map<std::string, ofSoundBuffer> controlBuffers;

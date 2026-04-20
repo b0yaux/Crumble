@@ -7,6 +7,7 @@
 #include "../nodes/VideoSource.h"
 #include <unordered_set>
 #include <sstream>
+#include <algorithm>
 
 Session* Interpreter::s_currentSession = nullptr;
 thread_local std::vector<Graph*> Interpreter::s_graphStack;
@@ -80,6 +81,7 @@ bool Interpreter::runScript(const std::string& path) {
     session->endScript();
     // Clear modulators that survived reload but weren't re-applied by the new script
     session->getGraph().clearUntouchedModulators();
+    session->getGraph().clearUntouchedTriggers();
     session->getGraph().pruneStaleConnections();
     
     s_currentSession = nullptr;
@@ -150,6 +152,7 @@ bool Interpreter::runScriptInGraph(const std::string& path, Graph* nestedGraph) 
         lua_pop(L, 2);
         nestedGraph->endScript();
         nestedGraph->clearUntouchedModulators();
+        nestedGraph->clearUntouchedTriggers();
         nestedGraph->pruneStaleConnections();
         restoreAutoNames(L, savedAutoNames, savedNameCount);
         s_currentSession = saved;
@@ -159,6 +162,7 @@ bool Interpreter::runScriptInGraph(const std::string& path, Graph* nestedGraph) 
     // GC children that weren't re-declared by the script
     nestedGraph->endScript();
     nestedGraph->clearUntouchedModulators();
+    nestedGraph->clearUntouchedTriggers();
     nestedGraph->pruneStaleConnections();
 
     // 6. Check for 'update' inside the environment
@@ -813,49 +817,6 @@ static inline std::shared_ptr<Pattern<float>> luaPatField(lua_State* L, int idx,
  * because patterns are stateless and deterministic. Resolving and
  * starting async decode here means the cache hits when triggers fire.
  */
-static void collectLuaTriggerRefs(lua_State* L, int index, std::unordered_set<std::string>& out) {
-    if (index < 0) index = lua_gettop(L) + index + 1;
-    if (lua_type(L, index) != LUA_TTABLE) return;
-
-    lua_getfield(L, index, "type");
-    std::string genType = lua_tostring(L, -1) ? lua_tostring(L, -1) : "";
-    lua_pop(L, 1);
-
-    if (genType == "seq" || genType == "trigger") {
-        lua_getfield(L, index, "val");
-        const char* val = lua_tostring(L, -1);
-        if (val) {
-            std::istringstream ss(val);
-            std::string token;
-            while (ss >> token) {
-                if (token != "~") {
-                    out.insert(token);
-                }
-            }
-        }
-        lua_pop(L, 1);
-        return;
-    }
-
-    lua_getfield(L, index, "p");
-    if (lua_istable(L, -1)) {
-        collectLuaTriggerRefs(L, lua_gettop(L), out);
-    }
-    lua_pop(L, 1);
-
-    lua_getfield(L, index, "a");
-    if (lua_istable(L, -1)) {
-        collectLuaTriggerRefs(L, lua_gettop(L), out);
-    }
-    lua_pop(L, 1);
-
-    lua_getfield(L, index, "b");
-    if (lua_istable(L, -1)) {
-        collectLuaTriggerRefs(L, lua_gettop(L), out);
-    }
-    lua_pop(L, 1);
-}
-
 int Interpreter::lua_setGenerator(lua_State* L) {
     if (!s_currentSession) return 0;
     int nodeIdx = (int)luaL_checkinteger(L, 1);
@@ -867,51 +828,31 @@ int Interpreter::lua_setGenerator(lua_State* L) {
     auto pat = parsePattern(L, 3);
     if (!pat) return 0;
 
-    if (paramName == "path") {
-        std::unordered_set<std::string> refs;
-        collectLuaTriggerRefs(L, 3, refs);
-        if (!refs.empty()) {
-            AudioSource* audioSource = nullptr;
-            if (auto* g = dynamic_cast<Graph*>(node)) {
-                auto targets = g->getProxyTargets(paramName);
-                for (auto& [childId, childParam] : targets) {
-                    Node* child = g->getNode(childId);
-                    if (auto* as = dynamic_cast<AudioSource*>(child)) {
-                        audioSource = as;
-                        break;
-                    }
-                }
-            } else {
-                audioSource = dynamic_cast<AudioSource*>(node);
-            }
-
-            if (audioSource) {
-                std::string bankName = audioSource->bank.get();
-                std::vector<std::string> refVec(refs.begin(), refs.end());
-
-                if (!audioSource->buildTriggerMap(refVec, bankName)) {
-                    audioSource->setPendingTriggerBuild(std::move(refVec), bankName);
-                }
-            }
+    // Resolve target nodes: either proxy children (if Graph) or the node itself.
+    // Each target dispatches to trigger() or modulate() based on its declared inputs.
+    auto dispatch = [&](Node* target, const std::string& param) {
+        auto triggerInputs = target->getTriggerInputs();
+        bool isTrigger = std::find(triggerInputs.begin(), triggerInputs.end(), param) != triggerInputs.end();
+        if (isTrigger) {
+            target->setTrigger(param, pat);
+        } else {
+            target->modulate(param, pat);
+            target->onParameterChanged(param);
         }
-    }
+    };
 
     if (auto* g = dynamic_cast<Graph*>(node)) {
         auto targets = g->getProxyTargets(paramName);
         if (!targets.empty()) {
             for (auto& [childId, childParam] : targets) {
                 Node* child = g->getNode(childId);
-                if (child) {
-                    child->modulate(childParam, pat);
-                    child->onParameterChanged(childParam);
-                }
+                if (child) dispatch(child, childParam);
             }
             return 0;
         }
     }
 
-    node->modulate(paramName, pat);
-    node->onParameterChanged(paramName);
+    dispatch(node, paramName);
     return 0;
 }
 

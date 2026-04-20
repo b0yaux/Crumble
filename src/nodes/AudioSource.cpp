@@ -314,6 +314,33 @@ crumble::AudioProcessor* AudioSource::createAudioProcessor() {
     return new crumble::AudioSourceProcessor();
 }
 
+/**
+ * Extract string refs from a pattern by querying one cycle.
+ * The pattern's query() returns Event<float>s with optional ref fields.
+ * Wrapper patterns (Density, Scale, etc.) preserve refs through transformations,
+ * so querying the outermost pattern captures all refs in the composition.
+ * Stateful patterns (Accum, Smooth, Toggle) collapse events and never produce refs.
+ */
+static std::vector<std::string> collectPatternRefs(const std::shared_ptr<Pattern<float>>& pat) {
+    if (!pat) return {};
+    auto events = pat->query(0.0, 1.0);
+    std::unordered_set<std::string> unique;
+    for (const auto& e : events) {
+        if (e.ref && !e.isRest) unique.insert(*e.ref);
+    }
+    return {unique.begin(), unique.end()};
+}
+
+void AudioSource::prepareTrigger(const std::string& name, std::shared_ptr<Pattern<float>> pat) {
+    if (name != "path" || !pat) return;
+    auto refs = collectPatternRefs(pat);
+    if (refs.empty()) return;
+    std::string bankName = bank.get();
+    if (!buildTriggerMap(refs, bankName)) {
+        setPendingTriggerBuild(std::move(refs), bankName);
+    }
+}
+
 void AudioSource::onParameterChanged(const std::string& paramName) {
     Node::onParameterChanged(paramName);
 

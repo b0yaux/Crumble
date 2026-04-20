@@ -59,6 +59,7 @@ public:
     void beginScript() override;
     int endScript();
     void clearUntouchedModulators();
+    void clearUntouchedTriggers();
 
     // Clear script-derived ephemeral state (outlets, proxies, Lua refs)
     // without destroying children. Called before idempotent sub-graph reload.
