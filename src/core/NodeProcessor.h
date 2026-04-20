@@ -221,7 +221,7 @@ public:
  * Both processVideo() (called from Session::update) and getOutput() (called
  * from downstream processors) run on the same thread, so no atomics needed.
  * Each subclass owns its output strategy via getOutput():
- *   - VideoSource: returns the player's texture directly
+ *   - VideoSource: returns the player's texture (with YCoCg conversion for HAP Q)
  *   - VideoMixer: returns its composite FBO texture
  *   - VideoOutput: returns nullptr (sink node)
  */

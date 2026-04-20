@@ -1,5 +1,5 @@
 {
-    "entryScript": "scripts/subgraph-test.lua",
+    "entryScript": "scripts/feed.lua",
     "searchPaths": [
         "/Users/jaufre/works/superstratum_video-data",
         "/Users/jaufre/works/Noûs-performance-ka",

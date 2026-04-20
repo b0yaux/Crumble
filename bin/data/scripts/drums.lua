@@ -1,5 +1,5 @@
 -- drums.lua — Phasing noise from a single sample
---clear()
+clear()
 
 local screen = videoout("screen"):on()
 local vmx = videomix("mx"):connect(screen):on()
@@ -10,7 +10,7 @@ local amx = audiomix("ax"):connect(speakers):on():gain(0.2)
 local source = "drums:0" 
 
 -- 2. Create voices of the SAME sample
-local voices = 12
+local voices = 8
 
 for i = 1, voices do
     local name = "v" .. i
@@ -29,9 +29,8 @@ for i = 1, voices do
         gain = 1 / (voices/2)
     }, track)
     
-    -- Phasing: slight speed drift + noise per voice
-    s.speed = 1.0 + (i * 0.000001) -- * noise(i * 0.5):scale(0.8, 1.2)
-    s.position = i
+    -- Phasing: slight speed drift + noise per voic
+    s.speed = 1.0 + (i * 0.01) -- * noise(i * 0.5):scale(0.8, 1.2)
     -- Rhythmic offset per voice
     --s.path = seq("0"):slow(i):shift(i * 0.125)
 end
