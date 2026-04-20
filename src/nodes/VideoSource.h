@@ -60,7 +60,14 @@ public:
     
     // React to parameter changes from Lua
     void onParameterChanged(const std::string& paramName) override;
-    
+
+    // Trigger system
+    // "path" is consumed via query() for discrete video swaps — same trigger
+    // semantics as AudioSource's path. prepareTrigger pre-loads referenced videos
+    // into the player pool so that trigger-driven swaps are instant.
+    std::vector<std::string> getTriggerInputs() const override { return {"path"}; }
+    void prepareTrigger(const std::string& name, std::shared_ptr<Pattern<float>> pat) override;
+
     void load(const std::string& path);
 
 private:

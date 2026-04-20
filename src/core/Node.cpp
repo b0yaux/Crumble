@@ -223,6 +223,12 @@ void Node::clearTrigger(const std::string& name) {
     triggers.erase(name);
     triggersTouched.insert(name);
 
+    // Intentionally does NOT call onParameterChanged(name).
+    // Modulators have a static fallback value (the ofParameter) that should
+    // be synced to the audio thread when the pattern is removed. Triggers
+    // are discrete event sources — clearing them means "stop producing events",
+    // there is no meaningful static fallback to restore.
+
     if (audioProcessor || videoProcessor) {
         crumble::ProcessorCommand cmd;
         cmd.type = crumble::ProcessorCommand::SET_PATTERN;
@@ -248,6 +254,10 @@ std::shared_ptr<Pattern<float>> Node::getPattern(const std::string& paramName) c
     std::lock_guard<std::recursive_mutex> lock(modMutex);
     auto it = modulators.find(paramName);
     if (it != modulators.end()) return it->second;
+    // Fall through to triggers — the read-side consumer doesn't care which
+    // map stores the pattern, only that one is assigned.
+    auto it2 = triggers.find(paramName);
+    if (it2 != triggers.end()) return it2->second;
     return nullptr;
 }
 

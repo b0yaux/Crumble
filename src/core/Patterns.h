@@ -3,6 +3,7 @@
 #include <string>
 #include <cmath>
 #include <optional>
+#include <unordered_set>
 
 /**
  * Event: A single value with temporal metadata.
@@ -126,7 +127,31 @@ public:
      * Used for idempotency optimization to avoid redundant re-parsing.
      */
     virtual std::string getSignature() const = 0;
+
+    /**
+     * Collect all unique string refs produced by this pattern.
+     * Returns empty by default — only Seq (and similar sequencer patterns)
+     * produce refs. Wrappers forward to their inner patterns.
+     * Used by the trigger system to pre-cache resources (audio buffers, video players).
+     */
+    virtual std::vector<std::string> collectRefs() const { return {}; }
 };
+
+/**
+ * Merge collectRefs() from multiple inner patterns.
+ * Deduplicates across all results.
+ */
+inline std::vector<std::string> mergeRefs(
+    const std::vector<std::shared_ptr<Pattern<float>>>& inners) {
+    std::unordered_set<std::string> all;
+    for (auto& p : inners) {
+        if (p) {
+            auto refs = p->collectRefs();
+            all.insert(refs.begin(), refs.end());
+        }
+    }
+    return {all.begin(), all.end()};
+}
 
 namespace patterns {
 
@@ -297,6 +322,16 @@ namespace patterns {
         }
 
         std::string getSignature() const override { return "seq:" + raw + ":" + defaultBank; }
+
+        std::vector<std::string> collectRefs() const override {
+            std::unordered_set<std::string> unique;
+            for (const auto& step : steps) {
+                if (step.type == Step::NAME && !step.isRest()) {
+                    unique.insert(step.ref);
+                }
+            }
+            return {unique.begin(), unique.end()};
+        }
 
     private:
         std::string raw;

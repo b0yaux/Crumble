@@ -252,6 +252,32 @@ void VideoSource::onParameterChanged(const std::string& paramName) {
     }
 }
 
+void VideoSource::prepareTrigger(const std::string& name, std::shared_ptr<Pattern<float>> pat) {
+    if (name != "path" || !pat) return;
+    auto refs = pat->collectRefs();
+    if (refs.empty()) return;
+
+    for (const auto& ref : refs) {
+        std::string resolved = resolvePath(ref, "video");
+        if (resolved.empty()) continue;
+
+        // Skip if already loaded or pooled
+        if (resolved == loadedResolvedPath) continue;
+        auto poolIt = playerPool.find(resolved);
+        if (poolIt != playerPool.end() && poolIt->second.player && poolIt->second.player->isLoaded()) continue;
+
+        // Acquire from VideoCache and pool — first load blocks briefly,
+        // subsequent triggers find the player ready for instant swap.
+        auto cached = VideoCache::get().acquire(resolved);
+        if (cached && cached->loaded) {
+            if (playerPool.size() >= MAX_POOL_SIZE) {
+                playerPool.erase(playerPool.begin());
+            }
+            playerPool[resolved] = {std::move(cached->player), cached->hasAudio};
+        }
+    }
+}
+
 void VideoSource::update(float dt) {
     auto pat = getPattern("path");
     if (pat) {

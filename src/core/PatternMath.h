@@ -81,6 +81,7 @@ namespace patterns {
                 return "density:" + std::to_string(constantFactor) + "(" + (pat ? pat->getSignature() : "null") + ")";
             }
         }
+        std::vector<std::string> collectRefs() const override { return mergeRefs({pat}); }
     private:
         std::shared_ptr<Pattern<float>> densityPat;  // Dynamic density pattern
         float constantFactor;                         // Constant density factor
@@ -105,6 +106,7 @@ namespace patterns {
         std::string getSignature() const override { 
             return "shift:" + std::to_string(o) + "(" + (pat ? pat->getSignature() : "null") + ")"; 
         }
+        std::vector<std::string> collectRefs() const override { return mergeRefs({pat}); }
     private:
         float o;
         std::shared_ptr<Pattern<float>> pat;
@@ -136,6 +138,7 @@ namespace patterns {
         std::string getSignature() const override { 
             return "scale:" + std::to_string(lo) + "," + std::to_string(hi) + "(" + (pat ? pat->getSignature() : "null") + ")"; 
         }
+        std::vector<std::string> collectRefs() const override { return mergeRefs({pat}); }
     private:
         float lo, hi;
         std::shared_ptr<Pattern<float>> pat;
@@ -166,6 +169,7 @@ namespace patterns {
         std::string getSignature() const override { 
             return "snap:" + std::to_string(n) + "(" + (pat ? pat->getSignature() : "null") + ")"; 
         }
+        std::vector<std::string> collectRefs() const override { return mergeRefs({pat}); }
     private:
         float n;
         std::shared_ptr<Pattern<float>> pat;
@@ -195,6 +199,7 @@ namespace patterns {
         std::string getSignature() const override { 
             return "abs(" + (pat ? pat->getSignature() : "null") + ")"; 
         }
+        std::vector<std::string> collectRefs() const override { return mergeRefs({pat}); }
     private:
         std::shared_ptr<Pattern<float>> pat;
     };
@@ -233,6 +238,7 @@ namespace patterns {
         std::string getSignature() const override {
             return "pow:" + std::to_string(e) + "(" + (pat ? pat->getSignature() : "null") + ")";
         }
+        std::vector<std::string> collectRefs() const override { return mergeRefs({pat}); }
     private:
         float e;
         std::shared_ptr<Pattern<float>> pat;
@@ -282,6 +288,7 @@ namespace patterns {
         std::string getSignature() const override { 
             return "sum(" + (patA ? patA->getSignature() : "null") + "," + (patB ? patB->getSignature() : "null") + ")"; 
         }
+        std::vector<std::string> collectRefs() const override { return mergeRefs({patA, patB}); }
     private:
         std::shared_ptr<Pattern<float>> patA, patB;
     };
@@ -314,6 +321,7 @@ namespace patterns {
         std::string getSignature() const override { 
             return "prod(" + (patA ? patA->getSignature() : "null") + "," + (patB ? patB->getSignature() : "null") + ")"; 
         }
+        std::vector<std::string> collectRefs() const override { return mergeRefs({patA, patB}); }
     private:
         std::shared_ptr<Pattern<float>> patA, patB;
     };
@@ -363,6 +371,7 @@ namespace patterns {
         std::string getSignature() const override {
             return "accum:" + std::to_string(r) + "(" + (pat ? pat->getSignature() : "null") + ")";
         }
+        // Accum is stateful — it collapses events into a running sum. No refs survive.
     private:
         float r;
         bool wrap;
@@ -410,6 +419,7 @@ namespace patterns {
         std::string getSignature() const override {
             return "smooth:" + std::to_string(t) + "(" + (pat ? pat->getSignature() : "null") + ")";
         }
+        // Smooth is stateful — it collapses events into a filtered output. No refs survive.
     private:
         float t;
         std::shared_ptr<Pattern<float>> pat;
@@ -455,6 +465,7 @@ namespace patterns {
         std::string getSignature() const override {
             return "toggle:" + std::to_string(threshold) + "(" + (pat ? pat->getSignature() : "null") + ")";
         }
+        // Toggle is stateful — it collapses events into a binary output. No refs survive.
     private:
         std::shared_ptr<Pattern<float>> pat;
         float threshold;
