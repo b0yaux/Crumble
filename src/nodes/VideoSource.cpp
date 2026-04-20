@@ -6,39 +6,20 @@
 
 // Shadow processor for the video thread.
 // Encapsulates the adapter between ofxHapPlayer and the graph.
-// For HAP Q (HapY) videos, applies the YCoCg → RGB conversion shader
-// so that downstream consumers always receive a standard RGB texture.
-// For regular HAP (Hap1) videos, passes through the raw texture with no overhead.
+// Color space conversion (YCoCg → RGB for HAP Q) is handled
+// internally by ofxHapPlayer::getTexture(), so this processor
+// simply forwards the player's texture as-is.
 class VideoSourceProcessor : public crumble::VideoProcessor {
 public:
     crumble::ControlSlot* speedSlot = nullptr;
     crumble::ControlSlot* playingSlot = nullptr;
     crumble::ControlSlot* clockModeSlot = nullptr;
 
-    // Conversion FBO + quad for YCoCg → RGB blit (HAP Q only)
-    ofFbo convertFbo;
-    ofMesh quadMesh;
-    bool fboAllocated = false;
-    int fboWidth = 0, fboHeight = 0;
-
     VideoSourceProcessor(ofxHapPlayer* p) : lastSpeed(1.0f) {
         playerRef.store(p);
         speedSlot = getControlPtr(crumble::hashString("speed"));
         playingSlot = getControlPtr(crumble::hashString("playing"));
         clockModeSlot = getControlPtr(crumble::hashString("clockMode"));
-    }
-
-    void buildQuad(int w, int h) {
-        quadMesh.clear();
-        quadMesh.setMode(OF_PRIMITIVE_TRIANGLE_FAN);
-        quadMesh.addVertex(glm::vec3(0, 0, 0));
-        quadMesh.addVertex(glm::vec3(w, 0, 0));
-        quadMesh.addVertex(glm::vec3(w, h, 0));
-        quadMesh.addVertex(glm::vec3(0, h, 0));
-        quadMesh.addTexCoord(glm::vec2(0, 0));
-        quadMesh.addTexCoord(glm::vec2(1, 0));
-        quadMesh.addTexCoord(glm::vec2(1, 1));
-        quadMesh.addTexCoord(glm::vec2(0, 1));
     }
 
     void processVideo(double cycle, double cycleStep) override {
@@ -72,67 +53,17 @@ public:
         // previous frame for 1 frame rather than stalling up to 30ms.
     }
     
-    // Detects HAP Q (HapY) via the addon's own getShader() signal.
-    // getShader() returns non-null only for HapY, indicating the texture
-    // is in YCoCg color space and needs conversion to RGB.
-    bool needsYCoCgConversion(ofxHapPlayer* p) const {
-        return p && p->isLoaded() && p->getShader() != nullptr;
-    }
-
-    // Load FBO + quad mesh for the conversion blit.
-    // The shader comes from ofxHapPlayer::getShader() — no separate file needed.
-    void ensureFboReady(int w, int h) {
-        if (fboAllocated && fboWidth == w && fboHeight == h) return;
-        ofFbo::Settings s;
-        s.width = w;
-        s.height = h;
-        s.internalformat = GL_RGBA8;
-        s.textureTarget = GL_TEXTURE_2D;
-        convertFbo.allocate(s);
-        fboWidth = w;
-        fboHeight = h;
-        fboAllocated = true;
-        buildQuad(w, h);
-    }
-
-    // Returns an RGB-ready texture.
-    // For HAP Q (HapY, YCoCg-DXT5): blits through our YCoCg → RGB shader
-    // into an internal FBO, returning the FBO texture.
-    // For regular HAP (Hap1, RGB-DXT1): returns the raw texture directly.
+    // Returns the player's texture.
+    // ofxHapPlayer::getTexture() handles YCoCg → RGB conversion
+    // internally for HAP Q videos, so the result is always RGB.
     ofTexture* getOutput(int index = 0) override {
         ofxHapPlayer* p = playerRef.load(std::memory_order_relaxed);
         if (!p || !p->isLoaded()) return nullptr;
-
-        ofTexture* tex = p->getTexture();
-        if (!tex || !tex->isAllocated()) return nullptr;
-
-        if (needsYCoCgConversion(p)) {
-            ofShader* shader = p->getShader();
-            if (!shader) return tex; // Fallback: return raw if shader failed
-
-            int w = tex->getWidth();
-            int h = tex->getHeight();
-            ensureFboReady(w, h);
-
-            convertFbo.begin();
-            shader->begin();
-            shader->setUniformTexture("cocgsy_src", *tex, 0);
-            quadMesh.draw();
-            shader->end();
-            convertFbo.end();
-
-            return &convertFbo.getTexture();
-        }
-
-        // Regular HAP (Hap1) — already RGB, pass through
-        return tex;
+        return p->getTexture();
     }
     
     void setPlayer(ofxHapPlayer* p) {
         playerRef.store(p, std::memory_order_relaxed);
-        // Reset FBO — new player may have different dimensions.
-        // Shader stays loaded (same YCoCg math for all HAP Q files).
-        fboAllocated = false;
     }
     
 private:
