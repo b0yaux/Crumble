@@ -137,10 +137,29 @@ public:
             }
             double regionEnd = regionStart + regionLen;
 
+            // Linear interpolation: reads two consecutive samples and
+            // blends by the fractional part of the playhead. This eliminates
+            // clicks at loop boundaries and improves quality for speed changes.
             size_t frameIndex = (size_t)ph;
+            double frac = ph - (double)frameIndex;
             if (frameIndex < totalSamples && channels > 0) {
+                size_t nextIndex = frameIndex + 1;
+                if (loopVal) {
+                    // Wrap nextIndex into the loop region so interpolation
+                    // smoothly crosses the boundary instead of reading junk.
+                    if (nextIndex >= (size_t)regionEnd) {
+                        nextIndex = (size_t)regionStart;
+                    }
+                } else {
+                    // One-shot: clamp to the last valid sample.
+                    if (nextIndex >= totalSamples) {
+                        nextIndex = totalSamples - 1;
+                    }
+                }
                 for (int c = 0; c < outCh; c++) {
-                    buffer[i * outCh + c] += data[frameIndex * channels + (c % channels)] * curG;
+                    float s0 = data[frameIndex * channels + (c % channels)];
+                    float s1 = data[nextIndex  * channels + (c % channels)];
+                    buffer[i * outCh + c] += (s0 + (s1 - s0) * (float)frac) * curG;
                 }
             }
             ph += spd;
