@@ -139,6 +139,14 @@ function miditouch(n, chan) return makeGen({type="miditouch", note=n or 60, chan
 function channeltouch(chan) return makeGen({type="channeltouch", chan=chan or 1}) end
 function oscin(path) return makeGen({type="oscin", path=path or ""}) end
 
+--- Drain pending MIDI note events (note-on and note-off).
+--- Returns an array of tables: { on, note, velocity, channel, time }
+--- @param chan number Channel filter (1-16), or nil for all channels.
+--- @usage for _, e in ipairs(midievents(1)) do
+---   if e.on then spawn_voice(e.note, e.velocity) end
+--- end
+function midievents(chan) return _midiEvents(chan or 0) end
+
 -- =============================================================================
 -- GAMEPAD INPUT
 -- Unified API supporting both Xbox and PlayStation controller naming

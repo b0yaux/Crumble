@@ -3,6 +3,7 @@
 #include "ofLog.h"
 #include "ofxMidi.h"
 #include "ofxOsc.h"
+#include "ofUtils.h"
 
 #define SDL_MAIN_HANDLED
 #include <SDL2/SDL.h>
@@ -146,10 +147,16 @@ public:
             std::string path = "midi:note:" + std::to_string(msg.channel) + ":" + std::to_string(msg.pitch);
             owner->setBinding(path, msg.velocity / 127.0f);
             ofLog(OF_LOG_NOTICE, "[MIDI] midinote(%d, %d) -> %.2f [%s]", msg.pitch, msg.channel, msg.velocity / 127.0f, path.c_str());
+
+            // Push discrete event to ring buffer (Layer 3)
+            owner->pushMidiNoteEvent(msg);
         }
         else if (msg.status == MIDI_NOTE_OFF) {
             std::string path = "midi:note:" + std::to_string(msg.channel) + ":" + std::to_string(msg.pitch);
             owner->setBinding(path, 0.0f);
+
+            // Push discrete event to ring buffer (Layer 3)
+            owner->pushMidiNoteEvent(msg);
         }
         else if (msg.status == MIDI_POLY_AFTERTOUCH) {
             std::string path = "midi:touch:" + std::to_string(msg.channel) + ":" + std::to_string(msg.pitch);
@@ -234,6 +241,25 @@ void InputBindings::setup() {
 
 void InputBindings::update() {
     impl->update();
+}
+
+void InputBindings::pushMidiNoteEvent(const ofxMidiMessage& event) {
+    // SPSC enqueue — MIDI callback is the sole producer.
+    // Drops event if queue is full (overflow is preferable to blocking the MIDI thread).
+    if (!midiNoteQueue.try_enqueue(event)) {
+        ofLogWarning("InputBindings") << "MIDI note event queue overflow, event dropped";
+    }
+}
+
+std::vector<ofxMidiMessage> InputBindings::drainMidiNoteEvents(int channel) {
+    std::vector<ofxMidiMessage> result;
+    ofxMidiMessage event;
+    while (midiNoteQueue.try_dequeue(event)) {
+        if (channel == 0 || event.channel == channel) {
+            result.push_back(std::move(event));
+        }
+    }
+    return result;
 }
 
 } // namespace crumble

@@ -5,6 +5,9 @@
 #include <memory>
 #include <mutex>
 #include <array>
+#include <vector>
+#include "moodycamel/readerwriterqueue.h"
+#include "ofxMidi.h"
 
 namespace crumble {
 
@@ -35,6 +38,15 @@ public:
     // Update a binding value from the main thread
     void setBinding(const std::string& path, float value);
 
+    // --- MIDI Note Events (discrete, ring buffer) ---
+
+    /// Push a MIDI note event to the ring buffer. Thread-safe (called from MIDI callback).
+    void pushMidiNoteEvent(const ofxMidiMessage& event);
+
+    /// Drain all pending MIDI note events for a channel (0 = all channels).
+    /// Called from the main thread. Returns events in arrival order.
+    std::vector<ofxMidiMessage> drainMidiNoteEvents(int channel = 0);
+
 private:
     // MIDI Storage: [StatusOffset][Channel][Number]
     // 0:CC, 1:Note, 2:Touch
@@ -49,6 +61,12 @@ private:
 
     // Internal helper to get MIDI index
     int getMidiIndex(int statusOffset, int chan, int num);
+
+    // Ring buffer for MIDI note events. SPSC: MIDI callback writes, main thread reads.
+    // Capacity 256 covers rapid playing (e.g. 16th notes at 200 BPM = ~53 events/second).
+    static constexpr int MIDI_EVENT_QUEUE_SIZE = 256;
+    using MidiEventQueue = moodycamel::ReaderWriterQueue<ofxMidiMessage>;
+    MidiEventQueue midiNoteQueue{MIDI_EVENT_QUEUE_SIZE};
 };
 
 } // namespace crumble

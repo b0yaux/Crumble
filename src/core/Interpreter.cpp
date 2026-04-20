@@ -2,6 +2,7 @@
 #include "Config.h"
 #include "AssetRegistry.h"
 #include "PatternMath.h"
+#include "ofxMidiConstants.h"
 #include "../nodes/AudioSource.h"
 #include "../nodes/VideoSource.h"
 #include <unordered_set>
@@ -336,6 +337,7 @@ void Interpreter::bindSessionAPI() {
     lua_register(L, "_inlet", lua_inlet);
     lua_register(L, "_exposeParam", lua_exposeParam);
     lua_register(L, "_readBinding", lua_readBinding);
+    lua_register(L, "_midiEvents", lua_midiEvents);
     
     std::string helper = R"(
         session = {}
@@ -527,6 +529,7 @@ function NodeMeta:__newindex(key, value)
             local GenMeta = {
                 __mul = function(a, b) local r={type="mul", a=a, b=b}; return makeGen(r) end,
                 __add = function(a, b) local r={type="add", a=a, b=b}; return makeGen(r) end,
+                __call = function(self) return _readBinding(self) or 0 end,
                 __index = {
                     fast = function(self, n) return makeGen({type="fast", n=n, p=self}) end,
                     slow = function(self, n) return makeGen({type="slow", n=n, p=self}) end,
@@ -1152,5 +1155,63 @@ int Interpreter::lua_readBinding(lua_State* L) {
     auto* ptr = s_currentSession->getInputBindings().getBinding(path);
     float v = ptr ? ptr->load(std::memory_order_acquire) : 0.0f;
     lua_pushnumber(L, v);
+    return 1;
+}
+
+/**
+ * midievents([channel]) — drain pending MIDI note events.
+ *
+ * Returns a Lua array of tables, each with:
+ *   .on       (bool)   true = note-on, false = note-off
+ *   .note     (number) MIDI note number 0-127
+ *   .velocity (number) 0.0-1.0 (raw MIDI velocity / 127)
+ *   .channel  (number) 1-16
+ *   .time     (number) delta time in ms since previous MIDI message (ofxMidiMessage.deltatime)
+ *
+ * Channel 0 (default) = all channels. Drain is destructive —
+ * each call returns only new events since the last call.
+ *
+ * Usage in update():
+ *   for _, e in ipairs(midievents(1)) do
+ *       if e.on then spawn_voice(e.note, e.velocity) end
+ *   end
+ */
+int Interpreter::lua_midiEvents(lua_State* L) {
+    if (!s_currentSession) { lua_newtable(L); return 1; }
+
+    int channel = 0;
+    if (lua_gettop(L) >= 1 && lua_isnumber(L, 1)) {
+        channel = (int)lua_tonumber(L, 1);
+    }
+
+    auto events = s_currentSession->getInputBindings().drainMidiNoteEvents(channel);
+
+    lua_createtable(L, (int)events.size(), 0);
+    for (int i = 0; i < (int)events.size(); i++) {
+        const auto& e = events[i];
+        lua_createtable(L, 0, 5);
+
+        lua_pushstring(L, "on");
+        lua_pushboolean(L, e.status == MIDI_NOTE_ON);
+        lua_settable(L, -3);
+
+        lua_pushstring(L, "note");
+        lua_pushinteger(L, e.pitch);
+        lua_settable(L, -3);
+
+        lua_pushstring(L, "velocity");
+        lua_pushnumber(L, e.velocity / 127.0);
+        lua_settable(L, -3);
+
+        lua_pushstring(L, "channel");
+        lua_pushinteger(L, e.channel);
+        lua_settable(L, -3);
+
+        lua_pushstring(L, "time");
+        lua_pushnumber(L, e.deltatime);
+        lua_settable(L, -3);
+
+        lua_rawseti(L, -2, i + 1);
+    }
     return 1;
 }
