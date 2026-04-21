@@ -98,6 +98,58 @@ function split(n, p) return addNode("split", n, p, "split") end
 
 function delay(n, p) return addNode("delay", n, p, "delay") end
 
+function fft(n, p)
+    local params = (type(p) == "table") and p or {}
+    return addNode("fft", n, params, "fft")
+end
+
+-- =============================================================================
+-- FFT PATTERN SOURCES
+-- Methods on FFT nodes that return gen tables for pattern modulation.
+-- =============================================================================
+
+-- Internal: resolve Hz → bin index given a sample rate and FFT size.
+-- Defaults to 44100 Hz / 2048 FFT if the processor isn't ready yet.
+local function hzToBin(hz, fftNode)
+    local sampleRate = 44100
+    local fftSize = 2048
+    if fftNode then
+        local sr = _get(fftNode.id, "sampleRate")
+        local sz = _get(fftNode.id, "size")
+        if sr and sr > 0 then sampleRate = sr end
+        if sz and sz > 0 then fftSize = sz end
+    end
+    return math.floor(hz * fftSize / sampleRate)
+end
+
+local function fftMethods(node)
+    local nId = node.id
+    local t = node.type
+    if t ~= "fft" then return nil end
+
+    return {
+        -- Single bin magnitude (raw bin index)
+        bin = function(self, i) return makeGen({type="fft_bin", node=nId, bin=i}) end,
+
+        -- Band RMS over bin range [lo, hi) (raw bin indices)
+        bins = function(self, lo, hi) return makeGen({type="fft_band", node=nId, lo=lo, hi=hi}) end,
+
+        -- Band RMS over Hz range
+        band = function(self, lo, hi)
+            return self:bins(hzToBin(lo, node), hzToBin(hi, node))
+        end,
+
+        -- Named bands (Hz-based)
+        bass   = function(self) return self:band(20, 250) end,
+        lowmid = function(self) return self:band(250, 500) end,
+        mid    = function(self) return self:band(500, 2000) end,
+        high   = function(self) return self:band(2000, 20000) end,
+
+        -- Overall RMS
+        rms = function(self) return makeGen({type="fft_rms", node=nId}) end,
+    }
+end
+
 -- =============================================================================
 -- SAMPLE ALIASES
 -- Define short names for samples, Strudel-style

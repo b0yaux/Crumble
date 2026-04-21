@@ -8,6 +8,7 @@
 #include "../nodes/AudioMixer.h"
 #include "../nodes/Split.h"
 #include "../nodes/Delay.h"
+#include "../nodes/FFT.h"
 
 namespace crumble {
 
@@ -38,6 +39,9 @@ void registerNodes(Session& s) {
     });
     s.registerNodeType("delay", []() {
         return std::make_unique<Delay>();
+    });
+    s.registerNodeType("fft", []() {
+        return std::make_unique<FFT>();
     });
 }
 

@@ -5,6 +5,7 @@
 #include "ofxMidiConstants.h"
 #include "../nodes/AudioSource.h"
 #include "../nodes/VideoSource.h"
+#include "../nodes/FFT.h"
 #include <unordered_set>
 #include <sstream>
 #include <algorithm>
@@ -401,6 +402,17 @@ function NodeMeta:__newindex(key, value)
                     if type(regionEnd) == "table" and regionEnd._isGen then _setGen(self.id, "end", regionEnd)
                     else _set(self.id, "end", regionEnd) end
                     return self
+                end
+            elseif self.type == "fft" then
+                -- FFT pattern source methods (bin, bins, band, bass, lowmid, mid, high, rms)
+                local methods = fftMethods(self)
+                if methods and methods[k] then return methods[k] end
+                -- Fall through to chainable setter for normal params (size, smoothing)
+                return function(self2, val)
+                    if val == nil then return _get(self2.id, k) end
+                    if type(val) == "table" and val._isGen then _setGen(self2.id, k, val)
+                    else _set(self2.id, k, val) end
+                    return self2
                 end
             else 
                 -- Chainable Setter: s:gain(0.5) returns s
@@ -984,6 +996,42 @@ std::shared_ptr<Pattern<float>> parsePattern(lua_State* L, int index) {
             std::string path = "gamepad:axis:" + std::to_string(id);
             auto* ptr = Interpreter::s_currentSession->getInputBindings().getBinding(path);
             return std::make_shared<patterns::External>(ptr, path);
+        } else if (genType == "fft_bin") {
+            // FFT bin magnitude: reads from a specific bin on an FFT node
+            int nodeId = luaIntField(L, index, "node");
+            int bin = luaIntField(L, index, "bin");
+            if (Interpreter::s_currentSession) {
+                Node* node = Interpreter::s_currentSession->getGraph().getNode(nodeId);
+                if (auto* fftNode = dynamic_cast<FFT*>(node)) {
+                    auto* ptr = fftNode->getBinAtomic(bin);
+                    if (ptr) return std::make_shared<patterns::External>(ptr, "fft:bin:" + std::to_string(nodeId) + ":" + std::to_string(bin));
+                }
+            }
+            return nullptr;
+        } else if (genType == "fft_band") {
+            // FFT band RMS: reads from a lazily-allocated band atomic on an FFT node
+            int nodeId = luaIntField(L, index, "node");
+            int lo = luaIntField(L, index, "lo");
+            int hi = luaIntField(L, index, "hi");
+            if (Interpreter::s_currentSession) {
+                Node* node = Interpreter::s_currentSession->getGraph().getNode(nodeId);
+                if (auto* fftNode = dynamic_cast<FFT*>(node)) {
+                    auto* ptr = fftNode->getBandAtomic(lo, hi);
+                    if (ptr) return std::make_shared<patterns::External>(ptr, "fft:band:" + std::to_string(nodeId) + ":" + std::to_string(lo) + "-" + std::to_string(hi));
+                }
+            }
+            return nullptr;
+        } else if (genType == "fft_rms") {
+            // FFT overall RMS: reads from the RMS atomic on an FFT node
+            int nodeId = luaIntField(L, index, "node");
+            if (Interpreter::s_currentSession) {
+                Node* node = Interpreter::s_currentSession->getGraph().getNode(nodeId);
+                if (auto* fftNode = dynamic_cast<FFT*>(node)) {
+                    auto* ptr = fftNode->getRMSAtomic();
+                    if (ptr) return std::make_shared<patterns::External>(ptr, "fft:rms:" + std::to_string(nodeId));
+                }
+            }
+            return nullptr;
         }
     }
     return nullptr;
