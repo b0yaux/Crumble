@@ -142,12 +142,21 @@ end
 
 ### Graph Construction & Routing
 Crumble supports **Auto-Indexing**, **Table Routing**, and **Chainable Parameters** for concise graph setup.
-```lua
--- Create and configure in one line
-local s1 = sampler("drums:0"):on():opacity(1.0):blend("ADD"):connect({vmix, amix})
 
--- Chainable methods return the node, so you can keep configuring:
-s1:speed(1.5):connect(vmix)
+#### Connecting nodes
+
+Two wiring methods with different return values:
+
+| Method | Wires | Returns | Use when… |
+|--------|-------|---------|----------|
+| `:connect(dst)` | self → dst | **self** | You want to keep configuring the source |
+| `:into(dst)` | self → dst | **dst** | You want to follow the signal forward |
+
+`:connect()` returns the source node, so you can chain parameter setters after wiring:
+```lua
+-- Create, wire, and configure the source in one expression:
+local s1 = sampler("drums:0"):on():opacity(1.0):blend("ADD"):connect({vmix, amix})
+s1:speed(1.5):connect(vmix)   -- still configuring s1
 
 -- mix() controls both audio gain and video opacity simultaneously:
 s1:mix(0.5)                           -- constant value
@@ -155,6 +164,27 @@ s1:mix(seq("1 0.5"):fast(4))         -- pattern-based modulation
 
 -- Advanced connect with mixer-side overrides:
 s1:connect(vmix, {blend="ADD", opacity=0.5})
+```
+
+`:into()` returns the destination, so you can build serial chains:
+```lua
+-- Serial chain: drum → delay → mixer
+drum:into(delay({time=0.3})):connect(amix)
+
+-- Mix both styles: :into() for serial flow, then :connect() to stay on the node
+local d = drum:into(delay():feedback(0.7)):connect(vmix):blend(1)
+-- d is the delay node: wired drum→delay→vmix, then blend=1 set on delay
+```
+
+#### Multi-destination fan-out
+
+Both methods accept an array of destinations for parallel routing:
+```lua
+-- Fan-out to audio and video mixers simultaneously:
+s1:connect({vmix, amix})    -- returns s1
+
+-- Serial chain then fan-out:
+drum:into(split()):connect({amix, vmix})
 ```
 
 ### Sequencing & Modulation

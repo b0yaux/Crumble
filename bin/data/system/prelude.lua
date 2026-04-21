@@ -98,14 +98,12 @@ function split(n, p) return addNode("split", n, p, "split") end
 
 function delay(n, p) return addNode("delay", n, p, "delay") end
 
-function fft(n, p)
-    local params = (type(p) == "table") and p or {}
-    return addNode("fft", n, params, "fft")
-end
-
 -- =============================================================================
--- FFT PATTERN SOURCES
--- Methods on FFT nodes that return gen tables for pattern modulation.
+-- FFT SPECTRAL ANALYSIS
+-- :fft() enables spectral analysis on any node with an AudioProcessor.
+-- After enabling, the node exposes :bass(), :mid(), :rms() etc. — gen tables
+-- that return spectral data from the node's audio output.
+-- These compose into any parameter like any gen table (modulation, viz, etc.).
 -- =============================================================================
 
 -- Internal: resolve Hz → bin index given a sample rate and FFT size.
@@ -115,7 +113,7 @@ local function hzToBin(hz, fftNode)
     local fftSize = 2048
     if fftNode then
         local sr = _get(fftNode.id, "sampleRate")
-        local sz = _get(fftNode.id, "size")
+        local sz = _get(fftNode.id, "fft")
         if sr and sr > 0 then sampleRate = sr end
         if sz and sz > 0 then fftSize = sz end
     end
@@ -124,8 +122,6 @@ end
 
 local function fftMethods(node)
     local nId = node.id
-    local t = node.type
-    if t ~= "fft" then return nil end
 
     return {
         -- Single bin magnitude (raw bin index)

@@ -414,6 +414,20 @@ void Graph::update(float dt) {
         }
     }
 
+    // Refresh FFT band atomics for all nodes with analyzers.
+    // Done after update() so nodes can react to the latest band values
+    // in the same frame. Band computation is main-thread only.
+    for (int nodeId : traversalOrder) {
+        auto it = nodes.find(nodeId);
+        if (it != nodes.end() && it->second) {
+            if (auto* proc = it->second->getAudioProcessor()) {
+                if (auto* fft = proc->getFFT()) {
+                    fft->refreshBands();
+                }
+            }
+        }
+    }
+
 #if CRUMBLE_PERF
     auto t1 = std::chrono::steady_clock::now();
     g_perfUpdateUs += std::chrono::duration<double, std::micro>(t1 - t0).count();

@@ -5,6 +5,7 @@
 #include <array>
 #include <memory>
 #include "ProcessorCommand.h"
+#include "FFT.h"
 
 namespace crumble {
 
@@ -138,6 +139,8 @@ public:
     AudioProcessor() {
         internalBuffer.allocate(1024, 2);
         activeSlot = getControlPtr(hashString("active"));
+        fftSizeSlot = getControlPtr(hashString("fft"));
+        fftSmoothingSlot = getControlPtr(hashString("fftSmoothing"));
     }
     virtual ~AudioProcessor() = default;
 
@@ -168,6 +171,15 @@ public:
         
         process(internalBuffer, index, frameCounter, cycle, cycleStep);
         
+        // FFT analysis: if enabled on this processor, accumulate output samples.
+        // Runs after process() so internalBuffer contains this node's complete audio.
+        auto* fft = fftAnalyzer.load(std::memory_order_acquire);
+        if (fft) {
+            int fftSize = (int)evalSlot(fftSizeSlot, cycle);
+            float smoothing = evalSlot(fftSmoothingSlot, cycle);
+            fft->accumulate(internalBuffer, fftSize, smoothing);
+        }
+        
         lastProcessedFrame = frameCounter;
         mixTo(buffer);
     }
@@ -186,6 +198,24 @@ public:
     }
 
     ControlSlot* activeSlot = nullptr;
+    ControlSlot* fftSizeSlot = nullptr;
+    ControlSlot* fftSmoothingSlot = nullptr;
+    
+    /// FFT analyzer — created on main thread via enableFFT(), read on audio thread.
+    /// Uses atomic pointer with release/acquire for safe cross-thread visibility.
+    std::atomic<crumble::FFT*> fftAnalyzer{nullptr};
+    std::unique_ptr<crumble::FFT> fftOwner; // ownership lives here
+    
+    /// Create and install the FFT analyzer. Call from main thread only.
+    void enableFFT() {
+        if (fftOwner) return; // already enabled
+        fftOwner = std::make_unique<crumble::FFT>();
+        fftAnalyzer.store(fftOwner.get(), std::memory_order_release);
+    }
+    
+    /// Get the FFT analyzer (main thread). Returns nullptr if not enabled.
+    crumble::FFT* getFFT() const { return fftOwner.get(); }
+    
     ofSoundBuffer internalBuffer;
     uint64_t lastProcessedFrame = 0;
     

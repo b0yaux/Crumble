@@ -5,7 +5,6 @@
 #include "ofxMidiConstants.h"
 #include "../nodes/AudioSource.h"
 #include "../nodes/VideoSource.h"
-#include "../nodes/FFT.h"
 #include <unordered_set>
 #include <sstream>
 #include <algorithm>
@@ -340,6 +339,7 @@ void Interpreter::bindSessionAPI() {
     lua_register(L, "_playhead", lua_playhead);
     lua_register(L, "_outlet", lua_outlet);
     lua_register(L, "_inlet", lua_inlet);
+    lua_register(L, "_enableFFT", lua_enableFFT);
     lua_register(L, "_exposeParam", lua_exposeParam);
     lua_register(L, "_readBinding", lua_readBinding);
     lua_register(L, "_midiEvents", lua_midiEvents);
@@ -377,6 +377,19 @@ function NodeMeta:__newindex(key, value)
                     connect(self, toNode, paramsOrOut, toIn)
                     return self
                 end
+            elseif k == "into" then
+                return function(self, dst, paramsOrOut, toIn)
+                    connect(self, dst, paramsOrOut, toIn)
+                    return dst
+                end
+            elseif k == "fft" then
+                return function(self, size, smoothing)
+                    size = size or 2048
+                    smoothing = smoothing or 0.8
+                    _enableFFT(self.id, size, smoothing)
+                    self._fft = true  -- flag for NodeMeta dispatch
+                    return self
+                end
             elseif k == "off" then return function(self) _setActive(self.id, false) return self end
             elseif k == "on" then return function(self) _setActive(self.id, true) return self end
             elseif k == "destroy" then return function(self) _removeNode(self.id) _G._allNodes[self.id] = nil end
@@ -403,11 +416,12 @@ function NodeMeta:__newindex(key, value)
                     else _set(self.id, "end", regionEnd) end
                     return self
                 end
-            elseif self.type == "fft" then
+            elseif self._fft then
                 -- FFT pattern source methods (bin, bins, band, bass, lowmid, mid, high, rms)
+                -- Available on any node that has called :fft() to enable analysis.
                 local methods = fftMethods(self)
                 if methods and methods[k] then return methods[k] end
-                -- Fall through to chainable setter for normal params (size, smoothing)
+                -- Fall through to chainable setter for other params
                 return function(self2, val)
                     if val == nil then return _get(self2.id, k) end
                     if type(val) == "table" and val._isGen then _setGen(self2.id, k, val)
@@ -997,38 +1011,44 @@ std::shared_ptr<Pattern<float>> parsePattern(lua_State* L, int index) {
             auto* ptr = Interpreter::s_currentSession->getInputBindings().getBinding(path);
             return std::make_shared<patterns::External>(ptr, path);
         } else if (genType == "fft_bin") {
-            // FFT bin magnitude: reads from a specific bin on an FFT node
+            // FFT bin magnitude: reads from a specific bin on any node with FFT enabled
             int nodeId = luaIntField(L, index, "node");
             int bin = luaIntField(L, index, "bin");
             if (Interpreter::s_currentSession) {
                 Node* node = Interpreter::s_currentSession->getGraph().getNode(nodeId);
-                if (auto* fftNode = dynamic_cast<FFT*>(node)) {
-                    auto* ptr = fftNode->getBinAtomic(bin);
-                    if (ptr) return std::make_shared<patterns::External>(ptr, "fft:bin:" + std::to_string(nodeId) + ":" + std::to_string(bin));
+                if (node && node->getAudioProcessor()) {
+                    if (auto* fft = node->getAudioProcessor()->getFFT()) {
+                        auto* ptr = fft->getBinAtomic(bin);
+                        if (ptr) return std::make_shared<patterns::External>(ptr, "fft:bin:" + std::to_string(nodeId) + ":" + std::to_string(bin));
+                    }
                 }
             }
             return nullptr;
         } else if (genType == "fft_band") {
-            // FFT band RMS: reads from a lazily-allocated band atomic on an FFT node
+            // FFT band RMS: reads from a lazily-allocated band atomic on any node with FFT enabled
             int nodeId = luaIntField(L, index, "node");
             int lo = luaIntField(L, index, "lo");
             int hi = luaIntField(L, index, "hi");
             if (Interpreter::s_currentSession) {
                 Node* node = Interpreter::s_currentSession->getGraph().getNode(nodeId);
-                if (auto* fftNode = dynamic_cast<FFT*>(node)) {
-                    auto* ptr = fftNode->getBandAtomic(lo, hi);
-                    if (ptr) return std::make_shared<patterns::External>(ptr, "fft:band:" + std::to_string(nodeId) + ":" + std::to_string(lo) + "-" + std::to_string(hi));
+                if (node && node->getAudioProcessor()) {
+                    if (auto* fft = node->getAudioProcessor()->getFFT()) {
+                        auto* ptr = fft->getBandAtomic(lo, hi);
+                        if (ptr) return std::make_shared<patterns::External>(ptr, "fft:band:" + std::to_string(nodeId) + ":" + std::to_string(lo) + "-" + std::to_string(hi));
+                    }
                 }
             }
             return nullptr;
         } else if (genType == "fft_rms") {
-            // FFT overall RMS: reads from the RMS atomic on an FFT node
+            // FFT overall RMS: reads from the RMS atomic on any node with FFT enabled
             int nodeId = luaIntField(L, index, "node");
             if (Interpreter::s_currentSession) {
                 Node* node = Interpreter::s_currentSession->getGraph().getNode(nodeId);
-                if (auto* fftNode = dynamic_cast<FFT*>(node)) {
-                    auto* ptr = fftNode->getRMSAtomic();
-                    if (ptr) return std::make_shared<patterns::External>(ptr, "fft:rms:" + std::to_string(nodeId));
+                if (node && node->getAudioProcessor()) {
+                    if (auto* fft = node->getAudioProcessor()->getFFT()) {
+                        auto* ptr = fft->getRMSAtomic();
+                        if (ptr) return std::make_shared<patterns::External>(ptr, "fft:rms:" + std::to_string(nodeId));
+                    }
                 }
             }
             return nullptr;
@@ -1075,6 +1095,38 @@ int Interpreter::lua_inlet(lua_State* L) {
     if (lua_gettop(L) >= 2 && !lua_isnil(L, 2)) index = (int)luaL_checkinteger(L, 2);
     Graph* graph = getCurrentGraph();
     if (graph) graph->addInlet(nodeId, index);
+    return 0;
+}
+
+int Interpreter::lua_enableFFT(lua_State* L) {
+    if (!s_currentSession) return 0;
+    int nodeId = (int)luaL_checkinteger(L, 1);
+    float size = (float)luaL_checknumber(L, 2);
+    float smoothing = (float)luaL_optnumber(L, 3, 0.8f);
+    Graph* graph = getCurrentGraph();
+    if (!graph) return 0;
+    Node* node = graph->getNode(nodeId);
+    if (!node || !node->getAudioProcessor()) return 0;
+
+    auto* proc = node->getAudioProcessor();
+    proc->enableFFT();
+
+    // Push fft size and smoothing as control parameters to the audio thread
+    crumble::ProcessorCommand cmdSize, cmdSmooth;
+    cmdSize.type = crumble::ProcessorCommand::SET_PARAM;
+    cmdSize.nodeId = nodeId;
+    cmdSize.audioProcessor = proc;
+    cmdSize.paramHash = crumble::hashString("fft");
+    cmdSize.value = size;
+    node->pushCommand(cmdSize);
+
+    cmdSmooth.type = crumble::ProcessorCommand::SET_PARAM;
+    cmdSmooth.nodeId = nodeId;
+    cmdSmooth.audioProcessor = proc;
+    cmdSmooth.paramHash = crumble::hashString("fftSmoothing");
+    cmdSmooth.value = smoothing;
+    node->pushCommand(cmdSmooth);
+
     return 0;
 }
 

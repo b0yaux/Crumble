@@ -89,6 +89,7 @@ private:
     static int lua_playhead(lua_State* L);
     static int lua_outlet(lua_State* L);
     static int lua_inlet(lua_State* L);
+    static int lua_enableFFT(lua_State* L);
     static int lua_exposeParam(lua_State* L);
     static int lua_readBinding(lua_State* L);
     static int lua_midiEvents(lua_State* L);
