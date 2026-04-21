@@ -6,7 +6,6 @@
 #include "../nodes/AudioOutput.h"
 #include "../nodes/AudioSource.h"
 #include "../nodes/AudioMixer.h"
-#include "../nodes/Split.h"
 #include "../nodes/Delay.h"
 
 namespace crumble {
@@ -32,9 +31,6 @@ void registerNodes(Session& s) {
     });
     s.registerNodeType("audiomix", []() {
         return std::make_unique<AudioMixer>();
-    });
-    s.registerNodeType("split", []() {
-        return std::make_unique<Split>();
     });
     s.registerNodeType("delay", []() {
         return std::make_unique<Delay>();

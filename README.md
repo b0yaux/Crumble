@@ -184,7 +184,7 @@ Both methods accept an array of destinations for parallel routing:
 s1:connect({vmix, amix})    -- returns s1
 
 -- Serial chain then fan-out:
-drum:into(split()):connect({amix, vmix})
+drum:into(delay({time=0.3})):connect({amix, vmix})
 ```
 
 ### Sequencing & Modulation
@@ -400,7 +400,6 @@ This enables stable live-coding: editing the current script preserves playback s
 | | `AudioMixer` | `audiomix` | Multi-channel summation |
 | | `Delay` | `delay` | Feedback delay line |
 | | `AudioOutput` | `audioout` | Master audio sink |
-| **Routing** | `Split` | `split` | Signal fan-out (1→N) |
 | **AV** | `AVSampler` | `sampler` | Unified audio+video player |
 
 ## Robustness
