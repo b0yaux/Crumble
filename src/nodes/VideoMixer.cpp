@@ -56,7 +56,7 @@ public:
 
         if (!shaderLoaded) {
             compositeShader.load(
-                ofToDataPath("shaders/composite.vert"),
+                ofToDataPath("shaders/quad.vert"),
                 ofToDataPath("shaders/composite.frag")
             );
             shaderLoaded = compositeShader.isLoaded();
