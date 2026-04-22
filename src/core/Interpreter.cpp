@@ -416,10 +416,10 @@ function NodeMeta:__newindex(key, value)
                     else _set(self.id, "end", regionEnd) end
                     return self
                 end
-            elseif self._fft then
+            elseif rawget(t, "_fft") then
                 -- FFT pattern source methods (bin, bins, band, bass, lowmid, mid, high, rms)
                 -- Available on any node that has called :fft() to enable analysis.
-                local methods = fftMethods(self)
+                local methods = fftMethods(t)
                 if methods and methods[k] then return methods[k] end
                 -- Fall through to chainable setter for other params
                 return function(self2, val)

@@ -119,7 +119,7 @@ local function hzToBin(hz, fftNode)
     return math.floor(hz * fftSize / sampleRate)
 end
 
-local function fftMethods(node)
+function _G.fftMethods(node)
     local nId = node.id
 
     return {
