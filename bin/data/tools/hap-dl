@@ -74,7 +74,7 @@ convert_video() {
             echo "Done (MJPEG): $output_file"
         else
             echo "Converting to HAP..."
-            if ffmpeg -i "$downloaded" -c:v hap -format hap_q -chunks 4 -c:a pcm_s16le "$output_file" -y; then
+            if ffmpeg -i "$downloaded" -vf "scale=trunc(iw/4)*4:trunc(ih/4)*4" -c:v hap -format hap_q -chunks 4 -c:a pcm_s16le "$output_file" -y; then
                 rm "$downloaded"
                 echo "Done (HAP): $output_file"
             else
@@ -138,17 +138,25 @@ def get_clips(spec, dur):
     clips = []
 
     if spec.startswith("scatter:"):
-        m = re.match(r"scatter:(\d+)x(\d+)", spec)
+        m = re.match(r"scatter:(\d+)x(\d+)(?:-(\d+))?", spec)
         if not m:
-            print(f"Error: invalid scatter spec '{spec}'. Use scatter:NxS (N clips of S seconds)")
+            print(f"Error: invalid scatter spec '{spec}'. Use scatter:NxS or scatter:NxMin-Max")
             sys.exit(1)
-        count, length = int(m.group(1)), int(m.group(2))
-        if dur <= length:
+        count = int(m.group(1))
+        min_len = int(m.group(2))
+        max_len = int(m.group(3)) if m.group(3) else None
+        if dur <= (min_len if max_len is None else min_len):
+            length = min_len if max_len is None else random.randint(min_len, max_len)
             clips.append((0, length))
         else:
-            margin = max(0, dur - length)
+            # Use the max possible length to compute scatter positions
+            effective_max = max_len if max_len else min_len
+            margin = max(0, dur - effective_max)
             positions = sorted(random.sample(range(0, max(1, margin + 1)), min(count, margin + 1)))
             for pos in positions[:count]:
+                length = min_len if max_len is None else random.randint(min_len, max_len)
+                # Clamp: don't exceed video duration from this position
+                length = min(length, dur - pos)
                 clips.append((pos, length))
 
     elif spec.startswith("scene:"):
@@ -204,9 +212,15 @@ def get_clips(spec, dur):
             clips.append((0, min(min_active, dur)))
 
     elif spec.startswith("rand:") or spec.startswith("random:"):
-        length = int(spec.split(":")[1])
+        range_part = spec.split(":", 1)[1]
+        if "-" in range_part and not range_part.startswith("-"):
+            parts = range_part.split("-", 1)
+            min_len, max_len = int(parts[0]), int(parts[1])
+            length = random.randint(min_len, max_len)
+        else:
+            length = int(range_part)
         if dur <= length:
-            clips.append((0, length))
+            clips.append((0, min(length, dur)))
         else:
             offset = random.randint(0, dur - length)
             clips.append((offset, length))
@@ -257,7 +271,7 @@ def encode_clip(input_f, start, length, output_f, mode):
     if mode == "mjpeg":
         vcodec_args = ["-c:v", "mjpeg", "-q:v", "3"]
     else:
-        vcodec_args = ["-c:v", "hap", "-format", "hap_q", "-chunks", "4"]
+        vcodec_args = ["-vf", "scale=trunc(iw/4)*4:trunc(ih/4)*4", "-c:v", "hap", "-format", "hap_q", "-chunks", "4"]
 
     cmd = [
         "ffmpeg", "-y", "-ss", str(start), "-i", input_f, "-t", str(length),
@@ -357,46 +371,72 @@ search_videos() {
 
     check_dependencies
 
+    local min_dur_arg="$min_dur"
+    local max_dur_arg="$max_dur"
+
+    echo "Searching $site_name: \"$query\" (max $max_results)"
+
     local tmpfile
     tmpfile=$(mktemp)
     trap "rm -f '$tmpfile'" EXIT
 
-    local filter=""
-    [[ -n "$min_dur" ]] && filter="duration > $min_dur"
-    [[ -n "$max_dur" ]] && { [[ -n "$filter" ]] && filter+=" & "; filter+="duration < $max_dur"; }
-
-    local filter_arg=()
-    [[ -n "$filter" ]] && filter_arg=(--match-filters "$filter")
-
-    echo "Searching $site_name: \"$query\" (max $max_results)"
-
-    yt-dlp --flat-playlist --dump-json "${filter_arg[@]}" "${site_prefix}${max_results}:${query}" 2>/dev/null > "$tmpfile" || true
-
-    local count
-    count=$(python3 -c "import json; print(sum(1 for l in open('$tmpfile') if l.strip()))")
-    if [[ "$count" -eq 0 ]]; then
-        echo "No results found."
-        rm -f "$tmpfile"
-        trap - EXIT
-        return 1
-    fi
-
-    python3 - "$tmpfile" << 'PYEOF'
-import json, sys
+    # Step 1: fetch + filter + display
+    python3 - "$tmpfile" "$max_results" "$min_dur_arg" "$max_dur_arg" "${site_prefix}" "$query" << 'PYEOF'
+import json, sys, subprocess
 
 tmpfile = sys.argv[1]
-results = [json.loads(l) for l in open(tmpfile) if l.strip()]
+max_results = int(sys.argv[2])
+min_dur = int(sys.argv[3]) if sys.argv[3] else None
+max_dur = int(sys.argv[4]) if sys.argv[4] else None
+site_prefix = sys.argv[5]
+query = sys.argv[6]
 
+def matches(v):
+    dur = int(v.get("duration") or 0)
+    if min_dur and dur <= min_dur:
+        return False
+    if max_dur and dur >= max_dur:
+        return False
+    return True
+
+# When filtering by duration, fetch the max YouTube can give (~415)
+# so we have the largest pool to filter from.
+fetch = 500 if (min_dur or max_dur) else max_results
+search_query = f"{site_prefix}{fetch}:{query}"
+r = subprocess.run(
+    ["yt-dlp", "--flat-playlist", "--dump-json", search_query],
+    capture_output=True, text=True
+)
+raw = [json.loads(l) for l in r.stdout.splitlines() if l.strip()]
+results = [v for v in raw if matches(v)][:max_results]
+
+if not results:
+    print("No matching results found.")
+    sys.exit(1)
+
+# Save filtered results for step 2
+with open(tmpfile, "w") as f:
+    for v in results:
+        f.write(json.dumps(v) + "\n")
+
+# Display
 for i, v in enumerate(results):
     dur = int(v.get("duration") or 0)
     m, s = divmod(dur, 60)
     ch = v.get("channel", v.get("uploader", "?"))
     t = v.get("title", "?")
     print(f"  [{i+1:2d}] {m:02d}:{s:02d}  {ch}  \u2014  {t}")
-
 print(f"---\n{len(results)} results.")
 PYEOF
 
+    local py_exit=$?
+    if [[ $py_exit -ne 0 ]]; then
+        rm -f "$tmpfile"
+        trap - EXIT
+        return 1
+    fi
+
+    # Step 2: read selection from terminal (bash handles tty properly)
     local selection
     if [[ "$download_all" == true ]]; then
         selection="all"
@@ -412,12 +452,17 @@ PYEOF
         fi
     fi
 
-    python3 - "$tmpfile" "$output_dir" "$selection" "$mode" "$SELF" "$site_url_fmt" "$clip_spec" << 'PYEOF'
+    # Step 3: parse selection + download
+    python3 - "$tmpfile" "$selection" "$output_dir" "$mode" "$SELF" "$site_url_fmt" "$clip_spec" << 'PYEOF'
 import json, sys, subprocess, os
 
-tmpfile, outdir, sel, mode, self_path, url_fmt, clip_spec = (
-    sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6], sys.argv[7]
-)
+tmpfile = sys.argv[1]
+sel = sys.argv[2]
+outdir = sys.argv[3]
+mode = sys.argv[4]
+self_path = sys.argv[5]
+url_fmt = sys.argv[6]
+clip_spec = sys.argv[7]
 results = [json.loads(l) for l in open(tmpfile) if l.strip()]
 
 def parse_selection(sel, n):
@@ -687,9 +732,11 @@ search_usage() {
     echo '  --clip 60          First 60 seconds'
     echo '  --clip -60         Last 60 seconds'
     echo '  --clip 30-90       From 30s to 90s'
-    echo '  --clip rand:60     Random 60s from anywhere'
+    echo '  --clip rand:60       Random 60s from anywhere'
+    echo '  --clip rand:5-30      Random position, random 5–30s duration'
     echo '  --clip mid:60      Center 60s'
-    echo '  --clip scatter:10x5  Ten 5-second clips spread across the video'
+    echo '  --clip scatter:10x5    Ten 5-second clips spread across the video'
+    echo '  --clip scatter:3x5-30   Three clips, each 5–30s (random), spread across'
     echo '  --clip scene:60    Split at scene changes, up to 60s each'
     echo '  --clip silence:30  Non-silent sections, 30s minimum'
     echo ""
@@ -701,7 +748,8 @@ search_usage() {
     echo '  hap-dl search "glitch" --site bili                Search Bilibili'
     echo '  hap-dl search "gameplay" -o clips/ -j             Download as MJPEG'
     echo '  hap-dl search "abstract art" --site ia            Search Internet Archive'
-    echo '  hap-dl search "minecraft" --clip scatter:8x5      8 clips of 5s each'
+    echo '  hap-dl search "minecraft" --clip scatter:8x5         8 clips of 5s each'
+  echo '  hap-dl search "minecraft" --clip scatter:3x5-30       3 clips of 5–30s (random)'
     echo '  hap-dl search "dubstep" --site ia --clip 60       First 60s of each'
     exit 0
 }
@@ -721,8 +769,8 @@ usage() {
     echo "  -q, --quick    Use timestamp as name"
     echo "  -j, --jpeg     Force Photo-JPEG encoding"
     echo "  --clip SPEC    Extract clips instead of full video"
-    echo "                   60 / -60 / 30-90 / rand:60 / mid:60"
-    echo "                   scatter:10x5 / scene:60 / silence:30"
+    echo "                   60 / -60 / 30-90 / rand:60 / rand:5-30 / mid:60"
+    echo "                   scatter:10x5 / scatter:3x5-30 / scene:60 / silence:30"
     echo "  -h, --help     Show this help"
     echo ""
     echo "Instagram / Login:"
