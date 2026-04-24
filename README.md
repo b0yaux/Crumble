@@ -1,6 +1,8 @@
 # Crumble
 
-Simple audio+video live-scriptable node-graph system built with openFrameworks and Lua.
+Audio+video live-coding node-graph built with openFrameworks and Lua.
+
+Write Lua scripts that define a directed graph of processing nodes — samplers, mixers, delays, outputs — with sample-accurate modulation from mathematical patterns, MIDI, OSC, and gamepad input. Audio runs on a real-time thread, video on the GPU. Lua executes on the main thread, hot-reloaded on every file save.
 
 ## Installation
 
@@ -14,7 +16,7 @@ cd $OF_ROOT/apps/myApps
 git clone https://github.com/b0yaux/Crumble.git
 ```
 
-Install the ofxHapPlayer addon (uses system ffmpeg from Homebrew):
+Install the ofxHapPlayer addon:
 ```bash
 cd $OF_ROOT/addons
 git clone https://github.com/b0yaux/ofxHapPlayer.git
@@ -55,7 +57,7 @@ make RunRelease     # loads bin/data/config.json
 
 ### Multi-Instance
 
-Run one Crumble instance per script — all from a single command:
+Run one Crumble instance per script from a single command:
 
 ```bash
 ./Crumble -a scripts/
@@ -72,129 +74,78 @@ Or run individual scripts in separate terminals:
 
 ## How It Works
 
-- **Node**: A single processing unit (video player, mixer, output).
-- **Graph**: A recursive container. **Graphs are Nodes**, enabling infinite recursion.
-- **Session**: Manages the root graph lifecycle and hardware audio/video streams.
+- **Node**: A processing unit — audio player, video player, mixer, delay, output.
+- **Graph**: A recursive container of nodes. Graphs are themselves nodes, enabling nested sub-graphs.
+- **Session**: Root container managing the graph, hardware I/O, and threading.
 
-## Architecture
-
-Crumble uses a **Shadow Processor** architecture to decouple slow UI/Lua logic from the real-time audio and video threads.
-
-```text
-Session (Root Container: Hardware & Threading)
-├── Transport (Musical Clock & Phase)
-├── AudioThread: AudioProcessor (Wait-free Audio DSP)
-├── MainThread: VideoProcessor (GPU Compositing)
-├── Patterns (Stateless logic: cycle -> value shapes)
-├── Graph (Recursive topology & Node lifecycle)
-│   └── Node (Atomic processing units)
-│       ├── Parameters (Stateful control)
-│       └── Modulators (Pattern assignments)
-├── Interpreter (Lua DSL & Bindings)
-├── AssetRegistry (Logical VFS: Banks & Asset discovery)
-└── AssetCache (Deduplicated RAM storage)
-```
-
-### Key Components
-
-- **Patterns**: Stateless recipes (`cycle -> value`) used for sample-accurate modulation.
-- **Interpreter**: The Lua runtime that parses and executes live-coding scripts.
-- **AssetRegistry**: A logical mapping layer that handles media discovery, banks, and automatic A/V pairing.
-- **AssetCache**: A global registry that deduplicates media files and caches RAM buffers for efficiency.
-- **Shadow Processors**: Internal high-performance workers that decouple C++ processing from Lua, using wait-free SPSC queues.
-
-## Data Types & Flows
-
-Crumble uses a two-phase **Push-Pull** model to ensure sample-accurate sync between mathematical patterns, high-fidelity audio, and GPU-accelerated video.
-
-### 1. The Push Phase (Sync & Control)
-The Session pushes a **Timing Context** to all nodes at the start of every hardware block.
-- **Type (`Control`)**: A vectorized block of `float` values (**K-rate**).
-- **The Flow**: Nodes pre-calculate their mathematical `Patterns` into high-speed buffers.
-- **The Potential**: This **bridges the gap** between slow Lua logic and fast C++ DSP. It enables **Sample-Accurate Modulation**, where a parameter (like `speed` or `filter`) can change its value for every single audio sample.
-
-### 2. The Pull Phase (Signal Processing)
-Data is pulled through the graph only when an output device (Speakers/Screen) demands it.
-- **Audio (`ofSoundBuffer`)**: Multi-channel **floating-point PCM**. The hardware thread recursively requests nodes to fill the buffer (**Active Fill**), performing high-fidelity signal summation in real-time.
-- **Video (`ofTexture*`)**: Pointers to **GPU-resident textures**. Sinks pull data from their sources on-demand (**Passive Pull**). This "Zero-Copy" flow enables high-performance mixing by referencing GPU memory rather than copying pixel data.
+Crumble decouples Lua script execution from real-time audio and video processing using a **shadow processor** architecture. Lua sets parameters and assigns patterns on the main thread; changes are forwarded to the audio and GPU threads via wait-free queues. This enables **sample-accurate modulation** — pattern values can update every audio sample, not just every video frame.
 
 ## Media Management
 
-Crumble features a **Logical Media Engine** that decouples scripts from physical file locations. Configure libraries in `config.json` via `searchPaths`.
+Crumble uses a **logical media engine** that decouples scripts from physical file paths. Configure media libraries in `config.json` via `searchPaths`.
 
-### Unified Asset Loading
+### Asset Loading
+
 Load media into nodes using logical strings:
-- **Bank Index**: `node.path = "drums:5"` (6th asset in the 'drums' folder).
-- **Logical Name**: `node.path = "birds"` (Finds associated media files named 'birds').
-- **Direct Path**: `node.path = "clips/loop.mov"` (Standard file path resolution).
+
+- **Bank index**: `node.path = "drums:5"` — 6th asset in the `drums` folder
+- **Logical name**: `node.path = "birds"` — finds files named `birds` across search paths
+- **Direct path**: `node.path = "clips/loop.mov"` — standard file path resolution
 
 ### Data-Driven Scripts
-Query the `AssetRegistry` directly to build generative graphs based on folder contents:
+
+Query the `AssetRegistry` directly to build generative graphs from folder contents:
+
 ```lua
 local assets = getBank("my-folder")
 for i, asset in ipairs(assets) do
-    local s = addNode("sampler", asset.name)
-    s.path = asset.path -- e.g. "my-folder:0"
+    local s = sampler(asset.name)
+    s.path = asset.path
 end
 ```
 
 ## Lua API
 
 ### Graph Construction & Routing
-Crumble supports **Auto-Indexing**, **Table Routing**, and **Chainable Parameters** for concise graph setup.
-
-#### Connecting nodes
 
 Two wiring methods with different return values:
 
-| Method | Wires | Returns | Use when… |
-|--------|-------|---------|----------|
-| `:connect(dst)` | self → dst | **self** | You want to keep configuring the source |
-| `:into(dst)` | self → dst | **dst** | You want to follow the signal forward |
+| Method | Returns | Use when… |
+|--------|---------|----------|
+| `:connect(dst)` | **self** | You want to keep configuring the source |
+| `:into(dst)` | **dst** | You want to follow the signal forward |
 
-`:connect()` returns the source node, so you can chain parameter setters after wiring:
 ```lua
--- Create, wire, and configure the source in one expression:
+-- :connect() returns the source — chain parameter setters after wiring
 local s1 = sampler("drums:0"):on():opacity(1.0):blend("ADD"):connect({vmix, amix})
-s1:speed(1.5):connect(vmix)   -- still configuring s1
+s1:speed(1.5)                        -- still configuring s1
 
--- mix() controls both audio gain and video opacity simultaneously:
-s1:mix(0.5)                           -- constant value
-s1:mix(seq("1 0.5"):fast(4))         -- pattern-based modulation
+-- :into() returns the destination — build serial chains
+drum:into(delay({time=0.3})):connect(amix)
 
--- Advanced connect with mixer-side overrides:
+-- mix() sets both audio gain and video opacity at once
+s1:mix(0.5)
+s1:mix(seq("1 0.5"):fast(4))
+
+-- Connect with mixer-side overrides
 s1:connect(vmix, {blend="ADD", opacity=0.5})
 ```
 
-`:into()` returns the destination, so you can build serial chains:
-```lua
--- Serial chain: drum → delay → mixer
-drum:into(delay({time=0.3})):connect(amix)
-
--- Mix both styles: :into() for serial flow, then :connect() to stay on the node
-local d = drum:into(delay():feedback(0.7)):connect(vmix):blend(1)
--- d is the delay node: wired drum→delay→vmix, then blend=1 set on delay
-```
-
-#### Multi-destination fan-out
-
 Both methods accept an array of destinations for parallel routing:
-```lua
--- Fan-out to audio and video mixers simultaneously:
-s1:connect({vmix, amix})    -- returns s1
 
--- Serial chain then fan-out:
+```lua
+s1:connect({vmix, amix})             -- fan-out, returns s1
 drum:into(delay({time=0.3})):connect({amix, vmix})
 ```
 
 ### Sequencing & Modulation
 
-Crumble features a sample-accurate pattern engine. Most patterns are **stateless** — pure functions of the musical cycle (`cycle → float`). A few are **stateful** — they remember previous output for accumulation, smoothing, or toggling. Both types compose through the same chainable API.
+Crumble has a sample-accurate pattern engine. Most patterns are **stateless** — pure functions of the musical cycle (`cycle → float`). A few are **stateful** — they maintain internal state for accumulation, smoothing, or toggling. Both compose through the same chainable API.
 
 ```lua
 local smp = sampler("bd")
 
--- Stateless composition: sequence modulated by an LFO
+-- Stateless: sequence modulated by an LFO
 smp.speed = seq("1 2 4") * osc(0.5)
 
 -- Stateful: gamepad stick accumulates position over time
@@ -207,114 +158,126 @@ smp.position = gpad("rx"):accum(0.5)
 
 | Function | Description |
 |----------|-------------|
-| `osc(f)` / `sine(f)` | Sine wave (frequency `f` in cycles-per-bar) |
-| `ramp(f)` / `saw(f)` | Sawtooth (0.0 to 1.0, frequency `f` in cycles-per-bar) |
-| `noise(f, s)` | Deterministic stochastic noise (frequency `f`, optional seed `s`) |
+| `osc(f)` / `sine(f)` | Sine wave (frequency in cycles-per-bar) |
+| `ramp(f)` / `saw(f)` | Sawtooth, 0.0 → 1.0 (frequency in cycles-per-bar) |
+| `noise(f, s)` | Deterministic noise (frequency `f`, optional seed `s`) |
 | `seq("...")` | Discrete step sequencer |
 
-**Transforms (method syntax — chain on any pattern):**
+**Stateless transforms (chain on any pattern):**
 
 | Method | Description |
 |--------|-------------|
-| `p:fast(n)` | Speed up by factor `n` (constant or pattern) |
-| `p:slow(n)` | Slow down by factor `n` (constant or pattern) |
-| `p:shift(o)` | Offset phase by `o` (0.0 to 1.0) |
-| `p:scale(l, h)` | Map output range to [low, high] |
-| `p:snap(s)` | Quantize output into `s` steps |
+| `p:fast(n)` | Speed up by factor `n` |
+| `p:slow(n)` | Slow down by factor `n` |
+| `p:shift(o)` | Phase offset (0.0 to 1.0) |
+| `p:scale(lo, hi)` | Map output range to [lo, hi] |
+| `p:snap(s)` | Quantize into `s` steps |
 | `p:abs()` | Absolute value |
-| `p:pow(e)` | Power curve (`e<1` = more detail near zero, `e>1` = more detail near extremes). Sign-preserving. |
-| `p1 * p2` | Multiply two patterns (Amplitude Modulation) |
-| `p1 + p2` | Add two patterns (Offset/Mixing) |
+| `p:pow(e)` | Power curve. Sign-preserving: `e < 1` = more detail near zero, `e > 1` = more detail near extremes |
+| `p1 * p2` | Multiply (amplitude modulation) |
+| `p1 + p2` | Add (offset) |
 
-**Stateful Transforms (maintain internal state across evaluations):**
+**Stateful transforms:**
 
 | Method | Description |
 |--------|-------------|
-| `p:accum(rate, initial)` | Integrate `p` over time at `rate` per second. Clamps to [0, 1]. `initial` sets starting value. Use negative rate to go backward. |
-| `p:smooth(tau)` | Exponential slew limiter (one-pole low-pass). `tau` in bars. Smaller = faster response. |
-| `p:toggle(thresh)` | Flip boolean on rising edge crossing `thresh` (default 0.5). |
-
-```lua
--- Accumulator: stick navigates a value (centered = hold position)
-local pos = gpad("rx"):accum(0.5)                -- 0.5/sec, starts at 0
-local spd = 1.0 + gpad("ly"):accum(-0.5, 0.5):scale(-3, 3)  -- starts at 0.5 → speed 1.0
-
--- Smoothing: remove jitter from noisy inputs
-local gain = gpad("rx"):accum(0.3):smooth(2.0)
-
--- Power curve: fine control at small values
-local lsz = gpad("ry"):accum(-0.3, 0.707):pow(2.0):scale(0.0001, 1)
-```
+| `p:accum(rate, initial)` | Integrate over time at `rate` per second. Clamps to [0, 1]. Negative rate goes backward. `initial` sets starting value (default 0). |
+| `p:smooth(tau)` | Exponential slew limiter (one-pole low-pass). `tau` in bars — smaller = faster response. |
+| `p:toggle(thresh)` | Flip 0/1 on rising edge crossing `thresh` (default 0.5). |
 
 ### Sample Sequencing (Mini-Notation)
 
-Crumble supports Tidal/Strudel-style mini-notation for sample triggering via `:path(seq("..."))`. Combined with **Global Aliases** for readable patterns:
+Tidal/Strudel-style mini-notation for sample triggering via `:path(seq(...))`:
 
 ```lua
--- Define aliases (Strudel-style)
+-- Define short aliases for samples
 alias("k", "drums:0")
 aliases({ s = "drums:1", t = "travaux" })
 
 local s = sampler("drums")
-
--- Trigger patterns using aliases
-s:path(seq("k ~ s ~ t"))           -- kick, rest, snare, rest, travaux
+s:path(seq("k ~ s ~ t"))             -- kick, rest, snare, rest, travaux
 ```
 
-**Video Blending & Performance:**
-- **Video Cache**: Automatic global caching ensures that switching between samples (e.g. in `sp()`) is instant and glitch-free after the first load.
-- **GPU Compositing**: `VideoMixer` uses a single-pass fragment shader with four blend modes:
-  - `ALPHA` (0): standard alpha blending — each layer replaces a fraction of the accumulator
-  - `ADD` (1): additive — every layer brightens, good for dense multi-layer mixing
-  - `MULTIPLY` (2): brightening tint — scales accumulator by layer color
-  - `SCREEN` (3): commutative brightening — never over-saturates, good for light-on-dark
-- **Intelligent Blending**: Nodes have their own `blend` and `opacity` parameters. `VideoMixer` automatically reads these, allowing for `s:blend("ADD")` syntax.
-- **Embedded Audio**: Supports `.mov` files with embedded audio (HAP codec). The system automatically switches to embedded mode when no separate audio file is found.
-
-
-**Mini-Notation Syntax:**
+**Mini-notation syntax:**
 
 | Symbol | Meaning |
 |--------|---------|
 | `~` | Rest (silence) |
-| `[0 1]` | Subdivision (play 0 and 1 in one step's time) |
-| `0*3` | Repetition (play 0 three times) |
+| `[0 1]` | Subdivision (play both in one step's time) |
+| `0*3` | Repetition (play three times) |
 | `drums:0` | Bank:index notation |
-| `bd sd hh` | Named samples (bd→0, sd→1, hh→2, etc.) |
+| `bd sd hh` | Named samples (resolved via aliases) |
 
-> **Timing contract:** Stateless patterns are pure functions of the cycle. Multiple nodes can share the same pattern object without interference. Stateful patterns (`accum`, `smooth`, `toggle`) share state when shared between nodes — e.g. `s.position = pos` on 15 samplers gives them one shared accumulator, not 15 independent ones.
+### FFT Spectral Analysis
 
-> **Timing contract:** All pattern frequencies are in **cycles per bar**.
-> `Transport.cycle` advances at `bpm / beatsPerBar` beats-per-second, wrapping
-> once per bar. The default is `beatsPerBar = 4` (common time). Change it for
-> other time signatures:
->
-> | `beatsPerBar` | Time sig | Bar length at 120 BPM | `osc(1.0)` rate |
-> |---|---|---|---|
-> | 4 (default) | 4/4 | 2.0 s | 0.5 Hz |
-> | 3 | 3/4 | 1.5 s | 0.67 Hz |
-> | 5 | 5/4 | 2.5 s | 0.4 Hz |
->
-> To modulate at beat rate in 4/4, use `fast(4, osc(1.0))` or simply `osc(4.0)`.
+Enable spectral analysis on any node with an audio processor. The analysis runs on the audio thread and exposes frequency data as patterns that compose like any other.
+
+```lua
+drum:fft(2048)                       -- enable FFT with 2048-bin resolution
+drum:connect(amix)
+
+-- Use spectral data as modulation sources
+someNode.opacity = drum:bass():scale(0, 2)
+someNode.gain = drum:mid():smooth(0.9)
+```
+
+| Method | Description |
+|--------|-------------|
+| `node:fft(size)` | Enable FFT analysis (power-of-2 size) |
+| `node:bin(i)` | Single bin value |
+| `node:bins(lo, hi)` | Average of bin range |
+| `node:band(loHz, hiHz)` | Average of frequency band |
+| `node:bass()` | 20–250 Hz |
+| `node:lowmid()` | 250–500 Hz |
+| `node:mid()` | 500–2000 Hz |
+| `node:high()` | 2000–20000 Hz |
+| `node:rms()` | Overall RMS level |
+
+### Video Blending
+
+`VideoMixer` composites layers using a single-pass GPU shader. Each connected node carries its own `blend` and `opacity` parameters:
+
+```lua
+s1:blend("ADD"):opacity(0.8):connect(vmix)
+```
+
+Four blend modes, accessible via the `BLEND` table or string names:
+
+| Mode | Value | Description |
+|------|-------|-------------|
+| `ALPHA` | 0 | Standard alpha blending |
+| `ADD` | 1 | Additive — layers brighten the output |
+| `MULTIPLY` | 2 | Multiplicative — layers darken/tint |
+| `SCREEN` | 3 | Screen — brightens without over-saturating |
 
 ### Tempo
 
 | Function | Description |
 |----------|-------------|
 | `bpm(v)` | Set tempo in beats per minute |
-| `cpm(v)` | Set tempo in cycles per minute (`bpm * 4`) |
-| `cps(v)` | Set tempo in cycles per second (`bpm * 240`) |
+| `cpm(v)` | Set tempo in cycles per minute (`bpm × 4` in 4/4) |
+| `cps(v)` | Set tempo in cycles per second |
+
+All pattern frequencies are in **cycles per bar**. `Transport.cycle` advances at `bpm / beatsPerBar` beats per second, wrapping once per bar. Default is `beatsPerBar = 4` (common time).
+
+| `beatsPerBar` | Time sig | Bar length at 120 BPM | `osc(1.0)` rate |
+|---|---|---|---|
+| 4 (default) | 4/4 | 2.0 s | 0.5 Hz |
+| 3 | 3/4 | 1.5 s | 0.67 Hz |
+| 5 | 5/4 | 2.5 s | 0.4 Hz |
+
+To modulate at beat rate in 4/4, use `osc(4.0)` (or equivalently `osc(1.0):fast(4)`).
 
 ### Per-Frame Callback
 
-Define an `update()` function to run logic every frame. The global `Time` table is available:
+Define an `update()` function to run logic every frame:
 
 ```lua
 function update()
-    local t = Time.absoluteTime   -- Seconds since start
-    local cycle = Time.cycle       -- Current cycle position
-    local bars = Time.bars         -- Bar count
-    local bpm = Time.tempo         -- Current BPM
+    local t = Time.absoluteTime       -- seconds since start
+    local cycle = Time.cycle           -- current cycle position
+    local bars = Time.bars             -- bar count
+    local bpm = Time.tempo             -- current BPM
 end
 ```
 
@@ -322,9 +285,10 @@ end
 
 | Name | Description |
 |------|-------------|
-| `BLEND` | `{ALPHA=0, ADD=1, MULTIPLY=2, SCREEN=3}` — used for video blend parameters |
+| `BLEND` | `{ALPHA=0, ADD=1, MULTIPLY=2, SCREEN=3}` — blend mode constants |
+| `GPAD` | Gamepad button/axis name mappings |
 
-### Node Short Aliases
+### Node Aliases
 
 | Alias | Equivalent |
 |-------|-----------|
@@ -334,33 +298,39 @@ end
 | `aout()` | `audioout()` |
 | `vout()` | `videoout()` |
 
-### Subgraph Composition
-Graphs are recursive: a `graph` node can contain its own nested graph, loaded from a script.
+### Sub-Graph Composition
+
+Graphs are recursive — a `graph` node loads a nested script in an isolated environment:
+
 ```lua
 local g = graph("mySubgraph", { script = "scripts/inner.lua" })
 ```
 
-#### Inlet/Outlet Boundary Nodes
-Subgraphs use special boundary nodes to connect to their parent:
+Sub-graphs use **boundary nodes** to connect to their parent:
+
 ```lua
 -- scripts/inner.lua
-local inlet = addNode("inlet", "in")      -- Receives from parent
+local inlet = addNode("inlet", "in")
 local proc = addNode("audiomix", "mix")
-local outlet = addNode("outlet", "out")   -- Exposes to parent
-
+local outlet = addNode("outlet", "out")
 connect(inlet, proc)
 connect(proc, outlet)
 ```
 
-In the parent graph, connect to the subgraph as if it were any other node:
+In the parent, connect to the sub-graph as if it were any other node:
+
 ```lua
 local src = addNode("audio", "src")
 local g = graph("sub", { script = "scripts/inner.lua" })
-connect(src, g)  -- Routes through Inlet/Outlet boundaries
+connect(src, g)                       -- routes through inlet/outlet boundaries
 ```
 
+The `sampler()` node is itself a sub-graph — it loads `scripts/nodes/avsampler.lua` to coordinate an `audio` and a `video` child with synchronized playback. The `expose()` function forwards parent parameters to children.
+
 ### Module System
+
 Lua's `require()` is available for code organization:
+
 ```lua
 -- scripts/utils.lua
 local M = {}
@@ -374,124 +344,118 @@ local utils = require("utils")
 local mix = utils.makeMixer("mainMix")
 ```
 
-> **Note:** All required modules share the same global namespace. Node names must be unique across all loaded modules.
+> All required modules share the same global namespace. Node names must be unique across all loaded modules.
 
-### Live Reload Behavior
+### Live Reload
 
 | Trigger | Behavior |
 |---------|----------|
-| `.lua` file saved | Hot-reload: existing nodes keep state, new nodes created, removed nodes deleted |
+| `.lua` file saved | Hot-reload: existing nodes keep state, new nodes created, removed ones deleted |
 | `entryScript` changed in `config.json` | Full reset: graph cleared, new script starts fresh |
 | `config.json` saved | Reload configuration |
 
-This enables stable live-coding: editing the current script preserves playback state, while switching to a different script provides a clean slate.
+Editing the current script preserves playback state. Switching to a different script provides a clean slate.
 
 ## Node Reference
 
-| Category | Type | Alias | Description |
-|----------|------|-------|-------------|
-| **Core** | `Graph` | `graph` | Nested scriptable sub-graph |
-| | `Inlet` | `inlet` | Sub-graph input boundary |
-| | `Outlet` | `outlet` | Sub-graph output boundary |
-| **Video** | `VideoSource` | `video` | High-performance HAP video player |
-| | `VideoMixer` | `videomix` | Multi-layer GPU compositor |
-| | `VideoOutput` | `videoout` | Master video sink |
-| **Audio** | `AudioSource` | `audio` | RAM-cached sample player |
-| | `AudioMixer` | `audiomix` | Multi-channel summation |
-| | `Delay` | `delay` | Feedback delay line |
-| | `AudioOutput` | `audioout` | Master audio sink |
-| **AV** | `AVSampler` | `sampler` | Unified audio+video player |
-
-## Robustness
-
-- **Null-Safety**: Setting parameters to `nil` or passing `nil` to routing functions logs a warning without crashing the application.
-- **State Preservation**: The C++ rendering engine remains active and maintains the last valid graph state when a Lua script encounters runtime errors.
-
-## Shortcuts
-
-| Key | Action |
-|-----|--------|
-| `G` | Toggle Graph UI |
-| `Cmd+S` | Save current graph state to `main.json` |
+| Category | Type | Factory | Description |
+|----------|------|---------|-------------|
+| **Core** | `Graph` | `graph()` | Nested scriptable sub-graph |
+| | `Inlet` | `addNode("inlet")` | Sub-graph input boundary |
+| | `Outlet` | `addNode("outlet")` | Sub-graph output boundary |
+| **Video** | `VideoSource` | `video()` | HAP video player |
+| | `VideoMixer` | `videomix()` / `vmix()` | Multi-layer GPU compositor |
+| | `VideoOutput` | `videoout()` / `vout()` | Master video sink |
+| **Audio** | `AudioSource` | `audio()` | RAM-cached sample player |
+| | `AudioMixer` | `audiomix()` / `amix()` | Multi-channel summation |
+| | `Delay` | `delay()` | Feedback delay line |
+| | `AudioOutput` | `audioout()` / `aout()` | Master audio sink |
+| **AV** | — | `sampler()` / `s()` | Unified audio+video player (Lua sub-graph) |
 
 ## Hardware Input
 
-Crumble supports real-time modulation from MIDI, OSC, and gamepad controllers. Allinput values are normalized to 0.0-1.0.
+Crumble supports real-time modulation from MIDI, OSC, and gamepad controllers. All input values are normalized to 0.0–1.0.
 
 ### MIDI
 
 ```lua
 -- Control Change (knobs, faders)
-s1:gain(midi(74, 1))           -- CC74 on channel 1
+s1:gain(midi(74, 1))                 -- CC 74 on channel 1
 
 -- Note velocity (pad strike intensity)
-s1:opacity(midinote(36, 10))   -- Note 36 on channel 10
+s1:opacity(midinote(36, 10))         -- note 36 on channel 10
 
--- Note-specific aftertouch (key pressure)
+-- Polyphonic aftertouch (per-key pressure)
 s1:speed(miditouch(36, 10):scale(0.5, 2.0))
 
--- Channel Aftertouch (keyboard pressure)
+-- Channel aftertouch (keyboard pressure)
 s1:speed(channeltouch(1):scale(0.5, 2.0))
 ```
+
+### MIDI Events
+
+Drain discrete note events in `update()` for trigger logic:
+
+```lua
+function update()
+    for _, e in ipairs(midievents(1)) do   -- channel 1 (nil = all channels)
+        if e.on then
+            print("note on:", e.note, e.velocity)
+        end
+    end
+end
+```
+
+Each event is a table: `{ on, note, velocity, channel, time }`.
 
 ### OSC
 
 ```lua
--- Listen on port 8000 (default)
+-- Listens on port 8000 (default)
 s1:gain(oscin("/filterCutoff"))
 ```
 
 ### Gamepad
 
 ```lua
--- Unified API - auto-detects button or axis
--- Both Xbox and PlayStation naming supported
-s1:gain(gpad("cross"))                  -- A/Cross button
-s1:mute(gpad("l1"))                     -- LB/L1 bumper
-s1:speed(gpad("ly"):scale(0.5, 2.0))    -- Left stick Y
-s1:opacity(gpad("rx"):scale(0, 1))     -- Right stick X
+-- Auto-detects button or axis. Both Xbox and PlayStation naming supported.
+s1:gain(gpad("cross"))                -- A/Cross button
+s1:mute(gpad("l1"))                   -- LB/L1 bumper
+s1:speed(gpad("ly"):scale(0.5, 2.0))  -- left stick Y
+s1:opacity(gpad("rx"):scale(0, 1))    -- right stick X
 
 -- Available names:
--- Face: a/cross, b/circle, x/square, y/triangle
+-- Face:    a/cross, b/circle, x/square, y/triangle
 -- Shoulders: lb/l1, rb/r1
--- Menu: back/select, start/options, guide/ps
--- Sticks: ls/l3, rs/r3
--- D-pad: up, down, left, right
--- Axes: lx, ly, rx, ry, lt, rt
+-- Menu:    back/select, start/options, guide/ps
+-- Sticks:  ls/l3, rs/r3 (press), lx/ly/rx/ry (axes), lt/rt (triggers)
+-- D-pad:   up, down, left, right
 ```
 
 ### Pattern Composition
 
-All hardware inputs return patterns that can be composed:
+All hardware inputs return patterns that compose with the full chain API:
 
 ```lua
 -- Combine MIDI CC and note velocity
-local mix = midi(82, 1) + midinote(36, 10)
-s1:gain(mix)
+s1:gain(midi(82, 1) + midinote(36, 10))
 
--- Scale and transform
-s1:speed(gpad("rx"):scale(-2, 2))  -- Right stick X mapped to speed
+-- Scale and transform gamepad input
+s1:speed(gpad("rx"):scale(-2, 2))
+
+-- Gamepad with accumulation and smoothing
+s1:gain(gpad("ry"):accum(0.3):smooth(2.0))
 ```
 
-### Button Input in `update()`
+### Event Primitives in `update()`
 
-Crumble provides two layers for responding to input:
+Two layers for responding to input:
 
-1. **Pattern modulation** — for continuous signal flow into node parameters.
-   Composed via the pattern chain: `s.speed = gpad("ly"):accum(-0.5, 0.5):scale(-3, 3)`
-   Evaluated per-sample on the audio thread or per-frame on the video thread.
+1. **Pattern modulation** — continuous signal flow into parameters, evaluated per-sample or per-frame. This is what all the examples above use.
 
-2. **Lua event primitives** — for discrete decisions in `update()`.
-   Used when input should trigger logic (randomize, create/destroy nodes, branch, step counters) rather than modulate a parameter continuously.
+2. **Lua event primitives** — discrete decisions in `update()`, used when input should trigger logic (randomize, create/destroy nodes, step counters) rather than modulate a parameter.
 
-Three event primitives are available: `once()`, `press()`, `held()`. All accept any input source:
-
-| Source type | Example | What it does |
-|------------|---------|-------------|
-| String (gamepad name) | `"cross"`, `"l1"`, `"up"` | Auto-reads from Gamepad table |
-| Number (raw float) | `g.cross`, `0.5` | Direct value |
-| Gen table | `gpad("cross")`, `midi(64, 1)` | Reads the input binding via C |
-| nil | `nil` | Treated as 0 |
+Three event primitives accept any input source (string, number, or gen table):
 
 ```lua
 function update()
@@ -502,9 +466,8 @@ function update()
     -- press(source, delay, rate): fires immediately, then auto-repeats while held
     if press("r1") then batch = batch + 1 end
     if press("l1") then batch = batch - 1 end
-    if press(gpad("lt")) then idx = (idx - 1) % total end
 
-    -- held(source): true while button is held (continuous)
+    -- held(source): true every frame while held
     if held("up") then opacity = math.min(1, opacity + 0.02) end
     if held("down") then opacity = math.max(0, opacity - 0.02) end
 end
@@ -515,3 +478,16 @@ end
 | `once(source)` | Once per press | Randomize, cycle mode, toggle |
 | `press(source, delay, rate)` | Once + auto-repeat | Step values, scroll lists |
 | `held(source)` | Every frame while held | Analog-style continuous adjustment |
+
+## Robustness
+
+- **Null-safety**: Setting parameters to `nil` or passing `nil` to routing functions logs a warning without crashing.
+- **State preservation**: The C++ engine maintains the last valid graph state when a Lua script encounters runtime errors.
+
+## Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `G` | Toggle graph UI |
+| `Cmd+S` | Save graph state to `main.json` |
+| `Cmd+R` | Reload current script |
